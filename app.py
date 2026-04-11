@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from flask import Flask, jsonify, redirect, render_template, request, flash, url_for
+from flask import Flask, jsonify, redirect, render_template, request, flash, url_for, Response, stream_with_context
+import json
 
-from data import ANALYTICS, EVENTS, RECORDS, SETTINGS, USERS, DRAFTS, AUDITS, add_record, add_user_invite, add_draft_from_email, approve_draft, get_drafts, get_audits, start_email_listener
+from data import ANALYTICS, EVENTS, RECORDS, SETTINGS, USERS, DRAFTS, AUDITS, add_record, add_user_invite, add_draft_from_email, approve_draft, get_drafts, get_audits, start_email_listener, EVENTS_QUEUE, events_cond, publish_event
 
 app = Flask(__name__)
 app.secret_key = 'dev-secret-key'
@@ -109,8 +110,16 @@ def api_drafts():
 
 @app.post('/api/drafts/<draft_id>/approve')
 def api_approve_draft(draft_id):
-    approver = request.form.get('approver') or 'Admin'
-    audit = approve_draft(draft_id, approver)
+    approver = None
+    send_to = None
+    if request.is_json:
+        payload = request.get_json(silent=True) or {}
+        approver = payload.get('approver')
+        send_to = payload.get('send_to')
+    approver = approver or request.form.get('approver') or 'Admin'
+    send_to = send_to or request.form.get('send_to')
+
+    audit = approve_draft(draft_id, approver, send_to)
     if not audit:
         # draft not found
         if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
@@ -151,6 +160,25 @@ def api_reject_draft(draft_id):
 @app.get('/api/audits')
 def api_audits():
     return jsonify([a for a in AUDITS])
+
+
+@app.get('/stream')
+def stream():
+    """Server-Sent Events stream for draft and audit events."""
+    def event_stream():
+        while True:
+            with events_cond:
+                events_cond.wait()
+                while EVENTS_QUEUE:
+                    ev = EVENTS_QUEUE.pop(0)
+                    # ev expected to be {'type': 'name', 'payload': {...}}
+                    try:
+                        payload = ev.get('payload', ev)
+                    except Exception:
+                        payload = ev
+                    yield f"event: {ev.get('type', 'message')}\n"
+                    yield f"data: {json.dumps(payload)}\n\n"
+    return Response(stream_with_context(event_stream()), mimetype='text/event-stream')
 
 
 @app.get('/pending.html')
