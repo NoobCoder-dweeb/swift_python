@@ -9,18 +9,92 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
 </head>
 <body>
-    <nav class="sidebar">
+    <div class="sidebar-overlay"></div>
+
+    <nav class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
                 <i class="ph ph-command"></i>
                 <span>Project <span class="gradient-text">Swift</span></span>
             </a>
         </div>
+        <div class="sidebar-nav">
+            <div class="nav-section-title">Main</div>
+            <a href="{{ url_for('dashboard') }}" class="nav-link">
+                <i class="ph ph-squares-four"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="{{ url_for('records_list') }}" class="nav-link">
+                <i class="ph ph-list-magnifying-glass"></i>
+                <span>Records</span>
+                <span class="nav-badge">24</span>
+            </a>
+            <a href="{{ url_for('create_record') }}" class="nav-link">
+                <i class="ph ph-plus-circle"></i>
+                <span>Create Record</span>
+            </a>
+            <a href="{{ url_for('calendar_page') }}" class="nav-link">
+                <i class="ph ph-calendar-blank"></i>
+                <span>Calendar</span>
+            </a>
+
+            <div class="nav-section-title">Management</div>
+            <a href="{{ url_for('users_page') }}" class="nav-link">
+                <i class="ph ph-users"></i>
+                <span>Users</span>
+            </a>
+            <a href="{{ url_for('analytics_page') }}" class="nav-link">
+                <i class="ph ph-chart-bar"></i>
+                <span>Analytics</span>
+            </a>
+            <a href="{{ url_for('pending_page') }}" class="nav-link">
+                <i class="ph ph-envelope"></i>
+                <span>Pending Drafts</span>
+            </a>
+            <a href="{{ url_for('audit_page') }}" class="nav-link active">
+                <i class="ph ph-file-text"></i>
+                <span>Audit Log</span>
+            </a>
+            <a href="{{ url_for('settings_page') }}" class="nav-link">
+                <i class="ph ph-gear"></i>
+                <span>Settings</span>
+            </a>
+        </div>
+        <div class="sidebar-footer">
+            <div class="sidebar-user">
+                <div class="sidebar-avatar">JD</div>
+                <div class="sidebar-user-info">
+                    <div class="sidebar-user-name">Jane Doe</div>
+                    <div class="sidebar-user-role">Administrator</div>
+                </div>
+            </div>
+        </div>
     </nav>
 
     <div class="main-content">
+        {% if backend_note %}
+        <div class="alert alert-info mb-lg" style="margin: 1rem 2rem 0;">
+            <i class="ph ph-code"></i>
+            <div>{{ backend_note }}</div>
+        </div>
+        {% endif %}
+
         <header class="page-header">
-            <h1 class="page-title">Audit Log</h1>
+            <div class="header-left">
+                <button class="sidebar-toggle" id="sidebarToggle">
+                    <i class="ph ph-list"></i>
+                </button>
+                <h1 class="page-title">Audit Log</h1>
+            </div>
+            <div class="header-right">
+                <button class="header-icon-btn" id="notifyBtn">
+                    <i class="ph ph-bell"></i>
+                    <span class="notification-dot" id="notificationDot" style="display:none;"></span>
+                </button>
+                <button class="header-icon-btn" id="themeToggle">
+                    <i class="ph ph-moon"></i>
+                </button>
+            </div>
         </header>
         <main class="page-body" style="padding: 1rem 2rem;">
             {% if audits %}
@@ -39,5 +113,7 @@
             {% endif %}
         </main>
     </div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
 </body>
 </html>
