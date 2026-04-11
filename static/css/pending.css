@@ -1,0 +1,48 @@
+:root{
+  /* Prefer existing design tokens from admin.css; keep small local fallbacks */
+  --card-bg: var(--surface, #fff);
+  --card-surface: var(--surface, #fafafa);
+  --muted: var(--text-muted, #666);
+  --accent: var(--primary, #007bff);
+}
+.draft-card{
+  margin-bottom:0.75rem;
+  padding:0;
+  border-radius:8px;
+  overflow:hidden;
+  border:1px solid var(--border, #eee);
+  background: var(--card-bg);
+  color: var(--text-main, #222);
+  width:100%;
+  box-sizing:border-box;
+}
+.draft-header{display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;background:transparent}
+.draft-meta{display:flex;flex-direction:column;min-width:0;flex:1}
+.draft-subject{font-weight:600;color:var(--text-main);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.draft-sender{font-size:0.85rem;color:var(--text-muted)}
+.draft-actions{display:flex;gap:0.5rem;align-items:center;flex-shrink:0}
+.draft-body{padding:0.75rem 1rem;border-top:1px solid var(--border);background:var(--card-surface);color:var(--text-main);white-space:pre-wrap}
+.draft-card.compact{display:flex;align-items:center;padding:0.5rem 0.75rem;flex-direction:row;gap:0.75rem;justify-content:space-between}
+.draft-card.compact .draft-body{display:none}
+.draft-card.compact .draft-meta{margin-right:auto;padding:0 0.5rem}
+.draft-card.compact .approve-btn,.draft-card.compact .reject-btn{padding:0.35rem 0.5rem;font-size:0.85rem}
+.expand-btn{background:transparent;border:0;padding:0.25rem;cursor:pointer;color:var(--text-muted)}
+.badge{background:var(--border);padding:0.25rem 0.4rem;border-radius:4px;font-size:0.78rem;color:var(--text-main)}
+.toolbar .btn{margin-right:0.5rem}
+
+/* compact layout fixes */
+.draft-card.compact .draft-meta{display:flex;flex-direction:column;gap:0.125rem}
+.draft-card.compact .draft-subject{font-size:0.95rem}
+.draft-card.compact .draft-sender{font-size:0.78rem}
+.draft-card .draft-actions .btn{min-width:70px;white-space:nowrap}
+
+/* Toasts */
+.toasts{position:fixed;right:1rem;top:1rem;display:flex;flex-direction:column;gap:0.5rem;z-index:9999}
+.toast{padding:0.6rem 0.9rem;border-radius:6px;background:#222;color:#fff;box-shadow:0 6px 20px rgba(0,0,0,0.08);font-size:0.9rem}
+.toast.success{background:var(--success, #28a745)}
+.toast.error{background:var(--danger, #dc3545)}
+.toast.info{background:var(--accent, #007bff)}
+
+@media (min-width:900px){
+  #draftList .draft-card.compact{max-width:900px}
+}

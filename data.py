@@ -135,6 +135,9 @@ def _resolve_assignee(code: str | None) -> str:
 
 
 # Draft and audit models for email processing (in-memory)
+import json
+from pathlib import Path
+
 @dataclass
 class Draft:
     draft_id: str
@@ -153,6 +156,38 @@ DRAFTS: list[Draft] = []
 
 AUDITS: list[dict[str, Any]] = []
 
+DATA_STORE = Path(__file__).parent / 'data_store.json'
+
+
+def save_state() -> None:
+    payload = {
+        'drafts': [d.to_dict() for d in DRAFTS],
+        'audits': AUDITS,
+    }
+    try:
+        DATA_STORE.write_text(json.dumps(payload, indent=2))
+    except Exception:
+        pass
+
+
+def load_state() -> None:
+    if not DATA_STORE.exists():
+        return
+    try:
+        raw = DATA_STORE.read_text()
+        payload = json.loads(raw)
+        drafts = payload.get('drafts', [])
+        audits = payload.get('audits', [])
+        DRAFTS.clear()
+        for d in drafts:
+            # reconstruct Draft objects
+            DRAFTS.append(Draft(**d))
+        AUDITS.clear()
+        AUDITS.extend(audits)
+    except Exception:
+        # ignore corrupt file
+        return
+
 
 def next_draft_id() -> str:
     highest = max([int(d.draft_id.split('-')[1]) for d in DRAFTS], default=100)
@@ -160,17 +195,52 @@ def next_draft_id() -> str:
 
 
 def add_draft_from_email(email_payload: dict[str,str]) -> Draft:
+    # Deduplicate by exact sender+subject+body for pending drafts
+    sender = email_payload.get('from', 'noreply@example.com')
+    subject = email_payload.get('subject','No subject')
+    body = email_payload.get('body','')
+
+    # Normalize sender display name
+    sender_name = sender.split('@')[0].replace('.', ' ').title()
+
+    # If the incoming body is short, expand it into a more structured email-like body
+    if len((body or '').strip()) < 80:
+        body = (
+            f"Hi,\n\n{body}\n\n"
+            "Could you share a few more details about your request? Specifically:\n"
+            "- What quantity do you need?\n"
+            "- Desired timeline?\n"
+            "- Any budget constraints?\n\n"
+            f"Thanks,\n{sender_name}\n{sender}"
+        )
+
+    existing = next((d for d in DRAFTS if d.sender == sender and d.subject == subject and d.body == body and d.status == 'pending'), None)
+    if existing:
+        # update timestamp and return existing
+        existing.updated = datetime.now().isoformat()
+        save_state()
+        try:
+            publish_event({'type': 'draft_updated', 'payload': existing.to_dict()})
+        except Exception:
+            pass
+        return existing
+
     draft = Draft(
         draft_id = next_draft_id(),
-        sender = email_payload.get('from', 'noreply@example.com'),
-        subject = email_payload.get('subject','No subject'),
-        body = email_payload.get('body',''),
+        sender = sender,
+        subject = subject,
+        body = body,
         status = 'pending',
         created = datetime.now().isoformat(),
         updated = datetime.now().isoformat(),
         revisions = 0,
     )
     DRAFTS.insert(0, draft)
+    save_state()
+    try:
+        publish_event({'type': 'draft_created', 'payload': draft.to_dict()})
+    except Exception:
+        pass
     return draft
 
 
@@ -182,7 +252,7 @@ def get_audits() -> list[dict]:
     return AUDITS
 
 
-def approve_draft(draft_id: str, approver: str) -> dict | None:
+def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -> dict | None:
     draft = next((d for d in DRAFTS if d.draft_id == draft_id), None)
     if not draft:
         return None
@@ -192,6 +262,11 @@ def approve_draft(draft_id: str, approver: str) -> dict | None:
         # ensure status is consistent
         draft.status = 'approved'
         draft.updated = datetime.now().isoformat()
+        save_state()
+        try:
+            publish_event({'type': 'approved', 'payload': existing})
+        except Exception:
+            pass
         return existing
 
     draft.status = 'approved'
@@ -202,11 +277,16 @@ def approve_draft(draft_id: str, approver: str) -> dict | None:
         'approver': approver,
         'action': 'approved',
         'timestamp': datetime.now().isoformat(),
-        'emailed_to': 'simulated-user@example.com',
+        'emailed_to': emailed_to or 'simulated-user@example.com',
         'sent': True,
-        'content': f"Approved draft sent to simulated user for draft {draft.draft_id}"
+        'content': f"Approved draft sent to {emailed_to or 'simulated-user@example.com'} for draft {draft.draft_id}"
     }
     AUDITS.insert(0, audit)
+    save_state()
+    try:
+        publish_event({'type': 'approved', 'payload': audit})
+    except Exception:
+        pass
     return audit
 
 
@@ -220,7 +300,7 @@ def reject_and_regenerate_draft(draft_id: str, requester: str) -> dict | None:
         return None
     draft.revisions = getattr(draft, 'revisions', 0) + 1
     # simple regeneration: modify subject/body to indicate a new draft
-    draft.subject = f"{draft.subject} (Regenerated v{draft.revisions})"
+    draft.subject = f"{draft.subject.split(' (Regenerated')[0]} (Regenerated v{draft.revisions})"
     draft.body = f"[Regenerated v{draft.revisions}] Suggested reply: We can assist with your request. (original: {draft.body})"
     draft.status = 'pending'
     draft.updated = datetime.now().isoformat()
@@ -236,12 +316,27 @@ def reject_and_regenerate_draft(draft_id: str, requester: str) -> dict | None:
         'content': f"Draft {draft.draft_id} regenerated by simulated agent (v{draft.revisions})"
     }
     AUDITS.insert(0, audit)
+    save_state()
+    try:
+        publish_event({'type': 'regenerated', 'payload': {'draft': draft.to_dict(), 'audit': audit}})
+    except Exception:
+        pass
     return draft.to_dict()
 
 
 # Background email listener (simulated with hardcoded emails)
 import threading
 import time
+
+# Simple in-process event queue and condition for server-sent events
+EVENTS_QUEUE: list[dict] = []
+events_cond = threading.Condition()
+
+def publish_event(event: dict) -> None:
+    """Append an event to the queue and notify listeners (SSE)."""
+    with events_cond:
+        EVENTS_QUEUE.append(event)
+        events_cond.notify_all()
 
 
 def start_email_listener(poll_interval: int = 15):
@@ -259,4 +354,7 @@ def start_email_listener(poll_interval: int = 15):
     thread = threading.Thread(target=run, daemon=True)
     thread.start()
     return thread
+
+# load persisted state on import
+load_state()
 

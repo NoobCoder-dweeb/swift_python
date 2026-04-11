@@ -7,69 +7,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/pending.css') }}">
 </head>
 <body>
-    <div class="sidebar-overlay"></div>
-
-    <nav class="sidebar" id="sidebar">
-        <div class="sidebar-header">
-            <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
-                <i class="ph ph-command"></i>
-                <span>Project <span class="gradient-text">Swift</span></span>
-            </a>
-        </div>
-        <div class="sidebar-nav">
-            <div class="nav-section-title">Main</div>
-            <a href="{{ url_for('dashboard') }}" class="nav-link">
-                <i class="ph ph-squares-four"></i>
-                <span>Dashboard</span>
-            </a>
-            <a href="{{ url_for('records_list') }}" class="nav-link">
-                <i class="ph ph-list-magnifying-glass"></i>
-                <span>Records</span>
-                <span class="nav-badge">24</span>
-            </a>
-            <a href="{{ url_for('create_record') }}" class="nav-link">
-                <i class="ph ph-plus-circle"></i>
-                <span>Create Record</span>
-            </a>
-            <a href="{{ url_for('calendar_page') }}" class="nav-link">
-                <i class="ph ph-calendar-blank"></i>
-                <span>Calendar</span>
-            </a>
-
-            <div class="nav-section-title">Management</div>
-            <a href="{{ url_for('users_page') }}" class="nav-link">
-                <i class="ph ph-users"></i>
-                <span>Users</span>
-            </a>
-            <a href="{{ url_for('analytics_page') }}" class="nav-link">
-                <i class="ph ph-chart-bar"></i>
-                <span>Analytics</span>
-            </a>
-            <a href="{{ url_for('pending_page') }}" class="nav-link active">
-                <i class="ph ph-envelope"></i>
-                <span>Pending Drafts</span>
-            </a>
-            <a href="{{ url_for('audit_page') }}" class="nav-link">
-                <i class="ph ph-file-text"></i>
-                <span>Audit Log</span>
-            </a>
-            <a href="{{ url_for('settings_page') }}" class="nav-link">
-                <i class="ph ph-gear"></i>
-                <span>Settings</span>
-            </a>
-        </div>
-        <div class="sidebar-footer">
-            <div class="sidebar-user">
-                <div class="sidebar-avatar">JD</div>
-                <div class="sidebar-user-info">
-                    <div class="sidebar-user-name">Jane Doe</div>
-                    <div class="sidebar-user-role">Administrator</div>
-                </div>
-            </div>
-        </div>
-    </nav>
+    {% include '_nav.html' %}
 
     <div class="main-content">
         {% if backend_note %}
@@ -97,40 +38,46 @@
             </div>
         </header>
         <main class="page-body" style="padding: 1rem 2rem;">
+            <div class="toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                <div>
+                    <button id="viewToggle" class="btn btn-text" data-compact="false">Compact View</button>
+                    <button id="refreshDrafts" class="btn btn-outline">Refresh</button>
+                </div>
+                <div style="font-size:0.9rem;color:var(--muted);">Sales review queue</div>
+            </div>
+
+            <div id="draftContainer">
             {% if drafts %}
-                <div class="card">
+                <div id="draftList">
                     {% for d in drafts %}
-                        <div style="padding:1rem;border-bottom:1px solid #eee;">
-                            <div style="display:flex;justify-content:space-between;align-items:center;">
-                                <div>
-                                    <strong>{{ d.subject }}</strong>
-                                    <div style="color: #666;">From: {{ d.sender }} — {{ d.created }}</div>
-                                </div>
-                                <div>
-                                    {% if d.status == 'pending' %}
-                                    <form method="post" action="/api/drafts/{{ d.draft_id }}/approve" style="display:inline-block;margin-right:0.5rem;">
-                                        <input type="hidden" name="approver" value="Admin">
-                                        <button class="btn btn-primary">Approve</button>
-                                    </form>
-                                    <form method="post" action="/api/drafts/{{ d.draft_id }}/reject" style="display:inline-block;">
-                                        <input type="hidden" name="approver" value="Admin">
-                                        <button class="btn btn-secondary">Reject</button>
-                                    </form>
-                                    {% else %}
-                                        <span class="badge">{{ d.status }}</span>
-                                    {% endif %}
-                                </div>
+                    <div class="card draft-card" data-draft-id="{{ d.draft_id }}">
+                        <div class="draft-header">
+                            <div class="draft-meta">
+                                <span class="draft-subject">{{ d.subject }}</span>
+                                <span class="draft-sender">From: {{ d.sender }} • {{ d.created }}</span>
                             </div>
-                            <div style="margin-top:0.5rem;color:#333;">{{ d.body }}</div>
+                            <div class="draft-actions">
+                                <button class="expand-btn" aria-expanded="true"><i class="ph ph-caret-up"></i></button>
+                                {% if d.status == 'pending' %}
+                                <button class="btn btn-primary approve-btn" data-draft-id="{{ d.draft_id }}">Approve</button>
+                                <button class="btn btn-secondary reject-btn" data-draft-id="{{ d.draft_id }}">Reject</button>
+                                {% else %}
+                                <span class="badge">{{ d.status }}</span>
+                                {% endif %}
+                            </div>
                         </div>
+                        <div class="draft-body">{{ d.body }}</div>
+                    </div>
                     {% endfor %}
                 </div>
             {% else %}
                 <div class="card">No drafts pending.</div>
             {% endif %}
+            </div>
         </main>
     </div>
 
     <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/pending.js') }}"></script>
 </body>
 </html>
