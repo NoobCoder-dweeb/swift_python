@@ -43,7 +43,39 @@
                         <div style="padding:1rem;border-bottom:1px solid #eee;">
                             <div style="font-weight:600;">{{ a.action|title }} — {{ a.draft_id }}</div>
                             <div style="color:#666;">By: {{ a.approver }} at {{ a.timestamp }}</div>
-                            <div style="margin-top:0.5rem;">{{ a.content }}</div>
+
+                            {% if a.customer_inquiry %}
+                            <div style="margin-top:0.5rem;">
+                                <strong>Customer inquiry email:</strong>
+                                <div class="audit-email" style="white-space:pre-wrap;padding:0.5rem 0;">{{ a.customer_inquiry }}</div>
+                            </div>
+                            {% endif %}
+
+                            {% if a.ai_decision %}
+                            <div style="margin-top:0.5rem;">
+                                <strong>AI decisions:</strong>
+                                <div class="audit-ai" style="white-space:pre-wrap;padding:0.5rem 0;color:#333;">{{ a.ai_decision }}</div>
+                            </div>
+                            {% endif %}
+
+                            <div style="margin-top:0.5rem;color:#333;">
+                                <strong>Content:</strong> {{ a.content }}
+                            </div>
+
+                            <div style="margin-top:0.5rem;color:#333;">
+                                <strong>User review:</strong>
+                                {% if a.user_review == 'approved' %}
+                                    <span style="color:green;font-weight:600;">Approved</span>
+                                {% elif a.user_review == 'rejected' %}
+                                    <span style="color:red;font-weight:600;">Rejected</span>
+                                {% else %}
+                                    <span style="color:#666;">{{ a.user_review or 'Pending' }}</span>
+                                {% endif %}
+                                {% if a.review_comment %}
+                                    <div style="margin-top:0.25rem;color:#555;">Comment: {{ a.review_comment }}</div>
+                                {% endif %}
+                            </div>
+
                             <div style="margin-top:0.5rem;color:#333;">Emailed to: {{ a.emailed_to }} — Sent: {{ a.sent }}</div>
                         </div>
                     {% endfor %}
