@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Admin Panel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
+</head>
+
+<body>
+    <div class="sidebar-overlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
+                <i class="ph ph-command"></i>
+                <span>Project <span class="gradient-text">Swift</span></span>
+            </a>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section-title">Main</div>
+            <a href="{{ url_for('dashboard') }}" class="nav-link active">
+                <i class="ph ph-squares-four"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="{{ url_for('records_list') }}" class="nav-link">
+                <i class="ph ph-list-magnifying-glass"></i>
+                <span>Records</span>
+                <span class="nav-badge">24</span>
+            </a>
+            <a href="{{ url_for('create_record') }}" class="nav-link">
+                <i class="ph ph-plus-circle"></i>
+                <span>Create Record</span>
+            </a>
+            <a href="{{ url_for('calendar_page') }}" class="nav-link">
+                <i class="ph ph-calendar-blank"></i>
+                <span>Calendar</span>
+            </a>
+
+            <div class="nav-section-title">Management</div>
+            <a href="{{ url_for('users_page') }}" class="nav-link">
+                <i class="ph ph-users"></i>
+                <span>Users</span>
+            </a>
+            <a href="{{ url_for('analytics_page') }}" class="nav-link">
+                <i class="ph ph-chart-bar"></i>
+                <span>Analytics</span>
+            </a>
+            <a href="{{ url_for('pending_page') }}" class="nav-link">
+                <i class="ph ph-envelope"></i>
+                <span>Pending Drafts</span>
+            </a>
+            <a href="{{ url_for('audit_page') }}" class="nav-link">
+                <i class="ph ph-file-text"></i>
+                <span>Audit Log</span>
+            </a>
+            <a href="{{ url_for('settings_page') }}" class="nav-link">
+                <i class="ph ph-gear"></i>
+                <span>Settings</span>
+            </a>
+        </div>
+        <div class="sidebar-footer">
+            <div class="sidebar-user">
+                <div class="sidebar-avatar">JD</div>
+                <div class="sidebar-user-info">
+                    <div class="sidebar-user-name">Jane Doe</div>
+                    <div class="sidebar-user-role">Administrator</div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-content">
+
+    {% if backend_note %}
+    <div class="alert alert-info mb-lg" style="margin: 1rem 2rem 0;">
+        <i class="ph ph-code"></i>
+        <div>{{ backend_note }}</div>
+    </div>
+    {% endif %}
+    
+        <header class="page-header">
+            <div class="header-left">
+                <button class="sidebar-toggle" id="sidebarToggle">
+                    <i class="ph ph-list"></i>
+                </button>
+                <h1 class="page-title">Dashboard</h1>
+            </div>
+            <div class="header-right">
+                <div class="header-search">
+                    <i class="ph ph-magnifying-glass"></i>
+                    <input type="text" placeholder="Search...">
+                </div>
+                <button class="header-icon-btn">
+                    <i class="ph ph-bell"></i>
+                    <span class="notification-dot"></span>
+                </button>
+                <button class="header-icon-btn" id="themeToggle">
+                    <i class="ph ph-moon"></i>
+                </button>
+            </div>
+        </header>
+
+        <main class="page-body">
+            <div class="alert alert-info mb-lg">
+                <i class="ph ph-info"></i>
+                <div>
+                    <strong>Welcome back!</strong> You have <strong>3 pending reviews</strong> and <strong>5 new records</strong> since your last login.
+                </div>
+            </div>
+
+            <div class="grid-4 stat-cards">
+                <div class="card stat-card">
+                    <div class="stat-card-content">
+                        <div class="stat-card-label">Total Records</div>
+                        <div class="stat-card-value">1,284</div>
+                        <div class="stat-card-change positive">
+                            <i class="ph ph-trend-up"></i> +12.5% from last month
+                        </div>
+                    </div>
+                    <div class="card-icon" style="background: var(--primary-light); color: var(--primary);">
+                        <i class="ph ph-folder-open"></i>
+                    </div>
+                </div>
+
+                <div class="card stat-card">
+                    <div class="stat-card-content">
+                        <div class="stat-card-label">Active Users</div>
+                        <div class="stat-card-value">384</div>
+                        <div class="stat-card-change positive">
+                            <i class="ph ph-trend-up"></i> +8.2% from last month
+                        </div>
+                    </div>
+                    <div class="card-icon" style="background: var(--success-light); color: var(--success);">
+                        <i class="ph ph-users"></i>
+                    </div>
+                </div>
+
+                <div class="card stat-card">
+                    <div class="stat-card-content">
+                        <div class="stat-card-label">Pending Reviews</div>
+                        <div class="stat-card-value">24</div>
+                        <div class="stat-card-change negative">
+                            <i class="ph ph-trend-down"></i> -3.1% from last month
+                        </div>
+                    </div>
+                    <div class="card-icon" style="background: var(--warning-light); color: var(--warning);">
+                        <i class="ph ph-clock"></i>
+                    </div>
+                </div>
+
+                <div class="card stat-card">
+                    <div class="stat-card-content">
+                        <div class="stat-card-label">Resolved Issues</div>
+                        <div class="stat-card-value">847</div>
+                        <div class="stat-card-change positive">
+                            <i class="ph ph-trend-up"></i> +18.7% from last month
+                        </div>
+                    </div>
+                    <div class="card-icon" style="background: var(--danger-light); color: var(--danger);">
+                        <i class="ph ph-check-circle"></i>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-2" style="margin-top: 1.5rem;">
+                <div class="card">
+                    <div class="flex-between mb-md">
+                        <div>
+                            <h3 style="font-size: 1.1rem; margin-bottom: 0.25rem;">Record Overview</h3>
+                            <p class="text-muted text-sm">Monthly submission trends</p>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-secondary btn-sm">7 Days</button>
+                            <button class="btn btn-primary btn-sm">30 Days</button>
+                        </div>
+                    </div>
+                    <div class="chart-bars" id="chartBars">
+                        <div class="chart-bar-item">
+                            <div class="chart-bar" style="height: 60%;" data-value="86"></div>
+                            <div class="chart-bar-label">Jan</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar active" style="height: 80%;" data-value="112"></div>
+                            <div class="chart-bar-label">Feb</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar" style="height: 45%;" data-value="63"></div>
+                            <div class="chart-bar-label">Mar</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar" style="height: 70%;" data-value="98"></div>
+                            <div class="chart-bar-label">Apr</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar" style="height: 55%;" data-value="75"></div>
+                            <div class="chart-bar-label">May</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar" style="height: 90%;" data-value="128"></div>
+                            <div class="chart-bar-label">Jun</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar active" style="height: 100%;" data-value="142"></div>
+                            <div class="chart-bar-label">Jul</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar" style="height: 75%;" data-value="105"></div>
+                            <div class="chart-bar-label">Aug</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar" style="height: 50%;" data-value="71"></div>
+                            <div class="chart-bar-label">Sep</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar" style="height: 85%;" data-value="119"></div>
+                            <div class="chart-bar-label">Oct</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar" style="height: 65%;" data-value="91"></div>
+                            <div class="chart-bar-label">Nov</div>
+                        </div>
+                        <div class="chart-bar-item">
+                            <div class="chart-bar" style="height: 95%;" data-value="134"></div>
+                            <div class="chart-bar-label">Dec</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="flex-between mb-md">
+                        <div>
+                            <h3 style="font-size: 1.1rem; margin-bottom: 0.25rem;">Status Breakdown</h3>
+                            <p class="text-muted text-sm">Record distribution by status</p>
+                        </div>
+                    </div>
+                    <div class="status-list">
+                        <div class="status-item">
+                            <div class="status-item-header">
+                                <span class="status-item-label"><span class="status-dot" style="background: var(--success);"></span> Active</span>
+                                <span class="status-item-count">847</span>
+                            </div>
+                            <div class="progress-wrapper">
+                                <div class="progress-bar" style="width: 66%; background: var(--success);"></div>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-item-header">
+                                <span class="status-item-label"><span class="status-dot" style="background: var(--warning);"></span> Pending Review</span>
+                                <span class="status-item-count">214</span>
+                            </div>
+                            <div class="progress-wrapper">
+                                <div class="progress-bar" style="width: 17%; background: var(--warning);"></div>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-item-header">
+                                <span class="status-item-label"><span class="status-dot" style="background: var(--primary);"></span> In Progress</span>
+                                <span class="status-item-count">156</span>
+                            </div>
+                            <div class="progress-wrapper">
+                                <div class="progress-bar" style="width: 12%;"></div>
+                            </div>
+                        </div>
+                        <div class="status-item">
+                            <div class="status-item-header">
+                                <span class="status-item-label"><span class="status-dot" style="background: var(--danger);"></span> Archived</span>
+                                <span class="status-item-count">67</span>
+                            </div>
+                            <div class="progress-wrapper">
+                                <div class="progress-bar" style="width: 5%; background: var(--danger);"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr class="divider">
+                    <div class="flex-between">
+                        <span class="text-muted text-sm">Total Records</span>
+                        <span class="font-bold">1,284</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-2" style="margin-top: 1.5rem;">
+                <div class="card">
+                    <div class="flex-between mb-md">
+                        <h3 style="font-size: 1.1rem;">Recent Activity</h3>
+                        <a href="{{ url_for('records_list') }}" class="btn btn-text btn-sm">View All <i class="ph ph-arrow-right"></i></a>
+                    </div>
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <div class="timeline-item-title">New record submitted by <strong>Alex Chen</strong></div>
+                            <div class="timeline-item-date">2 minutes ago</div>
+                        </div>
+                        <div class="timeline-item">
+                            <div class="timeline-item-title">Record <strong>#REC-1084</strong> approved by admin</div>
+                            <div class="timeline-item-date">1 hour ago</div>
+                        </div>
+                        <div class="timeline-item">
+                            <div class="timeline-item-title">Status update on <strong>#REC-1079</strong> changed to <span class="badge badge-warning" style="font-size: 0.7rem;">Pending</span></div>
+                            <div class="timeline-item-date">3 hours ago</div>
+                        </div>
+                        <div class="timeline-item">
+                            <div class="timeline-item-title"><strong>Sarah Miller</strong> joined as Viewer</div>
+                            <div class="timeline-item-date">Yesterday, 4:30 PM</div>
+                        </div>
+                        <div class="timeline-item">
+                            <div class="timeline-item-title">Bulk import completed: <strong>45 records</strong> added</div>
+                            <div class="timeline-item-date">2 days ago</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="flex-between mb-md">
+                        <h3 style="font-size: 1.1rem;">Top Records</h3>
+                        <a href="{{ url_for('records_list') }}" class="btn btn-text btn-sm">View All <i class="ph ph-arrow-right"></i></a>
+                    </div>
+                    <div class="table-container">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Record</th>
+                                    <th>Status</th>
+                                    <th>Updated</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>
+                                        <a href="{{ url_for('record_details') }}" style="text-decoration: none; color: var(--text-main); font-weight: 500;">REC-1084</a>
+                                    </td>
+                                    <td><span class="badge badge-success">Active</span></td>
+                                    <td class="text-muted">Today</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <a href="{{ url_for('record_details') }}" style="text-decoration: none; color: var(--text-main); font-weight: 500;">REC-1083</a>
+                                    </td>
+                                    <td><span class="badge badge-warning">Pending</span></td>
+                                    <td class="text-muted">Yesterday</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <a href="{{ url_for('record_details') }}" style="text-decoration: none; color: var(--text-main); font-weight: 500;">REC-1082</a>
+                                    </td>
+                                    <td><span class="badge badge-primary">In Progress</span></td>
+                                    <td class="text-muted">2 days ago</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <a href="{{ url_for('record_details') }}" style="text-decoration: none; color: var(--text-main); font-weight: 500;">REC-1081</a>
+                                    </td>
+                                    <td><span class="badge badge-danger">Archived</span></td>
+                                    <td class="text-muted">3 days ago</td>
+                                </tr>
+                                <tr>
+                                    <td>
+                                        <a href="{{ url_for('record_details') }}" style="text-decoration: none; color: var(--text-main); font-weight: 500;">REC-1080</a>
+                                    </td>
+                                    <td><span class="badge badge-success">Active</span></td>
+                                    <td class="text-muted">1 week ago</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="pagination" style="margin-top: 1rem;">
+                        <button class="pagination-btn" disabled><i class="ph ph-caret-left"></i></button>
+                        <button class="pagination-btn active">1</button>
+                        <button class="pagination-btn">2</button>
+                        <button class="pagination-btn">3</button>
+                        <button class="pagination-btn"><i class="ph ph-caret-right"></i></button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid gap-lg" style="margin-top: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
+                <div class="card">
+                    <div class="flex-between mb-sm">
+                        <h3 style="font-size: 1.1rem;">Quick Actions</h3>
+                    </div>
+                    <p class="text-muted text-sm mb-md">Common tasks you might want to perform.</p>
+                    <div class="btn-group" style="flex-direction: column;">
+                        <a href="{{ url_for('create_record') }}" class="btn btn-primary" style="justify-content: center;">
+                            <i class="ph ph-plus-circle"></i> Create New Record
+                        </a>
+                        <a href="{{ url_for('records_list') }}" class="btn btn-secondary" style="justify-content: center;">
+                            <i class="ph ph-list-magnifying-glass"></i> Browse Records
+                        </a>
+                        <button class="btn btn-secondary" style="justify-content: center;">
+                            <i class="ph ph-export"></i> Export Report
+                        </button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="flex-between mb-sm">
+                        <h3 style="font-size: 1.1rem;">System Health</h3>
+                        <span class="badge badge-success">All Systems Go</span>
+                    </div>
+                    <div style="margin-top: 1rem;">
+                        <div class="flex-between mb-sm">
+                            <span class="text-sm">Server Load</span>
+                            <span class="text-sm font-semibold">42%</span>
+                        </div>
+                        <div class="progress-wrapper">
+                            <div class="progress-bar" style="width: 42%;"></div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem;">
+                        <div class="flex-between mb-sm">
+                            <span class="text-sm">Database Storage</span>
+                            <span class="text-sm font-semibold">68%</span>
+                        </div>
+                        <div class="progress-wrapper">
+                            <div class="progress-bar" style="width: 68%; background: var(--warning);"></div>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem;">
+                        <div class="flex-between mb-sm">
+                            <span class="text-sm">API Response Time</span>
+                            <span class="text-sm font-semibold text-success">120ms</span>
+                        </div>
+                        <div class="progress-wrapper">
+                            <div class="progress-bar" style="width: 15%; background: var(--success);"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="flex-between mb-sm">
+                        <h3 style="font-size: 1.1rem;">Pending Approvals</h3>
+                        <span class="badge badge-warning">3 Items</span>
+                    </div>
+                    <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: var(--background); border-radius: var(--radius-sm);">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <div class="avatar avatar-sm">TC</div>
+                                <div>
+                                    <div style="font-weight: 500; font-size: 0.9rem;">Thomas Clinton</div>
+                                    <div class="text-muted text-sm">Role change request</div>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" style="padding: 0.375rem 0.75rem;">Review</button>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: var(--background); border-radius: var(--radius-sm);">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <div class="avatar avatar-sm">LP</div>
+                                <div>
+                                    <div style="font-weight: 500; font-size: 0.9rem;">Lisa Park</div>
+                                    <div class="text-muted text-sm">New account verification</div>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" style="padding: 0.375rem 0.75rem;">Review</button>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: var(--background); border-radius: var(--radius-sm);">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <div class="avatar avatar-sm">MK</div>
+                                <div>
+                                    <div style="font-weight: 500; font-size: 0.9rem;">Mike Kim</div>
+                                    <div class="text-muted text-sm">Data export request</div>
+                                </div>
+                            </div>
+                            <button class="btn btn-primary btn-sm" style="padding: 0.375rem 0.75rem;">Review</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+
+</html>

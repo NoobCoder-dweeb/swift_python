@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Analytics - Admin Panel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/analytics.css') }}">
+</head>
+
+<body>
+    <div class="sidebar-overlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
+                <i class="ph ph-command"></i>
+                <span>Project <span class="gradient-text">Swift</span></span>
+            </a>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section-title">Main</div>
+            <a href="{{ url_for('dashboard') }}" class="nav-link">
+                <i class="ph ph-squares-four"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="{{ url_for('records_list') }}" class="nav-link">
+                <i class="ph ph-list-magnifying-glass"></i>
+                <span>Records</span>
+                <span class="nav-badge">24</span>
+            </a>
+            <a href="{{ url_for('create_record') }}" class="nav-link">
+                <i class="ph ph-plus-circle"></i>
+                <span>Create Record</span>
+            </a>
+            <a href="{{ url_for('calendar_page') }}" class="nav-link">
+                <i class="ph ph-calendar-blank"></i>
+                <span>Calendar</span>
+            </a>
+
+            <div class="nav-section-title">Management</div>
+            <a href="{{ url_for('users_page') }}" class="nav-link">
+                <i class="ph ph-users"></i>
+                <span>Users</span>
+            </a>
+            <a href="{{ url_for('analytics_page') }}" class="nav-link active">
+                <i class="ph ph-chart-bar"></i>
+                <span>Analytics</span>
+            </a>
+            <a href="{{ url_for('settings_page') }}" class="nav-link">
+                <i class="ph ph-gear"></i>
+                <span>Settings</span>
+            </a>
+        </div>
+        <div class="sidebar-footer">
+            <div class="sidebar-user">
+                <div class="sidebar-avatar">JD</div>
+                <div class="sidebar-user-info">
+                    <div class="sidebar-user-name">Jane Doe</div>
+                    <div class="sidebar-user-role">Administrator</div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-content">
+
+    {% if backend_note %}
+    <div class="alert alert-info mb-lg" style="margin: 1rem 2rem 0;">
+        <i class="ph ph-code"></i>
+        <div>{{ backend_note }}</div>
+    </div>
+    {% endif %}
+    
+        <header class="page-header">
+            <div class="header-left">
+                <button class="sidebar-toggle" id="sidebarToggle">
+                    <i class="ph ph-list"></i>
+                </button>
+                <h1 class="page-title">Analytics</h1>
+            </div>
+            <div class="header-right">
+                <button class="btn btn-secondary btn-sm"><i class="ph ph-download-simple"></i> Export</button>
+                <button class="header-icon-btn" id="themeToggle">
+                    <i class="ph ph-moon"></i>
+                </button>
+            </div>
+        </header>
+
+        <main class="page-body">
+            <div class="grid-4">
+                <div class="card icon-stat-card">
+                    <div class="icon-stat-icon" style="background: var(--primary-light); color: var(--primary);">
+                        <i class="ph ph-eye"></i>
+                    </div>
+                    <div>
+                        <div class="stat-card-label">Total Views</div>
+                        <div class="stat-card-value" style="font-size: 1.5rem;">24,589</div>
+                        <div class="stat-card-change positive"><i class="ph ph-trend-up"></i> +14.2%</div>
+                    </div>
+                </div>
+                <div class="card icon-stat-card">
+                    <div class="icon-stat-icon" style="background: var(--success-light); color: var(--success);">
+                        <i class="ph ph-arrow-up-right"></i>
+                    </div>
+                    <div>
+                        <div class="stat-card-label">Conversion Rate</div>
+                        <div class="stat-card-value" style="font-size: 1.5rem;">3.24%</div>
+                        <div class="stat-card-change positive"><i class="ph ph-trend-up"></i> +0.8%</div>
+                    </div>
+                </div>
+                <div class="card icon-stat-card">
+                    <div class="icon-stat-icon" style="background: var(--warning-light); color: var(--warning);">
+                        <i class="ph ph-clock"></i>
+                    </div>
+                    <div>
+                        <div class="stat-card-label">Avg. Session</div>
+                        <div class="stat-card-value" style="font-size: 1.5rem;">4m 32s</div>
+                        <div class="stat-card-change negative"><i class="ph ph-trend-down"></i> -1.2%</div>
+                    </div>
+                </div>
+                <div class="card icon-stat-card">
+                    <div class="icon-stat-icon" style="background: var(--danger-light); color: var(--danger);">
+                        <i class="ph ph-arrow-bounce-up"></i>
+                    </div>
+                    <div>
+                        <div class="stat-card-label">Bounce Rate</div>
+                        <div class="stat-card-value" style="font-size: 1.5rem;">32.1%</div>
+                        <div class="stat-card-change positive"><i class="ph ph-trend-down"></i> -5.4%</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="analytics-grid">
+                <div class="card chart-card chart-card-full">
+                    <div class="chart-header">
+                        <div>
+                            <div class="chart-title">User Activity Over Time</div>
+                            <div class="chart-subtitle">Daily active users trend</div>
+                        </div>
+                        <div class="period-selector">
+                            <button class="period-btn">7D</button>
+                            <button class="period-btn active">30D</button>
+                            <button class="period-btn">90D</button>
+                            <button class="period-btn">1Y</button>
+                        </div>
+                    </div>
+                    <div class="area-chart-placeholder">
+                        <div class="area-line"></div>
+                        <div class="area-line-stroke"></div>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; margin-top: 0.75rem; padding: 0 0.5rem;">
+                        <span class="text-muted" style="font-size: 0.75rem;">Mar 12</span>
+                        <span class="text-muted" style="font-size: 0.75rem;">Mar 19</span>
+                        <span class="text-muted" style="font-size: 0.75rem;">Mar 26</span>
+                        <span class="text-muted" style="font-size: 0.75rem;">Apr 2</span>
+                        <span class="text-muted" style="font-size: 0.75rem;">Apr 9</span>
+                    </div>
+                </div>
+
+                <div class="card chart-card">
+                    <div class="chart-header">
+                        <div>
+                            <div class="chart-title">Records by Category</div>
+                            <div class="chart-subtitle">Distribution breakdown</div>
+                        </div>
+                    </div>
+                    <div class="donut-container">
+                        <div class="donut-chart" style="background: conic-gradient(var(--primary) 0% 42%, var(--secondary) 42% 65%, var(--success) 65% 82%, var(--warning) 82% 93%, var(--text-muted) 93% 100%);">
+                            <div class="donut-center">
+                                <div class="donut-center-value">1,284</div>
+                                <div class="donut-center-label">Total</div>
+                            </div>
+                        </div>
+                        <div class="donut-legend">
+                            <div class="donut-legend-item">
+                                <div class="donut-legend-dot" style="background: var(--primary);"></div>
+                                <span>Engineering <strong>42%</strong></span>
+                            </div>
+                            <div class="donut-legend-item">
+                                <div class="donut-legend-dot" style="background: var(--secondary);"></div>
+                                <span>Design <strong>23%</strong></span>
+                            </div>
+                            <div class="donut-legend-item">
+                                <div class="donut-legend-dot" style="background: var(--success);"></div>
+                                <span>Operations <strong>17%</strong></span>
+                            </div>
+                            <div class="donut-legend-item">
+                                <div class="donut-legend-dot" style="background: var(--warning);"></div>
+                                <span>Marketing <strong>11%</strong></span>
+                            </div>
+                            <div class="donut-legend-item">
+                                <div class="donut-legend-dot" style="background: var(--text-muted);"></div>
+                                <span>Other <strong>7%</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card chart-card">
+                    <div class="chart-header">
+                        <div>
+                            <div class="chart-title">Monthly Submissions</div>
+                            <div class="chart-subtitle">Records created per month</div>
+                        </div>
+                    </div>
+                    <div class="bar-chart">
+                        <div class="bar-item">
+                            <div class="bar" style="height: 55%;"></div>
+                            <div class="bar-label">Jan</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 72%;"></div>
+                            <div class="bar-label">Feb</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 48%;"></div>
+                            <div class="bar-label">Mar</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar active" style="height: 95%;"></div>
+                            <div class="bar-label">Apr</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 65%;"></div>
+                            <div class="bar-label">May</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 80%;"></div>
+                            <div class="bar-label">Jun</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 88%;"></div>
+                            <div class="bar-label">Jul</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 60%;"></div>
+                            <div class="bar-label">Aug</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 45%;"></div>
+                            <div class="bar-label">Sep</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 70%;"></div>
+                            <div class="bar-label">Oct</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 85%;"></div>
+                            <div class="bar-label">Nov</div>
+                        </div>
+                        <div class="bar-item">
+                            <div class="bar" style="height: 92%;"></div>
+                            <div class="bar-label">Dec</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card chart-card">
+                    <div class="chart-header">
+                        <div>
+                            <div class="chart-title">Key Metrics</div>
+                            <div class="chart-subtitle">Performance indicators</div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="metric-row">
+                            <span class="metric-label">Records Created</span>
+                            <span>
+                                <span class="metric-value">1,284</span>
+                                <span class="metric-change positive"><i class="ph ph-trend-up"></i> 12.5%</span>
+                            </span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Avg. Completion Time</span>
+                            <span>
+                                <span class="metric-value">3.2 days</span>
+                                <span class="metric-change positive"><i class="ph ph-trend-down"></i> 8.1%</span>
+                            </span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Approval Rate</span>
+                            <span>
+                                <span class="metric-value">87.3%</span>
+                                <span class="metric-change positive"><i class="ph ph-trend-up"></i> 2.4%</span>
+                            </span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Overdue Tasks</span>
+                            <span>
+                                <span class="metric-value">23</span>
+                                <span class="metric-change negative"><i class="ph ph-trend-up"></i> 5.2%</span>
+                            </span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">Active Contributors</span>
+                            <span>
+                                <span class="metric-value">142</span>
+                                <span class="metric-change positive"><i class="ph ph-trend-up"></i> 18.7%</span>
+                            </span>
+                        </div>
+                        <div class="metric-row">
+                            <span class="metric-label">User Satisfaction</span>
+                            <span>
+                                <span class="metric-value">4.6 / 5</span>
+                                <span class="metric-change positive"><i class="ph ph-trend-up"></i> 0.3</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card chart-card">
+                    <div class="chart-header">
+                        <div>
+                            <div class="chart-title">Top Performing Records</div>
+                            <div class="chart-subtitle">By engagement score</div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="top-list-item">
+                            <div class="top-list-rank gold">1</div>
+                            <div class="top-list-info">
+                                <div class="top-list-title">API Gateway Refactor</div>
+                                <div class="top-list-subtitle">Engineering</div>
+                            </div>
+                            <span class="badge badge-success">9.8</span>
+                        </div>
+                        <div class="top-list-item">
+                            <div class="top-list-rank gold">2</div>
+                            <div class="top-list-info">
+                                <div class="top-list-title">Design System v2.0</div>
+                                <div class="top-list-subtitle">Design</div>
+                            </div>
+                            <span class="badge badge-primary">9.4</span>
+                        </div>
+                        <div class="top-list-item">
+                            <div class="top-list-rank">3</div>
+                            <div class="top-list-info">
+                                <div class="top-list-title">Security Audit Report</div>
+                                <div class="top-list-subtitle">Engineering</div>
+                            </div>
+                            <span class="badge badge-primary">9.1</span>
+                        </div>
+                        <div class="top-list-item">
+                            <div class="top-list-rank">4</div>
+                            <div class="top-list-info">
+                                <div class="top-list-title">Customer Onboarding Flow</div>
+                                <div class="top-list-subtitle">Design</div>
+                            </div>
+                            <span class="badge badge-primary">8.7</span>
+                        </div>
+                        <div class="top-list-item">
+                            <div class="top-list-rank">5</div>
+                            <div class="top-list-info">
+                                <div class="top-list-title">Employee Portal Redesign</div>
+                                <div class="top-list-subtitle">Operations</div>
+                            </div>
+                            <span class="badge badge-warning">8.2</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card chart-card">
+                    <div class="chart-header">
+                        <div>
+                            <div class="chart-title">Traffic Sources</div>
+                            <div class="chart-subtitle">Where users come from</div>
+                        </div>
+                    </div>
+                    <div class="donut-container">
+                        <div class="donut-chart" style="background: conic-gradient(var(--primary) 0% 38%, var(--success) 38% 62%, var(--warning) 62% 80%, var(--secondary) 80% 100%);">
+                            <div class="donut-center donut-center-sm">
+                                <div class="donut-center-value" style="font-size: 1.25rem;">8.4k</div>
+                                <div class="donut-center-label" style="font-size: 0.65rem;">Visits</div>
+                            </div>
+                        </div>
+                        <div class="donut-legend">
+                            <div class="donut-legend-item">
+                                <div class="donut-legend-dot" style="background: var(--primary);"></div>
+                                <span>Direct <strong>38%</strong></span>
+                            </div>
+                            <div class="donut-legend-item">
+                                <div class="donut-legend-dot" style="background: var(--success);"></div>
+                                <span>Organic <strong>24%</strong></span>
+                            </div>
+                            <div class="donut-legend-item">
+                                <div class="donut-legend-dot" style="background: var(--warning);"></div>
+                                <span>Referral <strong>18%</strong></span>
+                            </div>
+                            <div class="donut-legend-item">
+                                <div class="donut-legend-dot" style="background: var(--secondary);"></div>
+                                <span>Social <strong>20%</strong></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/analytics.js') }}"></script>
+</body>
+
+</html>

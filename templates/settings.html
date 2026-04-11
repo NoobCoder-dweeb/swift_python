@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Settings - Admin Panel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+</head>
+
+<body>
+    <div class="sidebar-overlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
+                <i class="ph ph-command"></i>
+                <span>Project <span class="gradient-text">Swift</span></span>
+            </a>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section-title">Main</div>
+            <a href="{{ url_for('dashboard') }}" class="nav-link">
+                <i class="ph ph-squares-four"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="{{ url_for('records_list') }}" class="nav-link">
+                <i class="ph ph-list-magnifying-glass"></i>
+                <span>Records</span>
+                <span class="nav-badge">24</span>
+            </a>
+            <a href="{{ url_for('create_record') }}" class="nav-link">
+                <i class="ph ph-plus-circle"></i>
+                <span>Create Record</span>
+            </a>
+            <a href="{{ url_for('calendar_page') }}" class="nav-link">
+                <i class="ph ph-calendar-blank"></i>
+                <span>Calendar</span>
+            </a>
+
+            <div class="nav-section-title">Management</div>
+            <a href="{{ url_for('users_page') }}" class="nav-link">
+                <i class="ph ph-users"></i>
+                <span>Users</span>
+            </a>
+            <a href="{{ url_for('analytics_page') }}" class="nav-link">
+                <i class="ph ph-chart-bar"></i>
+                <span>Analytics</span>
+            </a>
+            <a href="{{ url_for('settings_page') }}" class="nav-link active">
+                <i class="ph ph-gear"></i>
+                <span>Settings</span>
+            </a>
+        </div>
+        <div class="sidebar-footer">
+            <div class="sidebar-user">
+                <div class="sidebar-avatar">JD</div>
+                <div class="sidebar-user-info">
+                    <div class="sidebar-user-name">Jane Doe</div>
+                    <div class="sidebar-user-role">Administrator</div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-content">
+
+    {% if backend_note %}
+    <div class="alert alert-info mb-lg" style="margin: 1rem 2rem 0;">
+        <i class="ph ph-code"></i>
+        <div>{{ backend_note }}</div>
+    </div>
+    {% endif %}
+    
+        <header class="page-header">
+            <div class="header-left">
+                <button class="sidebar-toggle" id="sidebarToggle">
+                    <i class="ph ph-list"></i>
+                </button>
+                <h1 class="page-title">Settings</h1>
+            </div>
+            <div class="header-right">
+                <button class="header-icon-btn" id="themeToggle">
+                    <i class="ph ph-moon"></i>
+                </button>
+            </div>
+        </header>
+
+        <main class="page-body">
+            <div class="settings-layout">
+                <nav class="settings-nav">
+                    <div class="settings-nav-item active" data-panel="panel-general"><i class="ph ph-user"></i> General</div>
+                    <div class="settings-nav-item" data-panel="panel-security"><i class="ph ph-shield-check"></i> Security</div>
+                    <div class="settings-nav-item" data-panel="panel-notifications"><i class="ph ph-bell"></i> Notifications</div>
+                    <div class="settings-nav-item" data-panel="panel-appearance"><i class="ph ph-palette"></i> Appearance</div>
+                </nav>
+
+                <div class="settings-content">
+                    <div id="panel-general" class="settings-panel active">
+                        <div class="card mb-lg">
+                            <div class="settings-section">
+                                <div class="settings-section-header">
+                                    <div class="settings-section-title">Profile</div>
+                                    <div class="settings-section-desc">Manage your personal information and preferences.</div>
+                                </div>
+
+                                <div class="settings-avatar-section">
+                                    <div class="settings-avatar-large">JD</div>
+                                    <div class="settings-avatar-info">
+                                        <div class="settings-avatar-name">Jane Doe</div>
+                                        <div class="settings-avatar-role">Administrator</div>
+                                        <div class="btn-group">
+                                            <button class="btn btn-secondary btn-sm"><i class="ph ph-camera"></i> Change Photo</button>
+                                            <button class="btn btn-text btn-sm" style="color: var(--danger);">Remove</button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">First Name</label>
+                                        <input type="text" class="form-input" value="Jane">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Last Name</label>
+                                        <input type="text" class="form-input" value="Doe">
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Email Address</label>
+                                    <input type="email" class="form-input" value="jane.doe@company.com">
+                                </div>
+
+                                <div class="form-row">
+                                    <div class="form-group">
+                                        <label class="form-label">Phone Number</label>
+                                        <input type="tel" class="form-input" value="+1 (555) 123-4567">
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label">Timezone</label>
+                                        <select class="form-select">
+                                            <option>(UTC-05:00) Eastern Time</option>
+                                            <option>(UTC-06:00) Central Time</option>
+                                            <option>(UTC-07:00) Mountain Time</option>
+                                            <option>(UTC-08:00) Pacific Time</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div class="form-group">
+                                    <label class="form-label">Bio</label>
+                                    <textarea class="form-input" rows="3" style="min-height: 80px;">Senior full-stack developer with 8+ years of experience in building scalable web applications.</textarea>
+                                </div>
+
+                                <div style="display: flex; justify-content: flex-end; gap: 1rem; margin-top: 1.5rem;">
+                                    <button class="btn btn-secondary">Cancel</button>
+                                    <button class="btn btn-primary"><i class="ph ph-check"></i> Save Changes</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="panel-security" class="settings-panel">
+                        <div class="card mb-lg">
+                            <div class="settings-section">
+                                <div class="settings-section-header">
+                                    <div class="settings-section-title">Security</div>
+                                    <div class="settings-section-desc">Manage your password and authentication settings.</div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Password</div>
+                                        <div class="settings-field-hint">Last changed 30 days ago</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <button class="btn btn-secondary btn-sm">Change Password</button>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Two-Factor Authentication</div>
+                                        <div class="settings-field-hint">Add an extra layer of security by enabling 2FA.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Login Alerts</div>
+                                        <div class="settings-field-hint">Receive an email when your account is accessed from a new device.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Session Timeout</div>
+                                        <div class="settings-field-hint">Automatically sign out after a period of inactivity.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <select class="form-select" style="width: auto; min-width: 140px;">
+                                            <option>30 minutes</option>
+                                            <option selected>1 hour</option>
+                                            <option>4 hours</option>
+                                            <option>Never</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-lg">
+                            <div class="settings-section">
+                                <div class="settings-section-header">
+                                    <div class="settings-section-title">Active Sessions</div>
+                                    <div class="settings-section-desc">Devices currently signed in to your account.</div>
+                                </div>
+
+                                <div class="settings-field" style="align-items: flex-start;">
+                                    <div style="display: flex; align-items: center; gap: 1rem;">
+                                        <i class="ph ph-desktop" style="font-size: 1.5rem; color: var(--primary);"></i>
+                                        <div>
+                                            <div class="settings-field-label">Chrome on macOS</div>
+                                            <div class="settings-field-hint">New York, US &middot; Current session</div>
+                                        </div>
+                                    </div>
+                                    <span class="badge badge-success">Active</span>
+                                </div>
+
+                                <div class="settings-field" style="align-items: flex-start;">
+                                    <div style="display: flex; align-items: center; gap: 1rem;">
+                                        <i class="ph ph-device-mobile" style="font-size: 1.5rem; color: var(--text-muted);"></i>
+                                        <div>
+                                            <div class="settings-field-label">Safari on iPhone</div>
+                                            <div class="settings-field-hint">New York, US &middot; Last active 2 hours ago</div>
+                                        </div>
+                                    </div>
+                                    <button class="btn btn-text btn-sm" style="color: var(--danger);">Revoke</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="danger-zone" style="margin-top: 1.5rem;">
+                            <div class="danger-zone-title"><i class="ph ph-warning"></i> Danger Zone</div>
+                            <div class="danger-zone-desc">Once you delete your account, there is no going back. All data will be permanently removed.</div>
+                            <button class="btn btn-danger btn-sm"><i class="ph ph-trash"></i> Delete Account</button>
+                        </div>
+                    </div>
+
+                    <div id="panel-notifications" class="settings-panel">
+                        <div class="card mb-lg">
+                            <div class="settings-section">
+                                <div class="settings-section-header">
+                                    <div class="settings-section-title">Notification Preferences</div>
+                                    <div class="settings-section-desc">Choose what notifications you want to receive.</div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Email Notifications</div>
+                                        <div class="settings-field-hint">Receive email updates about record activity and system events.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Push Notifications</div>
+                                        <div class="settings-field-hint">Get push notifications in your browser for urgent updates.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Record Assignments</div>
+                                        <div class="settings-field-hint">Notify me when a record is assigned to me.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Status Changes</div>
+                                        <div class="settings-field-hint">Notify me when the status of my records changes.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Comments & Mentions</div>
+                                        <div class="settings-field-hint">Notify me when someone comments on or mentions me in a record.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Weekly Summary</div>
+                                        <div class="settings-field-hint">Receive a weekly digest of account activity every Monday.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Marketing Emails</div>
+                                        <div class="settings-field-hint">Receive product updates and feature announcements.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="panel-appearance" class="settings-panel">
+                        <div class="card mb-lg">
+                            <div class="settings-section">
+                                <div class="settings-section-header">
+                                    <div class="settings-section-title">Theme</div>
+                                    <div class="settings-section-desc">Choose your preferred color scheme.</div>
+                                </div>
+
+                                <div class="theme-options">
+                                    <div class="theme-option active" data-theme="light">
+                                        <div class="theme-option-icon"><i class="ph ph-sun"></i></div>
+                                        <div class="theme-option-label">Light</div>
+                                    </div>
+                                    <div class="theme-option" data-theme="dark">
+                                        <div class="theme-option-icon"><i class="ph ph-moon"></i></div>
+                                        <div class="theme-option-label">Dark</div>
+                                    </div>
+                                    <div class="theme-option" data-theme="light">
+                                        <div class="theme-option-icon"><i class="ph ph-desktop"></i></div>
+                                        <div class="theme-option-label">System</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-lg">
+                            <div class="settings-section">
+                                <div class="settings-section-header">
+                                    <div class="settings-section-title">Accent Color</div>
+                                    <div class="settings-section-desc">Customize the primary color used across the interface.</div>
+                                </div>
+
+                                <div class="color-options">
+                                    <div class="color-option active" style="background: hsl(250, 84%, 54%);"></div>
+                                    <div class="color-option" style="background: hsl(220, 80%, 50%);"></div>
+                                    <div class="color-option" style="background: hsl(320, 80%, 55%);"></div>
+                                    <div class="color-option" style="background: hsl(145, 63%, 42%);"></div>
+                                    <div class="color-option" style="background: hsl(25, 95%, 53%);"></div>
+                                    <div class="color-option" style="background: hsl(348, 83%, 47%);"></div>
+                                    <div class="color-option" style="background: hsl(180, 70%, 45%);"></div>
+                                    <div class="color-option" style="background: hsl(45, 93%, 47%);"></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card mb-lg">
+                            <div class="settings-section">
+                                <div class="settings-section-header">
+                                    <div class="settings-section-title">Layout</div>
+                                    <div class="settings-section-desc">Customize the interface layout preferences.</div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Compact Sidebar</div>
+                                        <div class="settings-field-hint">Collapse the sidebar to show only icons.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Dense Tables</div>
+                                        <div class="settings-field-hint">Reduce table row height to show more data.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox">
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+
+                                <div class="settings-field">
+                                    <div class="settings-field-info">
+                                        <div class="settings-field-label">Animations</div>
+                                        <div class="settings-field-hint">Enable hover animations and transitions throughout the UI.</div>
+                                    </div>
+                                    <div class="settings-field-action">
+                                        <label class="switch">
+                                            <input type="checkbox" checked>
+                                            <span class="slider"></span>
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+</body>
+
+</html>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pending Drafts - Project Swift</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
+                <i class="ph ph-command"></i>
+                <span>Project <span class="gradient-text">Swift</span></span>
+            </a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="page-header">
+            <h1 class="page-title">Pending Drafts</h1>
+        </header>
+        <main class="page-body" style="padding: 1rem 2rem;">
+            {% if drafts %}
+                <div class="card">
+                    {% for d in drafts %}
+                        <div style="padding:1rem;border-bottom:1px solid #eee;">
+                            <div style="display:flex;justify-content:space-between;align-items:center;">
+                                <div>
+                                    <strong>{{ d.subject }}</strong>
+                                    <div style="color: #666;">From: {{ d.sender }} — {{ d.created }}</div>
+                                </div>
+                                <div>
+                                    {% if d.status == 'pending' %}
+                                    <form method="post" action="/api/drafts/{{ d.draft_id }}/approve" style="display:inline-block;">
+                                        <input type="hidden" name="approver" value="Admin">
+                                        <button class="btn btn-primary">Approve</button>
+                                    </form>
+                                    {% else %}
+                                        <span class="badge">{{ d.status }}</span>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div style="margin-top:0.5rem;color:#333;">{{ d.body }}</div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="card">No drafts pending.</div>
+            {% endif %}
+        </main>
+    </div>
+</body>
+</html>

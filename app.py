@@ -1,0 +1,146 @@
+from __future__ import annotations
+
+from flask import Flask, jsonify, redirect, render_template, request, flash, url_for
+
+from data import ANALYTICS, EVENTS, RECORDS, SETTINGS, USERS, DRAFTS, AUDITS, add_record, add_user_invite, add_draft_from_email, approve_draft, get_drafts, get_audits, start_email_listener
+
+app = Flask(__name__)
+app.secret_key = 'dev-secret-key'
+
+
+@app.get('/')
+def home():
+    return redirect(url_for('dashboard'))
+
+
+@app.get('/dashboard.html')
+def dashboard():
+    stats = {
+        'total_records': len(RECORDS),
+        'active_users': len(USERS),
+        'pending_reviews': sum(1 for r in RECORDS if r.status == 'pending'),
+        'resolved_issues': 847,
+    }
+    return render_template('dashboard.html', stats=stats, records=RECORDS[:5])
+
+
+@app.route('/filter-list.html', methods=['GET'])
+def records_list():
+    return render_template('filter-list.html', records=RECORDS)
+
+
+@app.route('/create-record.html', methods=['GET', 'POST'])
+def create_record():
+    if request.method == 'POST':
+        record = add_record(request.form.to_dict())
+        flash(f"Record {record.record_id} was created successfully.", 'success')
+        return redirect(url_for('record_details', record_id=record.record_id))
+    return render_template('create-record.html')
+
+
+@app.get('/record-details.html')
+def record_details():
+    record_id = request.args.get('record_id', RECORDS[0].record_id)
+    record = next((r for r in RECORDS if r.record_id == record_id), RECORDS[0])
+    return render_template('record-details.html', record=record)
+
+
+@app.get('/users.html')
+def users_page():
+    return render_template('users.html', users=USERS)
+
+
+@app.get('/analytics.html')
+def analytics_page():
+    return render_template('analytics.html', analytics=ANALYTICS)
+
+
+@app.get('/calendar.html')
+def calendar_page():
+    return render_template('calendar.html', events=EVENTS)
+
+
+@app.get('/settings.html')
+def settings_page():
+    return render_template('settings.html', settings=SETTINGS)
+
+
+@app.get('/api/records')
+def api_records():
+    return jsonify([r.to_dict() for r in RECORDS])
+
+
+@app.post('/api/records')
+def api_create_record():
+    record = add_record(request.get_json(silent=True) or request.form.to_dict())
+    return jsonify(record.to_dict()), 201
+
+
+@app.get('/api/users')
+def api_users():
+    return jsonify([u.to_dict() for u in USERS])
+
+
+@app.post('/api/users/invite')
+def api_invite_user():
+    payload = request.get_json(silent=True) or request.form.to_dict()
+    email = payload.get('email', '').strip()
+    role = payload.get('role', 'Viewer').strip() or 'Viewer'
+    if not email:
+        return jsonify({'error': 'email is required'}), 400
+    user = add_user_invite(email, role)
+    return jsonify(user), 201
+
+
+@app.get('/api/calendar/events')
+def api_calendar_events():
+    return jsonify(EVENTS)
+
+
+@app.get('/api/analytics')
+def api_analytics():
+    return jsonify(ANALYTICS)
+
+
+@app.get('/api/drafts')
+def api_drafts():
+    return jsonify([d.to_dict() for d in DRAFTS])
+
+
+@app.post('/api/drafts/<draft_id>/approve')
+def api_approve_draft(draft_id):
+    approver = request.form.get('approver') or 'Admin'
+    audit = approve_draft(draft_id, approver)
+    if not audit:
+        return jsonify({'error': 'draft not found'}), 404
+    flash(f"Draft {draft_id} approved and processed.", 'success')
+    return jsonify(audit), 200
+
+
+@app.get('/api/audits')
+def api_audits():
+    return jsonify([a for a in AUDITS])
+
+
+@app.get('/pending.html')
+def pending_page():
+    return render_template('pending.html', drafts=DRAFTS)
+
+
+@app.get('/audit.html')
+def audit_page():
+    return render_template('audit.html', audits=AUDITS)
+
+
+@app.get('/health')
+def health():
+    return jsonify({'status': 'ok'})
+
+
+if __name__ == '__main__':
+    # start background email listener
+    try:
+        start_email_listener()
+    except Exception:
+        pass
+    app.run(debug=True)

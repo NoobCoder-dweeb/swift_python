@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Log - Project Swift</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+</head>
+<body>
+    <nav class="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
+                <i class="ph ph-command"></i>
+                <span>Project <span class="gradient-text">Swift</span></span>
+            </a>
+        </div>
+    </nav>
+
+    <div class="main-content">
+        <header class="page-header">
+            <h1 class="page-title">Audit Log</h1>
+        </header>
+        <main class="page-body" style="padding: 1rem 2rem;">
+            {% if audits %}
+                <div class="card">
+                    {% for a in audits %}
+                        <div style="padding:1rem;border-bottom:1px solid #eee;">
+                            <div style="font-weight:600;">{{ a.action|title }} — {{ a.draft_id }}</div>
+                            <div style="color:#666;">By: {{ a.approver }} at {{ a.timestamp }}</div>
+                            <div style="margin-top:0.5rem;">{{ a.content }}</div>
+                            <div style="margin-top:0.5rem;color:#333;">Emailed to: {{ a.emailed_to }} — Sent: {{ a.sent }}</div>
+                        </div>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="card">No audit entries yet.</div>
+            {% endif %}
+        </main>
+    </div>
+</body>
+</html>

@@ -1,0 +1,105 @@
+.filter-search-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.filter-search-input {
+    flex: 1;
+    min-width: 250px;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    padding: 0.625rem 1rem;
+    transition: var(--transition);
+}
+
+.filter-search-input:focus-within {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.filter-search-input input {
+    background: none;
+    border: none;
+    outline: none;
+    font-family: inherit;
+    font-size: 0.875rem;
+    color: var(--text-main);
+    width: 100%;
+}
+
+.filter-search-input input::placeholder {
+    color: var(--text-muted);
+    opacity: 0.6;
+}
+
+.filter-search-input i {
+    color: var(--text-muted);
+    font-size: 1rem;
+}
+
+.filter-field {
+    min-width: 160px;
+}
+
+.list-card {
+    padding: 1.5rem;
+}
+
+.record-id {
+    font-weight: 600;
+    color: var(--primary);
+    text-decoration: none;
+    font-family: 'Inter', monospace;
+    font-size: 0.875rem;
+    transition: var(--transition);
+}
+
+.record-id:hover {
+    text-decoration: underline;
+}
+
+.action-btns {
+    display: flex;
+    align-items: center;
+    gap: 0;
+}
+
+.action-btns .btn {
+    padding: 0.375rem;
+    min-width: auto;
+    font-size: 1rem;
+}
+
+.action-btns .btn:hover {
+    color: var(--primary);
+}
+
+.filter-chip i {
+    font-size: 0.9rem;
+}
+
+@media (max-width: 768px) {
+    .filter-search-bar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .filter-search-input {
+        min-width: auto;
+    }
+
+    .filter-field {
+        min-width: auto;
+    }
+
+    .list-card {
+        padding: 1rem;
+    }
+}

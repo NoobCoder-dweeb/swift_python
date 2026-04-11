@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calendar - Admin Panel</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/calendar.css') }}">
+</head>
+
+<body>
+    <div class="sidebar-overlay"></div>
+
+    <nav class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <a href="{{ url_for('dashboard') }}" class="sidebar-logo">
+                <i class="ph ph-command"></i>
+                <span>Project <span class="gradient-text">Swift</span></span>
+            </a>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-section-title">Main</div>
+            <a href="{{ url_for('dashboard') }}" class="nav-link">
+                <i class="ph ph-squares-four"></i>
+                <span>Dashboard</span>
+            </a>
+            <a href="{{ url_for('records_list') }}" class="nav-link">
+                <i class="ph ph-list-magnifying-glass"></i>
+                <span>Records</span>
+                <span class="nav-badge">24</span>
+            </a>
+            <a href="{{ url_for('create_record') }}" class="nav-link">
+                <i class="ph ph-plus-circle"></i>
+                <span>Create Record</span>
+            </a>
+            <a href="{{ url_for('calendar_page') }}" class="nav-link active">
+                <i class="ph ph-calendar-blank"></i>
+                <span>Calendar</span>
+            </a>
+
+            <div class="nav-section-title">Management</div>
+            <a href="{{ url_for('users_page') }}" class="nav-link">
+                <i class="ph ph-users"></i>
+                <span>Users</span>
+            </a>
+            <a href="{{ url_for('analytics_page') }}" class="nav-link">
+                <i class="ph ph-chart-bar"></i>
+                <span>Analytics</span>
+            </a>
+            <a href="{{ url_for('settings_page') }}" class="nav-link">
+                <i class="ph ph-gear"></i>
+                <span>Settings</span>
+            </a>
+        </div>
+        <div class="sidebar-footer">
+            <div class="sidebar-user">
+                <div class="sidebar-avatar">JD</div>
+                <div class="sidebar-user-info">
+                    <div class="sidebar-user-name">Jane Doe</div>
+                    <div class="sidebar-user-role">Administrator</div>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <div class="main-content">
+
+    {% if backend_note %}
+    <div class="alert alert-info mb-lg" style="margin: 1rem 2rem 0;">
+        <i class="ph ph-code"></i>
+        <div>{{ backend_note }}</div>
+    </div>
+    {% endif %}
+    
+        <header class="page-header">
+            <div class="header-left">
+                <button class="sidebar-toggle" id="sidebarToggle">
+                    <i class="ph ph-list"></i>
+                </button>
+                <h1 class="page-title">Calendar</h1>
+            </div>
+            <div class="header-right">
+                <button class="header-icon-btn" id="themeToggle">
+                    <i class="ph ph-moon"></i>
+                </button>
+            </div>
+        </header>
+
+        <main class="page-body">
+            <div class="calendar-header-bar">
+                <div class="calendar-nav">
+                    <button class="calendar-nav-btn" id="calPrev"><i class="ph ph-caret-left"></i></button>
+                    <span class="calendar-title" id="calMonthLabel">April 2026</span>
+                    <button class="calendar-nav-btn" id="calNext"><i class="ph ph-caret-right"></i></button>
+                    <button class="calendar-today-btn" id="calToday">Today</button>
+                </div>
+                <div class="calendar-view-toggle">
+                    <button class="calendar-view-btn active" data-view="month">Month</button>
+                    <button class="calendar-view-btn" data-view="week">Week</button>
+                    <button class="calendar-view-btn" data-view="day">Day</button>
+                </div>
+                <div class="btn-group">
+                    <a href="{{ url_for('create_record') }}" class="btn btn-primary btn-sm"><i class="ph ph-plus"></i> New Event</a>
+                </div>
+            </div>
+
+            <div class="calendar-layout">
+                <div class="calendar-main">
+                    <div class="calendar-grid-wrapper">
+                        <div class="calendar-week-header">
+                            <div class="day-label">Sun</div>
+                            <div class="day-label">Mon</div>
+                            <div class="day-label">Tue</div>
+                            <div class="day-label">Wed</div>
+                            <div class="day-label">Thu</div>
+                            <div class="day-label">Fri</div>
+                            <div class="day-label">Sat</div>
+                        </div>
+                        <div class="calendar-body" id="calendarBody">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="calendar-sidebar">
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem;">
+                            <span style="font-weight: 600; font-size: 0.9rem;" id="miniCalLabel">Apr 2026</span>
+                            <div style="display: flex; gap: 0.25rem;">
+                                <button class="calendar-nav-btn" id="miniCalPrev" style="width: 28px; height: 28px; font-size: 0.8rem;"><i class="ph ph-caret-left"></i></button>
+                                <button class="calendar-nav-btn" id="miniCalNext" style="width: 28px; height: 28px; font-size: 0.8rem;"><i class="ph ph-caret-right"></i></button>
+                            </div>
+                        </div>
+                        <div class="mini-calendar" id="miniCalGrid">
+                        </div>
+                    </div>
+
+                    <div class="card" style="margin-bottom: 1.5rem;">
+                        <h3 style="font-size: 0.95rem; margin-bottom: 0.75rem;">Event Types</h3>
+                        <div style="display: flex; flex-direction: column; gap: 0.625rem;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;">
+                                <div style="width: 12px; height: 12px; border-radius: 3px; background: var(--primary-light); border: 1px solid var(--primary);"></div>
+                                Engineering
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;">
+                                <div style="width: 12px; height: 12px; border-radius: 3px; background: var(--success-light); border: 1px solid var(--success);"></div>
+                                Team Events
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;">
+                                <div style="width: 12px; height: 12px; border-radius: 3px; background: var(--warning-light); border: 1px solid var(--warning);"></div>
+                                Reviews & Retros
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;">
+                                <div style="width: 12px; height: 12px; border-radius: 3px; background: var(--danger-light); border: 1px solid var(--danger);"></div>
+                                Executive / Critical
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem;">
+                                <div style="width: 12px; height: 12px; border-radius: 3px; background: hsl(320, 80%, 95%); border: 1px solid hsl(320, 80%, 55%);"></div>
+                                Design
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="flex-between mb-sm">
+                            <h3 style="font-size: 0.95rem;">Upcoming</h3>
+                            <span class="badge badge-primary" style="font-size: 0.7rem;">Next 14 days</span>
+                        </div>
+                        <div class="upcoming-list" id="upcomingList">
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/calendar.js') }}"></script>
+</body>
+
+</html>
