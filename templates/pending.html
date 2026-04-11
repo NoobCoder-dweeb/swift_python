@@ -108,9 +108,12 @@
                                 </div>
                                 <div>
                                     {% if d.status == 'pending' %}
-                                    <form method="post" action="/api/drafts/{{ d.draft_id }}/approve" style="display:inline-block;">
+                                    <form method="post" action="/api/drafts/{{ d.draft_id }}/approve" style="display:inline-block;margin-right:0.5rem;">
                                         <input type="hidden" name="approver" value="Admin">
                                         <button class="btn btn-primary">Approve</button>
+                                    </form>
+                                    <form method="post" action="/api/drafts/{{ d.draft_id }}/reject" style="display:inline-block;">
+                                        <input type="hidden" name="approver" value="Admin">
                                         <button class="btn btn-secondary">Reject</button>
                                     </form>
                                     {% else %}
