@@ -50,6 +50,14 @@
                 <i class="ph ph-chart-bar"></i>
                 <span>Analytics</span>
             </a>
+            <a href="{{ url_for('pending_page') }}" class="nav-link">
+                <i class="ph ph-envelope"></i>
+                <span>Pending Drafts</span>
+            </a>
+            <a href="{{ url_for('audit_page') }}" class="nav-link">
+                <i class="ph ph-file-text"></i>
+                <span>Audit Log</span>
+            </a>
             <a href="{{ url_for('settings_page') }}" class="nav-link">
                 <i class="ph ph-gear"></i>
                 <span>Settings</span>
@@ -87,6 +95,10 @@
                     <i class="ph ph-magnifying-glass"></i>
                     <input type="text" placeholder="Search users..." id="userSearch">
                 </div>
+                <button class="header-icon-btn" id="notifyBtn">
+                    <i class="ph ph-bell"></i>
+                    <span class="notification-dot" id="notificationDot" style="display:none;"></span>
+                </button>
                 <button class="header-icon-btn" id="themeToggle">
                     <i class="ph ph-moon"></i>
                 </button>

@@ -7,7 +7,47 @@ document.addEventListener('DOMContentLoaded', () => {
     initSidebar();
     initTabs();
     rewriteRecordDetailLinks();
+    initNotifications();
 });
+
+// Notifications: poll drafts API and show notification when new pending drafts arrive
+let _lastDraftCount = 0;
+function initNotifications(pollInterval = 5000) {
+    const dot = document.getElementById('notificationDot');
+    const notifyBtn = document.getElementById('notifyBtn');
+    if (!dot || !notifyBtn) {
+        // try to fetch dynamically later
+        setTimeout(() => initNotifications(pollInterval), 1000);
+        return;
+    }
+
+    async function check() {
+        try {
+            const res = await fetch('/api/drafts');
+            if (!res.ok) return;
+            const drafts = await res.json();
+            const pending = drafts.filter(d => d.status === 'pending').length;
+            if (pending > 0) {
+                dot.style.display = 'inline-block';
+            } else {
+                dot.style.display = 'none';
+            }
+            if (pending > _lastDraftCount) {
+                // simple visual notification
+                notifyBtn.classList.add('pulse');
+                setTimeout(() => notifyBtn.classList.remove('pulse'), 1200);
+            }
+            _lastDraftCount = pending;
+        } catch (e) {
+            // ignore
+        }
+    }
+
+    check();
+    setInterval(check, pollInterval);
+}
+
+/* Theme Toggle */
 
 /* Theme Toggle */
 function initTheme() {

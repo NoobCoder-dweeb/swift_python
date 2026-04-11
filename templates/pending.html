@@ -37,6 +37,7 @@
                                     <form method="post" action="/api/drafts/{{ d.draft_id }}/approve" style="display:inline-block;">
                                         <input type="hidden" name="approver" value="Admin">
                                         <button class="btn btn-primary">Approve</button>
+                                        <button class="btn btn-secondary">Reject</button>
                                     </form>
                                     {% else %}
                                         <span class="badge">{{ d.status }}</span>
