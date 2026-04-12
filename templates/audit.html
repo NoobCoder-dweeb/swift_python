@@ -7,6 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/audit.css') }}">
 </head>
 <body>
     {% include '_nav.html' %}
@@ -39,46 +40,67 @@
         <main class="page-body" style="padding: 1rem 2rem;">
             {% if audits %}
                 <div class="card">
+                    {% set shown = namespace(value=false) %}
                     {% for a in audits %}
-                        <div style="padding:1rem;border-bottom:1px solid #eee;">
-                            <div style="font-weight:600;">{{ a.action|title }} — {{ a.draft_id }}</div>
-                            <div style="color:#666;">By: {{ a.approver }} at {{ a.timestamp }}</div>
+                        {% set action = (a.action|default('')|lower) %}
+                        {% if action in ['approved','regenerated','rejected','accepted'] %}
+                        {% set shown.value = true %}
+                        {% if action == 'approved' %}
+                            {% set color = "var(--success, #28a745)" %}
+                        {% elif action == 'rejected' %}
+                            {% set color = "var(--danger, #dc3545)" %}
+                        {% elif action == 'regenerated' %}
+                            {% set color = "var(--accent, #ff9800)" %}
+                        {% else %}
+                            {% set color = "var(--text-main, #333)" %}
+                        {% endif %}
+                        <div class="audit-entry" style="--audit-accent: {{ color }};">
+                            <div class="audit-title">{{ a.action|title }} — {{ a.draft_id }}</div>
+                            <div class="audit-meta">By: {{ a.approver }} at {{ a.timestamp }}</div>
 
-                            {% if a.customer_inquiry %}
-                            <div style="margin-top:0.5rem;">
-                                <strong>Customer inquiry email:</strong>
-                                <div class="audit-email" style="white-space:pre-wrap;padding:0.5rem 0;">{{ a.customer_inquiry }}</div>
+                            <div class="audit-content">
+                                <strong>Audit summary:</strong>
+                                <div class="audit-copy">{{ a.content }}</div>
+
+                                {% if a.ai_draft %}
+                                <div class="audit-block audit-block-ai">
+                                    <strong>Draft response (AI):</strong>
+                                    <div class="audit-panel">{{ a.ai_draft }}</div>
+                                </div>
+                                {% elif a.ai_decision %}
+                                <div class="audit-block audit-block-ai">
+                                    <strong>AI decisions:</strong>
+                                    <div class="audit-panel">{{ a.ai_decision }}</div>
+                                </div>
+                                {% endif %}
+
+                                {% if a.original_email or a.customer_inquiry %}
+                                <div class="audit-block">
+                                    <strong>Customer email (original):</strong>
+                                    <div class="audit-panel">{{ a.original_email or a.customer_inquiry }}</div>
+                                </div>
+                                {% endif %}
                             </div>
-                            {% endif %}
 
-                            {% if a.ai_decision %}
-                            <div style="margin-top:0.5rem;">
-                                <strong>AI decisions:</strong>
-                                <div class="audit-ai" style="white-space:pre-wrap;padding:0.5rem 0;color:#333;">{{ a.ai_decision }}</div>
-                            </div>
-                            {% endif %}
-
-                            <div style="margin-top:0.5rem;color:#333;">
-                                <strong>Content:</strong> {{ a.content }}
-                            </div>
-
-                            <div style="margin-top:0.5rem;color:#333;">
+                            <div class="audit-review">
                                 <strong>User review:</strong>
-                                {% if a.user_review == 'approved' %}
-                                    <span style="color:green;font-weight:600;">Approved</span>
-                                {% elif a.user_review == 'rejected' %}
-                                    <span style="color:red;font-weight:600;">Rejected</span>
+                                {% if action in ['approved','accepted'] %}
+                                    <span class="audit-review-status audit-review-approved">Approved</span>
                                 {% else %}
-                                    <span style="color:#666;">{{ a.user_review or 'Pending' }}</span>
+                                    <span class="audit-review-status audit-review-rejected">Rejected</span>
                                 {% endif %}
                                 {% if a.review_comment %}
-                                    <div style="margin-top:0.25rem;color:#555;">Comment: {{ a.review_comment }}</div>
+                                    <div class="audit-comment">Comment: {{ a.review_comment }}</div>
                                 {% endif %}
                             </div>
 
-                            <div style="margin-top:0.5rem;color:#333;">Emailed to: {{ a.emailed_to }} — Sent: {{ a.sent }}</div>
+                            <div class="audit-footer">Emailed to: {{ a.emailed_to }} — Sent: {{ a.sent }}</div>
                         </div>
+                        {% endif %}
                     {% endfor %}
+                    {% if not shown.value %}
+                        <div class="card">No approved or rejected audit entries yet.</div>
+                    {% endif %}
                 </div>
             {% else %}
                 <div class="card">No audit entries yet.</div>
