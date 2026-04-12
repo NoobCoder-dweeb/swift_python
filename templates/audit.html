@@ -39,25 +39,32 @@
         </header>
         <main class="page-body" style="padding: 1rem 2rem;">
             {% if audits %}
+                {% set default_collapsed = audits|length >= 5 %}
                 <div class="card">
                     {% set shown = namespace(value=false) %}
                     {% for a in audits %}
                         {% set action = (a.action|default('')|lower) %}
-                        {% if action in ['approved','regenerated','rejected','accepted'] %}
+                        {% if action in ['approved','rejected','accepted'] %}
                         {% set shown.value = true %}
                         {% if action == 'approved' %}
                             {% set color = "var(--success, #28a745)" %}
                         {% elif action == 'rejected' %}
                             {% set color = "var(--danger, #dc3545)" %}
-                        {% elif action == 'regenerated' %}
-                            {% set color = "var(--accent, #ff9800)" %}
                         {% else %}
                             {% set color = "var(--text-main, #333)" %}
                         {% endif %}
-                        <div class="audit-entry" style="--audit-accent: {{ color }};">
-                            <div class="audit-title">{{ a.action|title }} — {{ a.draft_id }}</div>
-                            <div class="audit-meta">By: {{ a.approver }} at {{ a.timestamp }}</div>
+                        <div class="audit-entry{% if default_collapsed %} collapsed{% endif %}" style="--audit-accent: {{ color }};">
+                            <div class="audit-header">
+                                <div class="audit-header-copy">
+                                    <div class="audit-title">{{ a.action|title }} — {{ a.draft_id }}</div>
+                                    <div class="audit-meta">Version {{ a.version_id }} • By: {{ a.approver }} at {{ a.timestamp_display }}</div>
+                                </div>
+                                <button class="audit-toggle" type="button" aria-expanded="{% if default_collapsed %}false{% else %}true{% endif %}">
+                                    <i class="ph {% if default_collapsed %}ph-caret-down{% else %}ph-caret-up{% endif %}"></i>
+                                </button>
+                            </div>
 
+                            <div class="audit-details">
                             <div class="audit-content">
                                 <strong>Audit summary:</strong>
                                 <div class="audit-copy">{{ a.content }}</div>
@@ -92,9 +99,13 @@
                                 {% if a.review_comment %}
                                     <div class="audit-comment">Comment: {{ a.review_comment }}</div>
                                 {% endif %}
+                                {% if a.next_version_id %}
+                                    <div class="audit-comment">Regenerated to: {{ a.next_version_id }}</div>
+                                {% endif %}
                             </div>
 
                             <div class="audit-footer">Emailed to: {{ a.emailed_to }} — Sent: {{ a.sent }}</div>
+                            </div>
                         </div>
                         {% endif %}
                     {% endfor %}
@@ -109,5 +120,6 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/audit.js') }}"></script>
 </body>
 </html>

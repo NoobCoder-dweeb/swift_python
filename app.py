@@ -159,7 +159,7 @@ def api_reject_draft(draft_id):
 
 @app.get('/api/audits')
 def api_audits():
-    return jsonify([a for a in AUDITS])
+    return jsonify(get_audits())
 
 
 @app.get('/stream')
@@ -188,7 +188,7 @@ def pending_page():
 
 @app.get('/audit.html')
 def audit_page():
-    return render_template('audit.html', audits=AUDITS)
+    return render_template('audit.html', audits=get_audits())
 
 
 @app.get('/health')
