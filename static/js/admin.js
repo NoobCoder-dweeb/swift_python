@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // Notifications: poll drafts API and show notification when new pending drafts arrive
 let _lastDraftCount = 0;
+let _latestPendingDrafts = [];
 function initNotifications(pollInterval = 5000) {
     const dot = document.getElementById('notificationDot');
     const notifyBtn = document.getElementById('notifyBtn');
@@ -21,12 +22,37 @@ function initNotifications(pollInterval = 5000) {
         return;
     }
 
+    const menu = createNotificationMenu();
+    notifyBtn.parentElement?.appendChild(menu);
+
+    notifyBtn.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        if (menu.hidden) {
+            await check();
+            renderNotificationMenu(menu, _latestPendingDrafts);
+            menu.hidden = false;
+            notifyBtn.setAttribute('aria-expanded', 'true');
+        } else {
+            menu.hidden = true;
+            notifyBtn.setAttribute('aria-expanded', 'false');
+        }
+    });
+
+    document.addEventListener('click', (event) => {
+        if (menu.hidden) return;
+        if (menu.contains(event.target) || notifyBtn.contains(event.target)) return;
+        menu.hidden = true;
+        notifyBtn.setAttribute('aria-expanded', 'false');
+    });
+
     async function check() {
         try {
             const res = await fetch('/api/drafts');
             if (!res.ok) return;
             const drafts = await res.json();
-            const pending = drafts.filter(d => d.status === 'pending').length;
+            const pendingDrafts = drafts.filter(d => d.status === 'pending');
+            const pending = pendingDrafts.length;
+            _latestPendingDrafts = pendingDrafts;
             if (pending > 0) {
                 dot.style.display = 'inline-block';
             } else {
@@ -38,6 +64,7 @@ function initNotifications(pollInterval = 5000) {
                 setTimeout(() => notifyBtn.classList.remove('pulse'), 1200);
             }
             _lastDraftCount = pending;
+            renderNotificationMenu(menu, pendingDrafts);
         } catch (e) {
             // ignore
         }
@@ -45,6 +72,62 @@ function initNotifications(pollInterval = 5000) {
 
     check();
     setInterval(check, pollInterval);
+}
+
+function createNotificationMenu() {
+    const menu = document.createElement('div');
+    menu.className = 'notification-menu';
+    menu.hidden = true;
+    menu.innerHTML = `
+        <div class="notification-menu-header">
+            <div class="notification-menu-title">Pending Drafts</div>
+            <div class="notification-menu-count" data-role="count"></div>
+        </div>
+        <div class="notification-list" data-role="list"></div>
+        <div class="notification-menu-footer">
+            <span></span>
+            <a class="notification-show-all" href="/pending.html">Show All</a>
+        </div>
+    `;
+    return menu;
+}
+
+function renderNotificationMenu(menu, drafts) {
+    if (!menu) return;
+    const count = menu.querySelector('[data-role="count"]');
+    const list = menu.querySelector('[data-role="list"]');
+    if (!count || !list) return;
+
+    count.textContent = drafts.length === 0 ? 'No pending drafts' : `${drafts.length} pending`;
+    const visibleDrafts = drafts.slice(0, 5);
+
+    if (visibleDrafts.length === 0) {
+        list.innerHTML = `<div class="notification-empty">No pending drafts right now.</div>`;
+        return;
+    }
+
+    list.innerHTML = visibleDrafts.map(draft => `
+        <a class="notification-item" href="/pending.html">
+            <span class="notification-item-subject">${escapeHtml(draft.subject)}</span>
+            <span class="notification-item-meta">${escapeHtml(draft.sender)} • ${escapeHtml(draft.created_display || draft.created || '')}</span>
+            <span class="notification-item-snippet">${escapeHtml(toSnippet(draft.customer_inquiry || draft.body || ''))}</span>
+        </a>
+    `).join('');
+}
+
+function toSnippet(text, maxLength = 96) {
+    const normalized = (text || '').replace(/\s+/g, ' ').trim();
+    if (normalized.length <= maxLength) return normalized;
+    return normalized.slice(0, maxLength - 1) + '…';
+}
+
+function escapeHtml(value) {
+    return (value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 /* Theme Toggle */

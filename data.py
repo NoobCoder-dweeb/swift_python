@@ -149,14 +149,78 @@ class Draft:
     updated: str
     revisions: int = 0
 
+    @property
+    def customer_inquiry(self) -> str:
+        return self.body
+
+    @property
+    def ai_draft(self) -> str:
+        revision_note = f"\n\nRevision note: updated draft v{self.revisions}." if self.revisions else ""
+        lower_subject = self.subject.lower()
+        lower_inquiry = self.customer_inquiry.lower()
+
+        if 'pricing' in lower_subject or 'pricing' in lower_inquiry:
+            return (
+                "Hi,\n\n"
+                "Yes, we can share pricing for Product X. The current standard pricing is "
+                "$120 per unit for orders under 100 units, and $95 per unit for orders of 100 units or more. "
+                "Our typical delivery timeline is 7 to 10 business days from order confirmation.\n\n"
+                "If you send over your expected quantity and target delivery date, we can confirm the exact quote."
+                f"{revision_note}\n\n"
+                "Best regards,\n"
+                "Swift Support"
+            )
+
+        if 'demo' in lower_subject or 'demo' in lower_inquiry:
+            return (
+                "Hi,\n\n"
+                "Yes, we can arrange a demo next week. We currently have openings on Tuesday at 10:00 AM "
+                "and Thursday at 2:00 PM, and the session usually runs for 30 minutes.\n\n"
+                "If either slot works for you, reply with your preferred time and we will send the calendar invite."
+                f"{revision_note}\n\n"
+                "Best regards,\n"
+                "Swift Support"
+            )
+
+        return (
+            "Hi,\n\n"
+            "Thanks for your inquiry. We can support this request and our current standard turnaround time is "
+            "3 business days. Once you confirm the required quantity, preferred timeline, and any budget constraints, "
+            "we will send the final recommendation and next steps."
+            f"{revision_note}\n\n"
+            "Best regards,\n"
+            "Swift Support"
+        )
+
+    @property
+    def created_display(self) -> str:
+        return _format_human_datetime(self.created)
+
+    @property
+    def updated_display(self) -> str:
+        return _format_human_datetime(self.updated)
+
     def to_dict(self):
-        return asdict(self)
+        payload = asdict(self)
+        payload['customer_inquiry'] = self.customer_inquiry
+        payload['ai_draft'] = self.ai_draft
+        payload['created_display'] = self.created_display
+        payload['updated_display'] = self.updated_display
+        return payload
 
 DRAFTS: list[Draft] = []
 
 AUDITS: list[dict[str, Any]] = []
 
 DATA_STORE = Path(__file__).parent / 'data_store.json'
+
+
+def _format_human_datetime(value: str) -> str:
+    try:
+        parsed = datetime.fromisoformat(value)
+    except Exception:
+        return value
+    return parsed.strftime('%b %d, %Y, %I:%M %p').replace(' 0', ' ')
 
 
 def save_state() -> None:
@@ -178,10 +242,22 @@ def load_state() -> None:
         payload = json.loads(raw)
         drafts = payload.get('drafts', [])
         audits = payload.get('audits', [])
+        # Remove previously approved items so each session starts clean for demos
+        drafts = [d for d in drafts if (d.get('status') or '').lower() != 'approved']
+        audits = [a for a in audits if (a.get('action') or '').lower() != 'approved']
         DRAFTS.clear()
         for d in drafts:
             # reconstruct Draft objects
-            DRAFTS.append(Draft(**d))
+            DRAFTS.append(Draft(
+                draft_id=d['draft_id'],
+                sender=d['sender'],
+                subject=d['subject'],
+                body=d['body'],
+                status=d['status'],
+                created=d['created'],
+                updated=d['updated'],
+                revisions=d.get('revisions', 0),
+            ))
         AUDITS.clear()
         AUDITS.extend(audits)
     except Exception:
@@ -245,7 +321,7 @@ def add_draft_from_email(email_payload: dict[str,str]) -> Draft:
 
 
 def get_drafts() -> list[Draft]:
-    return DRAFTS
+    return [d for d in DRAFTS if d.status == 'pending']
 
 
 def get_audits() -> list[dict]:
@@ -259,9 +335,8 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
     # If already approved, return existing approval audit (idempotent)
     existing = next((a for a in AUDITS if a.get('draft_id') == draft_id and a.get('action') == 'approved'), None)
     if existing:
-        # ensure status is consistent
-        draft.status = 'approved'
-        draft.updated = datetime.now().isoformat()
+        if draft in DRAFTS:
+            DRAFTS.remove(draft)
         save_state()
         try:
             publish_event({'type': 'approved', 'payload': existing})
@@ -269,8 +344,6 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
             pass
         return existing
 
-    draft.status = 'approved'
-    draft.updated = datetime.now().isoformat()
     audit = {
         'draft_id': draft.draft_id,
         'subject': draft.subject,
@@ -279,9 +352,12 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
         'timestamp': datetime.now().isoformat(),
         'emailed_to': emailed_to or 'simulated-user@example.com',
         'sent': True,
-        'content': f"Approved draft sent to {emailed_to or 'simulated-user@example.com'} for draft {draft.draft_id}"
+        'content': f"Approved draft sent to {emailed_to or 'simulated-user@example.com'} for draft {draft.draft_id}",
+        'customer_inquiry': draft.customer_inquiry,
+        'ai_draft': draft.ai_draft,
     }
     AUDITS.insert(0, audit)
+    DRAFTS.remove(draft)
     save_state()
     try:
         publish_event({'type': 'approved', 'payload': audit})
@@ -299,9 +375,8 @@ def reject_and_regenerate_draft(draft_id: str, requester: str) -> dict | None:
     if not draft:
         return None
     draft.revisions = getattr(draft, 'revisions', 0) + 1
-    # simple regeneration: modify subject/body to indicate a new draft
+    # Simulate regeneration by revising the AI reply while preserving the customer inquiry.
     draft.subject = f"{draft.subject.split(' (Regenerated')[0]} (Regenerated v{draft.revisions})"
-    draft.body = f"[Regenerated v{draft.revisions}] Suggested reply: We can assist with your request. (original: {draft.body})"
     draft.status = 'pending'
     draft.updated = datetime.now().isoformat()
 
@@ -313,7 +388,9 @@ def reject_and_regenerate_draft(draft_id: str, requester: str) -> dict | None:
         'timestamp': datetime.now().isoformat(),
         'emailed_to': None,
         'sent': False,
-        'content': f"Draft {draft.draft_id} regenerated by simulated agent (v{draft.revisions})"
+        'content': f"Draft {draft.draft_id} regenerated by simulated agent (v{draft.revisions})",
+        'customer_inquiry': draft.customer_inquiry,
+        'ai_draft': draft.ai_draft,
     }
     AUDITS.insert(0, audit)
     save_state()
@@ -357,4 +434,3 @@ def start_email_listener(poll_interval: int = 15):
 
 # load persisted state on import
 load_state()
-

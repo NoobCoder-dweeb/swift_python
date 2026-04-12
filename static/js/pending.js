@@ -51,7 +51,7 @@
       <div class="draft-header">
         <div class="draft-meta">
           <span class="draft-subject">${escapeHtml(d.subject)}</span>
-          <span class="draft-sender">From: ${escapeHtml(d.sender)} • ${escapeHtml(d.created)}</span>
+          <span class="draft-sender">From: ${escapeHtml(d.sender)} • ${escapeHtml(d.created_display || d.created)}</span>
         </div>
         <div class="draft-actions">
           <button class="expand-btn" aria-expanded="true"><i class="ph ph-caret-up"></i></button>
@@ -59,12 +59,22 @@
           <button class="btn btn-secondary reject-btn" data-draft-id="${d.draft_id}">Reject</button>
         </div>
       </div>
-      <div class="draft-body">${escapeHtml(d.body)}</div>
+      <div class="draft-body">
+        <div class="draft-section draft-section-ai">
+          <div class="draft-section-label">AI Response Draft</div>
+          <div class="draft-section-content">${formatMultiline(d.ai_draft)}</div>
+        </div>
+        <div class="draft-section">
+          <div class="draft-section-label">Customer Inquiry</div>
+          <div class="draft-section-content">${formatMultiline(d.customer_inquiry || d.body)}</div>
+        </div>
+      </div>
     `;
     return div;
   }
 
   function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function formatMultiline(s){ return escapeHtml(s).replace(/\n/g, '<br>'); }
 
   function attachCardHandlers(root=document){
     root.querySelectorAll('.expand-btn').forEach(btn=>{
@@ -107,7 +117,7 @@
         if(res){
           recentRegenerated.add(id);
           setTimeout(()=>recentRegenerated.delete(id),5000);
-          showToast('Draft regenerated', 'success');
+          showToast('Draft regenerated', 'error');
         }else{
           showToast('Reject failed', 'error');
           if(backup){ const list = document.getElementById('draftList'); list.insertAdjacentHTML('afterbegin', backup); attachCardHandlers(list); }

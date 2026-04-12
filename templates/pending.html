@@ -54,7 +54,7 @@
                         <div class="draft-header">
                             <div class="draft-meta">
                                 <span class="draft-subject">{{ d.subject }}</span>
-                                <span class="draft-sender">From: {{ d.sender }} • {{ d.created }}</span>
+                                <span class="draft-sender">From: {{ d.sender }} • {{ d.created_display }}</span>
                             </div>
                             <div class="draft-actions">
                                 <button class="expand-btn" aria-expanded="true"><i class="ph ph-caret-up"></i></button>
@@ -66,7 +66,16 @@
                                 {% endif %}
                             </div>
                         </div>
-                        <div class="draft-body">{{ d.body }}</div>
+                        <div class="draft-body">
+                            <div class="draft-section draft-section-ai">
+                                <div class="draft-section-label">AI Response Draft</div>
+                                <div class="draft-section-content">{{ d.ai_draft }}</div>
+                            </div>
+                            <div class="draft-section">
+                                <div class="draft-section-label">Customer Inquiry</div>
+                                <div class="draft-section-content">{{ d.customer_inquiry }}</div>
+                            </div>
+                        </div>
                     </div>
                     {% endfor %}
                 </div>

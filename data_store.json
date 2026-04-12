@@ -1,206 +1,29 @@
 {
   "drafts": [
     {
-      "draft_id": "DFT-111",
-      "sender": "bob@example.com",
-      "subject": "Demo request",
-      "body": "Hi,\n\nWe would like a demo next week.\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nBob\nbob@example.com",
-      "status": "pending",
-      "created": "2026-04-11T21:09:50.693867",
-      "updated": "2026-04-11T21:11:20.697023",
-      "revisions": 0
-    },
-    {
-      "draft_id": "DFT-110",
-      "sender": "bob@example.com",
-      "subject": "Demo request (Regenerated v1)",
-      "body": "[Regenerated v1] Suggested reply: We can assist with your request. (original: Hi,\n\nWe would like a demo next week.\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nBob\nbob@example.com)",
-      "status": "pending",
-      "created": "2026-04-11T21:09:20.692831",
-      "updated": "2026-04-11T21:09:28.799320",
-      "revisions": 1
-    },
-    {
-      "draft_id": "DFT-109",
-      "sender": "bob@example.com",
-      "subject": "Demo request",
-      "body": "Hi,\n\nWe would like a demo next week.\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nBob\nbob@example.com",
-      "status": "approved",
-      "created": "2026-04-11T21:08:20.690849",
-      "updated": "2026-04-11T21:08:59.693884",
-      "revisions": 0
-    },
-    {
-      "draft_id": "DFT-108",
-      "sender": "bob@example.com",
-      "subject": "Demo request (Regenerated v1)",
-      "body": "[Regenerated v1] Suggested reply: We can assist with your request. (original: Hi,\n\nWe would like a demo next week.\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nBob\nbob@example.com)",
-      "status": "approved",
-      "created": "2026-04-11T21:07:50.689868",
-      "updated": "2026-04-11T21:09:09.878197",
-      "revisions": 1
-    },
-    {
-      "draft_id": "DFT-107",
-      "sender": "bob@example.com",
-      "subject": "Demo request",
-      "body": "Hi,\n\nWe would like a demo next week.\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nBob\nbob@example.com",
-      "status": "approved",
-      "created": "2026-04-11T21:07:20.688804",
-      "updated": "2026-04-11T21:07:28.697514",
-      "revisions": 0
-    },
-    {
-      "draft_id": "DFT-106",
-      "sender": "bob@example.com",
-      "subject": "Demo request",
-      "body": "Hi,\n\nWe would like a demo next week.\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nBob\nbob@example.com",
-      "status": "approved",
-      "created": "2026-04-11T21:06:20.686271",
-      "updated": "2026-04-11T21:07:15.544878",
-      "revisions": 0
-    },
-    {
-      "draft_id": "DFT-105",
-      "sender": "alice@example.com",
-      "subject": "Product pricing request",
-      "body": "Hi,\n\nCan I get pricing for product X?\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nAlice\nalice@example.com",
-      "status": "pending",
-      "created": "2026-04-11T21:06:05.685643",
-      "updated": "2026-04-11T21:11:35.697515",
-      "revisions": 0
-    },
-    {
-      "draft_id": "DFT-104",
-      "sender": "bob@example.com",
-      "subject": "Demo request",
-      "body": "Hi,\n\nWe would like a demo next week.\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nBob\nbob@example.com",
-      "status": "approved",
-      "created": "2026-04-11T21:05:50.685143",
-      "updated": "2026-04-11T21:05:54.605219",
-      "revisions": 0
-    },
-    {
-      "draft_id": "DFT-103",
-      "sender": "alice@example.com",
-      "subject": "Product pricing request",
-      "body": "Hi,\n\nCan I get pricing for product X?\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nAlice\nalice@example.com",
-      "status": "approved",
-      "created": "2026-04-11T21:05:35.553370",
-      "updated": "2026-04-11T21:05:43.766417",
-      "revisions": 0
-    },
-    {
       "draft_id": "DFT-102",
       "sender": "bob@example.com",
-      "subject": "Demo request (Regenerated v1)",
-      "body": "[Regenerated v1] Suggested reply: We can assist with your request. (original: We would like a demo next week.)",
+      "subject": "Demo request",
+      "body": "Hi,\n\nWe would like a demo next week.\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nBob\nbob@example.com",
       "status": "pending",
-      "created": "2026-04-11T17:41:23.219130",
-      "updated": "2026-04-11T21:06:03.254632",
-      "revisions": 1
+      "created": "2026-04-11T21:58:25.356785",
+      "updated": "2026-04-12T18:03:32.602398",
+      "revisions": 0,
+      "customer_inquiry": "Hi,\n\nWe would like a demo next week.\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nBob\nbob@example.com",
+      "ai_draft": "Hi,\n\nThanks for reaching out. We have received your inquiry and would be happy to help. Our team can review your request and follow up with the relevant details, including availability, timeline, and next steps.\n\nBest regards,\nSwift Support"
     },
     {
       "draft_id": "DFT-101",
       "sender": "alice@example.com",
       "subject": "Product pricing request",
-      "body": "Can I get pricing for product X?",
+      "body": "Hi,\n\nCan I get pricing for product X?\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nAlice\nalice@example.com",
       "status": "pending",
-      "created": "2026-04-11T17:41:08.218204",
-      "updated": "2026-04-11T18:41:12.295559",
-      "revisions": 0
+      "created": "2026-04-11T21:58:10.235169",
+      "updated": "2026-04-12T18:03:17.601896",
+      "revisions": 0,
+      "customer_inquiry": "Hi,\n\nCan I get pricing for product X?\n\nCould you share a few more details about your request? Specifically:\n- What quantity do you need?\n- Desired timeline?\n- Any budget constraints?\n\nThanks,\nAlice\nalice@example.com",
+      "ai_draft": "Hi,\n\nThanks for reaching out. We have received your inquiry and would be happy to help. Our team can review your request and follow up with the relevant details, including availability, timeline, and next steps.\n\nBest regards,\nSwift Support"
     }
   ],
-  "audits": [
-    {
-      "draft_id": "DFT-110",
-      "subject": "Demo request (Regenerated v1)",
-      "approver": "Admin",
-      "action": "regenerated",
-      "timestamp": "2026-04-11T21:09:28.799328",
-      "emailed_to": null,
-      "sent": false,
-      "content": "Draft DFT-110 regenerated by simulated agent (v1)"
-    },
-    {
-      "draft_id": "DFT-108",
-      "subject": "Demo request (Regenerated v1)",
-      "approver": "Admin",
-      "action": "approved",
-      "timestamp": "2026-04-11T21:09:09.878205",
-      "emailed_to": "simulated-user@example.com",
-      "sent": true,
-      "content": "Approved draft sent to simulated-user@example.com for draft DFT-108"
-    },
-    {
-      "draft_id": "DFT-109",
-      "subject": "Demo request",
-      "approver": "Admin",
-      "action": "approved",
-      "timestamp": "2026-04-11T21:08:59.693893",
-      "emailed_to": "simulated-user@example.com",
-      "sent": true,
-      "content": "Approved draft sent to simulated-user@example.com for draft DFT-109"
-    },
-    {
-      "draft_id": "DFT-108",
-      "subject": "Demo request (Regenerated v1)",
-      "approver": "Admin",
-      "action": "regenerated",
-      "timestamp": "2026-04-11T21:07:51.386346",
-      "emailed_to": null,
-      "sent": false,
-      "content": "Draft DFT-108 regenerated by simulated agent (v1)"
-    },
-    {
-      "draft_id": "DFT-107",
-      "subject": "Demo request",
-      "approver": "Admin",
-      "action": "approved",
-      "timestamp": "2026-04-11T21:07:28.697524",
-      "emailed_to": "simulated-user@example.com",
-      "sent": true,
-      "content": "Approved draft sent to simulated-user@example.com for draft DFT-107"
-    },
-    {
-      "draft_id": "DFT-106",
-      "subject": "Demo request",
-      "approver": "Admin",
-      "action": "approved",
-      "timestamp": "2026-04-11T21:07:15.544888",
-      "emailed_to": "simulated-user@example.com",
-      "sent": true,
-      "content": "Approved draft sent to simulated-user@example.com for draft DFT-106"
-    },
-    {
-      "draft_id": "DFT-102",
-      "subject": "Demo request (Regenerated v1)",
-      "approver": "Admin",
-      "action": "regenerated",
-      "timestamp": "2026-04-11T21:06:03.254649",
-      "emailed_to": null,
-      "sent": false,
-      "content": "Draft DFT-102 regenerated by simulated agent (v1)"
-    },
-    {
-      "draft_id": "DFT-104",
-      "subject": "Demo request",
-      "approver": "Admin",
-      "action": "approved",
-      "timestamp": "2026-04-11T21:05:54.605228",
-      "emailed_to": "simulated-user@example.com",
-      "sent": true,
-      "content": "Approved draft sent to simulated-user@example.com for draft DFT-104"
-    },
-    {
-      "draft_id": "DFT-103",
-      "subject": "Product pricing request",
-      "approver": "Admin",
-      "action": "approved",
-      "timestamp": "2026-04-11T21:05:43.766427",
-      "emailed_to": "simulated-user@example.com",
-      "sent": true,
-      "content": "Approved draft sent to simulated-user@example.com for draft DFT-103"
-    }
-  ]
+  "audits": []
 }

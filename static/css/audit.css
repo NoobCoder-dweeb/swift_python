@@ -1,0 +1,79 @@
+:root{
+  --audit-panel-bg: var(--surface-hover);
+  --audit-panel-border: var(--border);
+  --audit-ai-bg: var(--primary-light);
+  --audit-ai-border: var(--primary);
+}
+
+.audit-entry{
+  padding:1rem;
+  border-bottom:1px solid var(--border);
+  border-left:4px solid var(--audit-accent);
+  background:var(--surface);
+  color:var(--text-main);
+}
+
+.audit-title{
+  font-weight:600;
+  color:var(--audit-accent);
+}
+
+.audit-meta{
+  color:var(--text-muted);
+}
+
+.audit-content,
+.audit-review,
+.audit-footer{
+  margin-top:0.5rem;
+  color:var(--text-main);
+}
+
+.audit-copy,
+.audit-panel{
+  white-space:pre-wrap;
+}
+
+.audit-copy{
+  padding:0.25rem 0;
+}
+
+.audit-block{
+  margin-top:0.75rem;
+}
+
+.audit-panel{
+  margin-top:0.25rem;
+  padding:0.75rem;
+  background:var(--audit-panel-bg);
+  border:1px solid var(--audit-panel-border);
+  border-radius:8px;
+  color:var(--text-main);
+}
+
+.audit-block-ai .audit-panel{
+  background:var(--audit-ai-bg);
+  border-color:var(--audit-ai-border);
+  box-shadow:var(--shadow-sm);
+}
+
+.audit-review-status{
+  font-weight:600;
+}
+
+.audit-review-approved{
+  color:var(--success);
+}
+
+.audit-review-rejected{
+  color:var(--danger);
+}
+
+.audit-comment{
+  margin-top:0.25rem;
+  color:var(--text-muted);
+}
+
+[data-theme="dark"] .audit-block-ai .audit-panel{
+  box-shadow:var(--shadow-md);
+}
