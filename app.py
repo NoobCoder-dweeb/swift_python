@@ -2,11 +2,31 @@ from __future__ import annotations
 
 from flask import Flask, jsonify, redirect, render_template, request, flash, url_for, Response, stream_with_context
 import json
+from datetime import datetime
 
 from data import ANALYTICS, EVENTS, RECORDS, SETTINGS, USERS, DRAFTS, AUDITS, add_record, add_user_invite, add_draft_from_email, approve_draft, get_drafts, get_audits, start_email_listener, EVENTS_QUEUE, events_cond, publish_event
 
 app = Flask(__name__)
 app.secret_key = 'dev-secret-key'
+
+
+def _get_sort_order() -> str:
+    order = (request.args.get('order') or 'desc').strip().lower()
+    return 'asc' if order == 'asc' else 'desc'
+
+
+def _parse_sort_datetime(value: str | None) -> datetime:
+    if not value:
+        return datetime.min
+    try:
+        return datetime.fromisoformat(value)
+    except Exception:
+        return datetime.min
+
+
+def _sort_items(items, timestamp_key: str, order: str):
+    reverse = order != 'asc'
+    return sorted(items, key=lambda item: _parse_sort_datetime(item.get(timestamp_key)), reverse=reverse)
 
 
 @app.get('/')
@@ -105,7 +125,9 @@ def api_analytics():
 
 @app.get('/api/drafts')
 def api_drafts():
-    return jsonify([d.to_dict() for d in get_drafts()])
+    order = _get_sort_order()
+    drafts = [d.to_dict() for d in get_drafts()]
+    return jsonify(_sort_items(drafts, 'created', order))
 
 
 @app.post('/api/drafts/<draft_id>/approve')
@@ -159,7 +181,8 @@ def api_reject_draft(draft_id):
 
 @app.get('/api/audits')
 def api_audits():
-    return jsonify(get_audits())
+    order = _get_sort_order()
+    return jsonify(_sort_items(get_audits(), 'timestamp', order))
 
 
 @app.get('/stream')
@@ -183,12 +206,16 @@ def stream():
 
 @app.get('/pending.html')
 def pending_page():
-    return render_template('pending.html', drafts=get_drafts())
+    order = _get_sort_order()
+    drafts = _sort_items([d.to_dict() for d in get_drafts()], 'created', order)
+    return render_template('pending.html', drafts=drafts, sort_order=order)
 
 
 @app.get('/audit.html')
 def audit_page():
-    return render_template('audit.html', audits=get_audits())
+    order = _get_sort_order()
+    audits = _sort_items(get_audits(), 'timestamp', order)
+    return render_template('audit.html', audits=audits, sort_order=order)
 
 
 @app.get('/health')
