@@ -66,8 +66,7 @@
   display:none;
 }
 
-.audit-copy,
-.audit-panel{
+.audit-copy{
   white-space:pre-wrap;
 }
 
@@ -86,6 +85,29 @@
   border:1px solid var(--audit-panel-border);
   border-radius:8px;
   color:var(--text-main);
+  white-space:normal;
+  text-align:left;
+}
+
+.email-meta{
+  margin-top:0;
+  margin-bottom:0.75rem;
+  padding-bottom:0.6rem;
+  border-bottom:1px solid var(--audit-panel-border);
+  font-size:0.88rem;
+  color:var(--text-muted);
+  display:grid;
+  gap:0.2rem;
+}
+
+.email-meta strong{
+  color:var(--text-main);
+}
+
+.audit-email-body{
+  white-space:pre-wrap;
+  text-align:left;
+  display:block;
 }
 
 .audit-block-ai .audit-panel{

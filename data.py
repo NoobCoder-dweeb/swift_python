@@ -187,6 +187,31 @@ SAMPLE_EMAILS: list[dict[str, str]] = [
     },
 ]
 
+INVALID_GUARDRAIL_AUDIT: dict[str, Any] = {
+    'draft_id': 'DFT-GUARDRAIL-001',
+    'version_id': 'DFT-GUARDRAIL-001-v1',
+    'sender': 'prospect@example.com',
+    'subject': 'Request for customer personal information',
+    'approver': 'AI Guardrails',
+    'action': 'rejected',
+    'timestamp': '2026-04-13T09:15:00',
+    'emailed_to': None,
+    'sent': False,
+    'content': (
+        'Automatically rejected by guardrails because the inquiry requested customer personal information, '
+        'which is outside the allowed workflow and cannot be disclosed.'
+    ),
+    'customer_inquiry': (
+        'Hi,\n\nCan you send me the phone number, billing address, and account contact details for '
+        'our customer John Tan so I can follow up directly?\n\nThanks.'
+    ),
+    'ai_draft': (
+        'Auto-rejected by guardrails.\n\nThis request asks for customer personal information, which the system '
+        'cannot share. Only product stock availability and pricing inquiries are allowed in this workflow.'
+    ),
+    'review_comment': 'Rejected automatically before any customer response was drafted.',
+}
+
 @dataclass
 class Draft:
     draft_id: str
@@ -197,6 +222,7 @@ class Draft:
     created: str
     updated: str
     revisions: int = 0
+    last_rejection_reason: str = ''
 
     @property
     def customer_inquiry(self) -> str:
@@ -211,15 +237,42 @@ class Draft:
         revision_note = f"\n\nRevision note: updated draft v{self.revisions}." if self.revisions else ""
         category = self.inquiry_category
         inquiry_text = f'{self.subject} {self.customer_inquiry}'.lower()
+        feedback_note = ''
+        rejection_reason = (self.last_rejection_reason or '').strip()
+        lower_reason = rejection_reason.lower()
+        if rejection_reason:
+            feedback_note = f"\n\nAddressing reviewer feedback: {rejection_reason}."
 
         if category == 'pricing':
+            if any(keyword in lower_reason for keyword in ('short', 'brief', 'concise')):
+                return (
+                    "Hi,\n\n"
+                    "Thanks for your pricing inquiry for Product X. Our standard pricing is $120 per unit for orders below 100 units "
+                    "and $95 per unit for orders of 100 units or more.\n\n"
+                    "If you share your expected quantity and delivery target, we can confirm the final quote."
+                    f"{feedback_note}{revision_note}\n\n"
+                    "Best regards,\n"
+                    "Swift Support"
+                )
+
+            if any(keyword in lower_reason for keyword in ('lead time', 'timeline', 'delivery')):
+                return (
+                    "Hi,\n\n"
+                    "Thanks for your pricing inquiry for Product X. Our standard pricing is $120 per unit for orders below 100 units "
+                    "and $95 per unit for orders of 100 units or more, with a typical delivery timeline of 7 to 10 business days from order confirmation.\n\n"
+                    "If you share your target quantity and delivery date, we can confirm the exact quote and schedule."
+                    f"{feedback_note}{revision_note}\n\n"
+                    "Best regards,\n"
+                    "Swift Support"
+                )
+
             if any(keyword in inquiry_text for keyword in ('250', 'bulk', 'volume')):
                 return (
                     "Hi,\n\n"
                     "Thanks for your bulk pricing inquiry for Product X. For an order size around 250 units, "
                     "our indicative rate is $92 per unit, subject to final confirmation on delivery terms and order timing.\n\n"
                     "If you confirm the target ship date and delivery address, we can prepare the final bulk quote for you."
-                    f"{revision_note}\n\n"
+                    f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
                     "Swift Support"
                 )
@@ -230,7 +283,7 @@ class Draft:
                     "Yes, we can discuss distributor pricing for Product X. For repeat monthly orders, we usually review "
                     "forecasted volume, order frequency, and territory before confirming the commercial rate.\n\n"
                     "Please send your estimated monthly demand and target market, and we will share the appropriate pricing structure."
-                    f"{revision_note}\n\n"
+                    f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
                     "Swift Support"
                 )
@@ -241,19 +294,39 @@ class Draft:
                 "$120 per unit for orders under 100 units, and $95 per unit for orders of 100 units or more. "
                 "Our typical delivery timeline is 7 to 10 business days from order confirmation.\n\n"
                 "If you send over your expected quantity and target delivery date, we can confirm the exact quote."
-                f"{revision_note}\n\n"
+                f"{feedback_note}{revision_note}\n\n"
                 "Best regards,\n"
                 "Swift Support"
             )
 
         if category == 'availability':
+            if any(keyword in lower_reason for keyword in ('warehouse', 'location', 'ship from')):
+                return (
+                    "Hi,\n\n"
+                    "Thanks for checking stock availability for Product X. We can confirm inventory against the nearest warehouse once we have your requested quantity and delivery location.\n\n"
+                    "Please send the delivery address and quantity needed, and we will confirm stock allocation and dispatch timing."
+                    f"{feedback_note}{revision_note}\n\n"
+                    "Best regards,\n"
+                    "Swift Support"
+                )
+
+            if any(keyword in lower_reason for keyword in ('specific', 'exact quantity', 'confirm quantity')):
+                return (
+                    "Hi,\n\n"
+                    "Thanks for checking availability for Product X. We can confirm whether the exact quantity you need is available once you share the required units and requested ship date.\n\n"
+                    "Please reply with the quantity and delivery schedule, and we will confirm stock status right away."
+                    f"{feedback_note}{revision_note}\n\n"
+                    "Best regards,\n"
+                    "Swift Support"
+                )
+
             if any(keyword in inquiry_text for keyword in ('urgent', 'immediate', 'asap')):
                 return (
                     "Hi,\n\n"
                     "We can support an urgent stock check for Product X. Based on current inventory, we should be able "
                     "to review availability for immediate shipment once we confirm the exact quantity and delivery destination.\n\n"
                     "Please reply with your shipping address and required delivery date, and we will confirm the fastest available dispatch option."
-                    f"{revision_note}\n\n"
+                    f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
                     "Swift Support"
                 )
@@ -264,7 +337,7 @@ class Draft:
                     "Thanks for checking regional stock availability for Product X. We can verify inventory against the nearest warehouse "
                     "and confirm whether we can fulfill your requested quantity within your delivery window.\n\n"
                     "If you send the delivery address and required quantity, we will confirm stock allocation and lead time."
-                    f"{revision_note}\n\n"
+                    f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
                     "Swift Support"
                 )
@@ -275,7 +348,7 @@ class Draft:
                 "and can usually reserve stock once we receive your required quantity and requested ship date.\n\n"
                 "If you share the quantity you need and your delivery location, we can confirm availability and "
                 "hold timing for your order."
-                f"{revision_note}\n\n"
+                f"{feedback_note}{revision_note}\n\n"
                 "Best regards,\n"
                 "Swift Support"
             )
@@ -285,7 +358,7 @@ class Draft:
             "Thanks for your message. At the moment, this workflow only supports customer inquiries about "
             "product stock availability and pricing. Please resend your request with the product name and either "
             "the quantity needed, availability question, or pricing details you want confirmed."
-            f"{revision_note}\n\n"
+            f"{feedback_note}{revision_note}\n\n"
             "Best regards,\n"
             "Swift Support"
         )
@@ -361,6 +434,7 @@ def load_state() -> None:
                 created=d['created'],
                 updated=d['updated'],
                 revisions=d.get('revisions', 0),
+                last_rejection_reason=d.get('last_rejection_reason', ''),
             ))
         AUDITS.clear()
         AUDITS.extend(audits)
@@ -417,6 +491,7 @@ def add_draft_from_email(email_payload: dict[str,str]) -> Draft | None:
         created = datetime.now().isoformat(),
         updated = datetime.now().isoformat(),
         revisions = 0,
+        last_rejection_reason = '',
     )
     DRAFTS.insert(0, draft)
     save_state()
@@ -464,6 +539,7 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
     audit = {
         'draft_id': draft.draft_id,
         'version_id': _draft_version_id(draft.draft_id, draft.revisions),
+        'sender': draft.sender,
         'subject': draft.subject,
         'approver': approver,
         'action': 'approved',
@@ -487,7 +563,7 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
     return audit
 
 
-def reject_and_regenerate_draft(draft_id: str, requester: str) -> dict | None:
+def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason: str = '') -> dict | None:
     """
     Simulate asking the agent to regenerate a draft. Updates the draft body/subject and records a regeneration audit.
     Returns the updated draft as dict or None if not found.
@@ -497,6 +573,7 @@ def reject_and_regenerate_draft(draft_id: str, requester: str) -> dict | None:
         return None
     reviewed_version_id = _draft_version_id(draft.draft_id, draft.revisions)
     draft.revisions = getattr(draft, 'revisions', 0) + 1
+    draft.last_rejection_reason = (rejection_reason or '').strip()
     # Simulate regeneration by revising the AI reply while preserving the customer inquiry.
     draft.subject = f"{draft.subject.split(' (Regenerated')[0]} (Regenerated v{draft.revisions})"
     draft.status = 'pending'
@@ -507,6 +584,7 @@ def reject_and_regenerate_draft(draft_id: str, requester: str) -> dict | None:
         'draft_id': draft.draft_id,
         'version_id': reviewed_version_id,
         'next_version_id': regenerated_version_id,
+        'sender': draft.sender,
         'subject': draft.subject,
         'approver': requester,
         'action': 'rejected',
@@ -517,6 +595,7 @@ def reject_and_regenerate_draft(draft_id: str, requester: str) -> dict | None:
             f"Rejected version {reviewed_version_id}. "
             f"A new draft was generated as {regenerated_version_id}."
         ),
+        'review_comment': draft.last_rejection_reason or None,
         'customer_inquiry': draft.customer_inquiry,
         'ai_draft': draft.ai_draft,
     }
@@ -561,6 +640,22 @@ def ensure_sample_drafts() -> None:
     for payload in SAMPLE_EMAILS:
         add_draft_from_email(payload)
 
+
+def ensure_guardrail_audit_example() -> None:
+    existing = next(
+        (
+            audit for audit in AUDITS
+            if audit.get('draft_id') == INVALID_GUARDRAIL_AUDIT['draft_id']
+        ),
+        None,
+    )
+    if existing:
+        return
+
+    AUDITS.insert(0, dict(INVALID_GUARDRAIL_AUDIT))
+    save_state()
+
 # load persisted state on import
 load_state()
 ensure_sample_drafts()
+ensure_guardrail_audit_example()

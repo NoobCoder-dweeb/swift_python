@@ -31,8 +31,18 @@
   }
 
   async function postAction(url){
+    return postActionWithBody(url, null);
+  }
+
+  async function postActionWithBody(url, body){
     try{
-      const res = await fetch(url, {method:'POST', headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'}});
+      const headers = {'X-Requested-With':'XMLHttpRequest','Accept':'application/json'};
+      const options = {method:'POST', headers};
+      if(body){
+        headers['Content-Type'] = 'application/json';
+        options.body = JSON.stringify(body);
+      }
+      const res = await fetch(url, options);
       if(!res.ok) return null;
       const ct = res.headers.get('content-type') || '';
       if(ct.indexOf('application/json') !== -1){
@@ -61,13 +71,35 @@
         </div>
       </div>
       <div class="draft-body">
+        <div class="draft-section">
+          <div class="draft-section-label">Customer Email</div>
+          <div class="email-meta">
+            <div><strong>From:</strong> ${escapeHtml(d.sender)}</div>
+            <div><strong>Subject:</strong> ${escapeHtml(d.subject)}</div>
+          </div>
+          <div class="draft-section-content">${formatMultiline(d.customer_inquiry || d.body)}</div>
+        </div>
         <div class="draft-section draft-section-ai">
           <div class="draft-section-label">AI Response Draft</div>
+          <div class="email-meta">
+            <div><strong>To:</strong> ${escapeHtml(d.sender)}</div>
+            <div><strong>Subject:</strong> Re: ${escapeHtml(d.subject)}</div>
+          </div>
           <div class="draft-section-content">${formatMultiline(d.ai_draft)}</div>
         </div>
-        <div class="draft-section">
-          <div class="draft-section-label">Customer Inquiry</div>
-          <div class="draft-section-content">${formatMultiline(d.customer_inquiry || d.body)}</div>
+        <div class="draft-section draft-feedback${d.last_rejection_reason ? '' : ' is-hidden'}">
+          <div class="draft-section-label">Reviewer Feedback For Regeneration</div>
+          <label class="feedback-label" for="feedback-${d.draft_id}">Reason for rejection</label>
+          <textarea
+            id="feedback-${d.draft_id}"
+            class="feedback-input"
+            data-feedback-for="${d.draft_id}"
+            rows="3"
+            placeholder="Explain what is wrong with this draft so the AI can regenerate a better answer."
+          >${escapeHtml(d.last_rejection_reason || '')}</textarea>
+          <div class="feedback-error" data-feedback-error-for="${d.draft_id}" hidden>
+            A rejection reason is required before regenerating this draft.
+          </div>
         </div>
       </div>
     `;
@@ -86,6 +118,34 @@
 
   function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function formatMultiline(s){ return escapeHtml(s).replace(/\n/g, '<br>'); }
+
+  function getRejectionReason(id){
+    const input = document.querySelector(`[data-feedback-for='${id}']`);
+    return input ? input.value.trim() : '';
+  }
+
+  function getFeedbackPanel(id){
+    return document.querySelector(`.draft-card[data-draft-id='${id}'] .draft-feedback`);
+  }
+
+  function getFeedbackError(id){
+    return document.querySelector(`[data-feedback-error-for='${id}']`);
+  }
+
+  function showFeedbackPanel(id){
+    const panel = getFeedbackPanel(id);
+    if(!panel) return;
+    panel.classList.remove('is-hidden');
+  }
+
+  function setFeedbackError(id, message=''){
+    const input = document.querySelector(`[data-feedback-for='${id}']`);
+    const error = getFeedbackError(id);
+    if(input) input.classList.toggle('has-error', Boolean(message));
+    if(!error) return;
+    error.hidden = !message;
+    error.textContent = message || '';
+  }
 
   function setCardExpanded(card, expanded){
     if(!card) return;
@@ -129,10 +189,19 @@
       btn.addEventListener('click', async ()=>{
         const id = btn.dataset.draftId;
         const card = document.querySelector(`.draft-card[data-draft-id='${id}']`);
+        const rejectionReason = getRejectionReason(id);
+        showFeedbackPanel(id);
+        if(!rejectionReason){
+          setFeedbackError(id, 'A rejection reason is required before regenerating this draft.');
+          const input = document.querySelector(`[data-feedback-for='${id}']`);
+          if(input) input.focus();
+          return;
+        }
+        setFeedbackError(id, '');
         const backup = card ? card.outerHTML : null;
         if(card) card.remove();
         showToast('Regenerating draft...', 'info');
-        const res = await postAction(`/api/drafts/${id}/reject`);
+        const res = await postActionWithBody(`/api/drafts/${id}/reject`, {rejection_reason: rejectionReason});
         if(res){
           recentRegenerated.add(id);
           setTimeout(()=>recentRegenerated.delete(id),5000);
@@ -140,6 +209,15 @@
         }else{
           showToast('Reject failed', 'error');
           if(backup){ const list = document.getElementById('draftList'); list.insertAdjacentHTML('afterbegin', backup); attachCardHandlers(list); }
+        }
+      });
+    });
+    root.querySelectorAll('.feedback-input').forEach(input=>{
+      if(input._bound) return; input._bound = true;
+      input.addEventListener('input', ()=>{
+        const id = input.dataset.feedbackFor;
+        if(input.value.trim()){
+          setFeedbackError(id, '');
         }
       });
     });
