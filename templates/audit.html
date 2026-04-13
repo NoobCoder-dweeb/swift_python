@@ -40,6 +40,27 @@
         <main class="page-body" style="padding: 1rem 2rem;">
             {% if audits %}
                 {% set default_collapsed = audits|length >= 5 %}
+                <div class="toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                    <div>
+                        <button id="auditViewToggle" class="btn btn-text" data-compact="{% if default_collapsed %}true{% else %}false{% endif %}">
+                            {% if default_collapsed %}Expanded View{% else %}Compact View{% endif %}
+                        </button>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                        <a
+                            href="{{ url_for('audit_page', order='asc' if sort_order != 'asc' else 'desc') }}"
+                            class="header-icon-btn"
+                            aria-label="Toggle audit sort order"
+                            title="Toggle sort order"
+                            style="background:var(--surface-raised);color:var(--text-main);"
+                        >
+                            <i class="ph {% if sort_order == 'asc' %}ph-sort-ascending{% else %}ph-sort-descending{% endif %}"></i>
+                        </a>
+                        <span style="font-size:0.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">
+                            {{ 'Ascending' if sort_order == 'asc' else 'Descending' }}
+                        </span>
+                    </div>
+                </div>
                 <div class="card">
                     {% set shown = namespace(value=false) %}
                     {% for a in audits %}

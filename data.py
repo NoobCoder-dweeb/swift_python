@@ -138,6 +138,55 @@ def _resolve_assignee(code: str | None) -> str:
 import json
 from pathlib import Path
 
+
+def _classify_inquiry(subject: str, body: str) -> str | None:
+    text = f'{subject} {body}'.lower()
+
+    pricing_keywords = ('price', 'pricing', 'quote', 'cost', 'rate')
+    availability_keywords = (
+        'stock',
+        'availability',
+        'available',
+        'inventory',
+        'in stock',
+        'have on hand',
+    )
+
+    if any(keyword in text for keyword in pricing_keywords):
+        return 'pricing'
+    if any(keyword in text for keyword in availability_keywords):
+        return 'availability'
+    return None
+
+
+SAMPLE_EMAILS: list[dict[str, str]] = [
+    {
+        'from': 'alice@example.com',
+        'subject': 'Product pricing request',
+        'body': 'Can I get pricing for product X for an initial order of 40 units?',
+    },
+    {
+        'from': 'ben@example.com',
+        'subject': 'Bulk quote for Product X',
+        'body': 'Please share volume pricing for 250 units of product X for a June shipment.',
+    },
+    {
+        'from': 'carol@example.com',
+        'subject': 'Distributor price inquiry',
+        'body': 'Do you offer distributor pricing for product X if we reorder monthly?',
+    },
+    {
+        'from': 'dan@example.com',
+        'subject': 'Stock availability request',
+        'body': 'Is product X currently in stock for 50 units next week?',
+    },
+    {
+        'from': 'eva@example.com',
+        'subject': 'Urgent inventory check',
+        'body': 'Do you have 120 units of product X available for immediate shipment to Kuala Lumpur?',
+    },
+]
+
 @dataclass
 class Draft:
     draft_id: str
@@ -154,12 +203,38 @@ class Draft:
         return self.body
 
     @property
+    def inquiry_category(self) -> str | None:
+        return _classify_inquiry(self.subject, self.customer_inquiry)
+
+    @property
     def ai_draft(self) -> str:
         revision_note = f"\n\nRevision note: updated draft v{self.revisions}." if self.revisions else ""
-        lower_subject = self.subject.lower()
-        lower_inquiry = self.customer_inquiry.lower()
+        category = self.inquiry_category
+        inquiry_text = f'{self.subject} {self.customer_inquiry}'.lower()
 
-        if 'pricing' in lower_subject or 'pricing' in lower_inquiry:
+        if category == 'pricing':
+            if any(keyword in inquiry_text for keyword in ('250', 'bulk', 'volume')):
+                return (
+                    "Hi,\n\n"
+                    "Thanks for your bulk pricing inquiry for Product X. For an order size around 250 units, "
+                    "our indicative rate is $92 per unit, subject to final confirmation on delivery terms and order timing.\n\n"
+                    "If you confirm the target ship date and delivery address, we can prepare the final bulk quote for you."
+                    f"{revision_note}\n\n"
+                    "Best regards,\n"
+                    "Swift Support"
+                )
+
+            if any(keyword in inquiry_text for keyword in ('distributor', 'reseller', 'monthly reorder')):
+                return (
+                    "Hi,\n\n"
+                    "Yes, we can discuss distributor pricing for Product X. For repeat monthly orders, we usually review "
+                    "forecasted volume, order frequency, and territory before confirming the commercial rate.\n\n"
+                    "Please send your estimated monthly demand and target market, and we will share the appropriate pricing structure."
+                    f"{revision_note}\n\n"
+                    "Best regards,\n"
+                    "Swift Support"
+                )
+
             return (
                 "Hi,\n\n"
                 "Yes, we can share pricing for Product X. The current standard pricing is "
@@ -171,12 +246,35 @@ class Draft:
                 "Swift Support"
             )
 
-        if 'demo' in lower_subject or 'demo' in lower_inquiry:
+        if category == 'availability':
+            if any(keyword in inquiry_text for keyword in ('urgent', 'immediate', 'asap')):
+                return (
+                    "Hi,\n\n"
+                    "We can support an urgent stock check for Product X. Based on current inventory, we should be able "
+                    "to review availability for immediate shipment once we confirm the exact quantity and delivery destination.\n\n"
+                    "Please reply with your shipping address and required delivery date, and we will confirm the fastest available dispatch option."
+                    f"{revision_note}\n\n"
+                    "Best regards,\n"
+                    "Swift Support"
+                )
+
+            if any(keyword in inquiry_text for keyword in ('kuala lumpur', 'singapore', 'warehouse', 'location')):
+                return (
+                    "Hi,\n\n"
+                    "Thanks for checking regional stock availability for Product X. We can verify inventory against the nearest warehouse "
+                    "and confirm whether we can fulfill your requested quantity within your delivery window.\n\n"
+                    "If you send the delivery address and required quantity, we will confirm stock allocation and lead time."
+                    f"{revision_note}\n\n"
+                    "Best regards,\n"
+                    "Swift Support"
+                )
+
             return (
                 "Hi,\n\n"
-                "Yes, we can arrange a demo next week. We currently have openings on Tuesday at 10:00 AM "
-                "and Thursday at 2:00 PM, and the session usually runs for 30 minutes.\n\n"
-                "If either slot works for you, reply with your preferred time and we will send the calendar invite."
+                "Thanks for checking on stock availability for Product X. We currently have inventory available "
+                "and can usually reserve stock once we receive your required quantity and requested ship date.\n\n"
+                "If you share the quantity you need and your delivery location, we can confirm availability and "
+                "hold timing for your order."
                 f"{revision_note}\n\n"
                 "Best regards,\n"
                 "Swift Support"
@@ -184,9 +282,9 @@ class Draft:
 
         return (
             "Hi,\n\n"
-            "Thanks for your inquiry. We can support this request and our current standard turnaround time is "
-            "3 business days. Once you confirm the required quantity, preferred timeline, and any budget constraints, "
-            "we will send the final recommendation and next steps."
+            "Thanks for your message. At the moment, this workflow only supports customer inquiries about "
+            "product stock availability and pricing. Please resend your request with the product name and either "
+            "the quantity needed, availability question, or pricing details you want confirmed."
             f"{revision_note}\n\n"
             "Best regards,\n"
             "Swift Support"
@@ -276,7 +374,7 @@ def next_draft_id() -> str:
     return f'DFT-{highest + 1}'
 
 
-def add_draft_from_email(email_payload: dict[str,str]) -> Draft:
+def add_draft_from_email(email_payload: dict[str,str]) -> Draft | None:
     # Deduplicate by exact sender+subject+body for pending drafts
     sender = email_payload.get('from', 'noreply@example.com')
     subject = email_payload.get('subject','No subject')
@@ -295,6 +393,9 @@ def add_draft_from_email(email_payload: dict[str,str]) -> Draft:
             "- Any budget constraints?\n\n"
             f"Thanks,\n{sender_name}\n{sender}"
         )
+
+    if _classify_inquiry(subject, body) is None:
+        return None
 
     existing = next((d for d in DRAFTS if d.sender == sender and d.subject == subject and d.body == body and d.status == 'pending'), None)
     if existing:
@@ -327,7 +428,10 @@ def add_draft_from_email(email_payload: dict[str,str]) -> Draft:
 
 
 def get_drafts() -> list[Draft]:
-    return [d for d in DRAFTS if d.status == 'pending']
+    return [
+        d for d in DRAFTS
+        if d.status == 'pending' and d.inquiry_category in {'pricing', 'availability'}
+    ]
 
 
 def get_audits() -> list[dict]:
@@ -343,7 +447,7 @@ def get_audits() -> list[dict]:
 
 def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -> dict | None:
     draft = next((d for d in DRAFTS if d.draft_id == draft_id), None)
-    if not draft:
+    if not draft or draft.inquiry_category not in {'pricing', 'availability'}:
         return None
     # If already approved, return existing approval audit (idempotent)
     existing = next((a for a in AUDITS if a.get('draft_id') == draft_id and a.get('action') == 'approved'), None)
@@ -441,14 +545,10 @@ def publish_event(event: dict) -> None:
 
 
 def start_email_listener(poll_interval: int = 15):
-    sample_emails = [
-        {'from': 'alice@example.com', 'subject': 'Product pricing request', 'body': 'Can I get pricing for product X?'},
-        {'from': 'bob@example.com', 'subject': 'Demo request', 'body': 'We would like a demo next week.'},
-    ]
     def run():
         idx = 0
         while True:
-            payload = sample_emails[idx % len(sample_emails)]
+            payload = SAMPLE_EMAILS[idx % len(SAMPLE_EMAILS)]
             add_draft_from_email(payload)
             idx += 1
             time.sleep(poll_interval)
@@ -456,5 +556,11 @@ def start_email_listener(poll_interval: int = 15):
     thread.start()
     return thread
 
+
+def ensure_sample_drafts() -> None:
+    for payload in SAMPLE_EMAILS:
+        add_draft_from_email(payload)
+
 # load persisted state on import
 load_state()
+ensure_sample_drafts()

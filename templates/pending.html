@@ -43,10 +43,26 @@
                     <button id="viewToggle" class="btn btn-text" data-compact="false">Compact View</button>
                     <button id="refreshDrafts" class="btn btn-outline">Refresh</button>
                 </div>
-                <div style="font-size:0.9rem;color:var(--muted);">Sales review queue</div>
+                <div style="display:flex;align-items:center;gap:1rem;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                        <a
+                            href="{{ url_for('pending_page', order='asc' if sort_order != 'asc' else 'desc') }}"
+                            class="header-icon-btn"
+                            aria-label="Toggle draft sort order"
+                            title="Toggle sort order"
+                            style="background:var(--surface-raised);color:var(--text-main);"
+                        >
+                            <i class="ph {% if sort_order == 'asc' %}ph-sort-ascending{% else %}ph-sort-descending{% endif %}"></i>
+                        </a>
+                        <span style="font-size:0.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">
+                            {{ 'Ascending' if sort_order == 'asc' else 'Descending' }}
+                        </span>
+                    </div>
+                    <div style="font-size:0.9rem;color:var(--muted);">Sales review queue</div>
+                </div>
             </div>
 
-            <div id="draftContainer">
+            <div id="draftContainer" data-sort-order="{{ sort_order|default('desc') }}">
             {% if drafts %}
                 <div id="draftList">
                     {% for d in drafts %}
@@ -57,7 +73,7 @@
                                 <span class="draft-sender">From: {{ d.sender }} • {{ d.created_display }}</span>
                             </div>
                             <div class="draft-actions">
-                                <button class="expand-btn" aria-expanded="true"><i class="ph ph-caret-up"></i></button>
+                                <button class="expand-btn" type="button" aria-expanded="true"><i class="ph ph-caret-up"></i></button>
                                 {% if d.status == 'pending' %}
                                 <button class="btn btn-primary approve-btn" data-draft-id="{{ d.draft_id }}">Approve</button>
                                 <button class="btn btn-secondary reject-btn" data-draft-id="{{ d.draft_id }}">Reject</button>
