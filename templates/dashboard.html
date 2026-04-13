@@ -49,7 +49,7 @@
             <div class="alert alert-info mb-lg">
                 <i class="ph ph-info"></i>
                 <div>
-                    <strong>Welcome back!</strong> You have <strong>3 pending reviews</strong> and <strong>5 new records</strong> since your last login.
+                    <strong>Welcome back!</strong> You have <strong>{{ stats.pending_reviews }} pending reviews</strong> and <strong>5 new records</strong> since your last login.
                 </div>
             </div>
 
@@ -83,7 +83,7 @@
                 <div class="card stat-card">
                     <div class="stat-card-content">
                         <div class="stat-card-label">Pending Reviews</div>
-                        <div class="stat-card-value">24</div>
+                        <div class="stat-card-value">{{ stats.pending_reviews }}</div>
                         <div class="stat-card-change negative">
                             <i class="ph ph-trend-down"></i> -3.1% from last month
                         </div>

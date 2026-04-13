@@ -90,22 +90,42 @@
                                 <strong>Audit summary:</strong>
                                 <div class="audit-copy">{{ a.content }}</div>
 
+                                {% if a.original_email or a.customer_inquiry %}
+                                <div class="audit-block">
+                                    <strong>Customer email (original):</strong>
+                                    <div class="audit-panel">
+                                        <div class="email-meta">
+                                            <div><strong>From:</strong> {{ a.sender or 'Customer' }}</div>
+                                            {% if a.subject %}
+                                            <div><strong>Subject:</strong> {{ a.subject }}</div>
+                                            {% else %}
+                                            <div><strong>Subject:</strong> Inquiry</div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="audit-email-body">{{ a.original_email or a.customer_inquiry }}</div>
+                                    </div>
+                                </div>
+                                {% endif %}
+
                                 {% if a.ai_draft %}
                                 <div class="audit-block audit-block-ai">
                                     <strong>Draft response (AI):</strong>
-                                    <div class="audit-panel">{{ a.ai_draft }}</div>
+                                    <div class="audit-panel">
+                                        <div class="email-meta">
+                                            <div><strong>To:</strong> {{ a.emailed_to or a.sender or 'Customer' }}</div>
+                                            {% if a.subject %}
+                                            <div><strong>Subject:</strong> Re: {{ a.subject }}</div>
+                                            {% else %}
+                                            <div><strong>Subject:</strong> Re: Inquiry</div>
+                                            {% endif %}
+                                        </div>
+                                        <div class="audit-email-body">{{ a.ai_draft }}</div>
+                                    </div>
                                 </div>
                                 {% elif a.ai_decision %}
                                 <div class="audit-block audit-block-ai">
                                     <strong>AI decisions:</strong>
                                     <div class="audit-panel">{{ a.ai_decision }}</div>
-                                </div>
-                                {% endif %}
-
-                                {% if a.original_email or a.customer_inquiry %}
-                                <div class="audit-block">
-                                    <strong>Customer email (original):</strong>
-                                    <div class="audit-panel">{{ a.original_email or a.customer_inquiry }}</div>
                                 </div>
                                 {% endif %}
                             </div>

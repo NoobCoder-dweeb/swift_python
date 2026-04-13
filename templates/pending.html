@@ -83,13 +83,35 @@
                             </div>
                         </div>
                         <div class="draft-body">
+                            <div class="draft-section">
+                                <div class="draft-section-label">Customer Email</div>
+                                <div class="email-meta">
+                                    <div><strong>From:</strong> {{ d.sender }}</div>
+                                    <div><strong>Subject:</strong> {{ d.subject }}</div>
+                                </div>
+                                <div class="draft-section-content">{{ d.customer_inquiry }}</div>
+                            </div>
                             <div class="draft-section draft-section-ai">
                                 <div class="draft-section-label">AI Response Draft</div>
+                                <div class="email-meta">
+                                    <div><strong>To:</strong> {{ d.sender }}</div>
+                                    <div><strong>Subject:</strong> Re: {{ d.subject }}</div>
+                                </div>
                                 <div class="draft-section-content">{{ d.ai_draft }}</div>
                             </div>
-                            <div class="draft-section">
-                                <div class="draft-section-label">Customer Inquiry</div>
-                                <div class="draft-section-content">{{ d.customer_inquiry }}</div>
+                            <div class="draft-section draft-feedback{% if not d.last_rejection_reason %} is-hidden{% endif %}">
+                                <div class="draft-section-label">Reviewer Feedback For Regeneration</div>
+                                <label class="feedback-label" for="feedback-{{ d.draft_id }}">Reason for rejection</label>
+                                <textarea
+                                    id="feedback-{{ d.draft_id }}"
+                                    class="feedback-input"
+                                    data-feedback-for="{{ d.draft_id }}"
+                                    rows="3"
+                                    placeholder="Explain what is wrong with this draft so the AI can regenerate a better answer."
+                                >{{ d.last_rejection_reason }}</textarea>
+                                <div class="feedback-error" data-feedback-error-for="{{ d.draft_id }}" hidden>
+                                    A rejection reason is required before regenerating this draft.
+                                </div>
                             </div>
                         </div>
                     </div>

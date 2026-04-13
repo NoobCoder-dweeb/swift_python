@@ -39,7 +39,7 @@ def dashboard():
     stats = {
         'total_records': len(RECORDS),
         'active_users': len(USERS),
-        'pending_reviews': sum(1 for r in RECORDS if r.status == 'pending'),
+        'pending_reviews': len(get_drafts()),
         'resolved_issues': 847,
     }
     return render_template('dashboard.html', stats=stats, records=RECORDS[:5])
@@ -160,11 +160,13 @@ def api_approve_draft(draft_id):
 
 @app.post('/api/drafts/<draft_id>/reject')
 def api_reject_draft(draft_id):
-    requester = request.form.get('approver') or 'Admin'
+    payload = request.get_json(silent=True) if request.is_json else None
+    requester = (payload or {}).get('approver') or request.form.get('approver') or 'Admin'
+    rejection_reason = (payload or {}).get('rejection_reason') or request.form.get('rejection_reason') or ''
     result = None
     try:
         from data import reject_and_regenerate_draft
-        result = reject_and_regenerate_draft(draft_id, requester)
+        result = reject_and_regenerate_draft(draft_id, requester, rejection_reason)
     except Exception:
         result = None
     if not result:
