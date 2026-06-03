@@ -45,47 +45,6 @@ def dashboard():
     return render_template('dashboard.html', stats=stats, records=RECORDS[:5])
 
 
-@app.route('/filter-list.html', methods=['GET'])
-def records_list():
-    return render_template('filter-list.html', records=RECORDS)
-
-
-@app.route('/create-record.html', methods=['GET', 'POST'])
-def create_record():
-    if request.method == 'POST':
-        record = add_record(request.form.to_dict())
-        flash(f"Record {record.record_id} was created successfully.", 'success')
-        return redirect(url_for('record_details', record_id=record.record_id))
-    return render_template('create-record.html')
-
-
-@app.get('/record-details.html')
-def record_details():
-    record_id = request.args.get('record_id', RECORDS[0].record_id)
-    record = next((r for r in RECORDS if r.record_id == record_id), RECORDS[0])
-    return render_template('record-details.html', record=record)
-
-
-@app.get('/users.html')
-def users_page():
-    return render_template('users.html', users=USERS)
-
-
-@app.get('/analytics.html')
-def analytics_page():
-    return render_template('analytics.html', analytics=ANALYTICS)
-
-
-@app.get('/calendar.html')
-def calendar_page():
-    return render_template('calendar.html', events=EVENTS)
-
-
-@app.get('/settings.html')
-def settings_page():
-    return render_template('settings.html', settings=SETTINGS)
-
-
 @app.get('/api/records')
 def api_records():
     return jsonify([r.to_dict() for r in RECORDS])

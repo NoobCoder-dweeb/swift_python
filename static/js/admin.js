@@ -6,7 +6,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     initSidebar();
     initTabs();
-    rewriteRecordDetailLinks();
     initNotifications();
 });
 
@@ -217,14 +216,5 @@ function initTabs() {
                 if (pane) pane.classList.add('active');
             }
         });
-    });
-}
-
-function rewriteRecordDetailLinks() {
-    document.querySelectorAll('a[href$="record-details.html"], a.record-id').forEach(link => {
-        const id = (link.textContent || '').trim();
-        if (id.startsWith('REC-')) {
-            link.setAttribute('href', `/record-details.html?record_id=${encodeURIComponent(id)}`);
-        }
     });
 }

@@ -229,7 +229,6 @@
                 <div class="card">
                     <div class="flex-between mb-md">
                         <h3 style="font-size: 1.1rem;">Recent Activity</h3>
-                        <a href="{{ url_for('records_list') }}" class="btn btn-text btn-sm">View All <i class="ph ph-arrow-right"></i></a>
                     </div>
                     <div class="timeline">
                         <div class="timeline-item">
@@ -258,7 +257,6 @@
                 <div class="card">
                     <div class="flex-between mb-md">
                         <h3 style="font-size: 1.1rem;">Top Records</h3>
-                        <a href="{{ url_for('records_list') }}" class="btn btn-text btn-sm">View All <i class="ph ph-arrow-right"></i></a>
                     </div>
                     <div class="table-container">
                         <table class="table">
@@ -272,35 +270,35 @@
                             <tbody>
                                 <tr>
                                     <td>
-                                        <a href="{{ url_for('record_details') }}" style="text-decoration: none; color: var(--text-main); font-weight: 500;">REC-1084</a>
+                                        <span style="color: var(--text-main); font-weight: 500;">REC-1084</span>
                                     </td>
                                     <td><span class="badge badge-success">Active</span></td>
                                     <td class="text-muted">Today</td>
                                 </tr>
                                 <tr>
                                     <td>
-                                        <a href="{{ url_for('record_details') }}" style="text-decoration: none; color: var(--text-main); font-weight: 500;">REC-1083</a>
+                                        <span style="color: var(--text-main); font-weight: 500;">REC-1083</span>
                                     </td>
                                     <td><span class="badge badge-warning">Pending</span></td>
                                     <td class="text-muted">Yesterday</td>
                                 </tr>
                                 <tr>
                                     <td>
-                                        <a href="{{ url_for('record_details') }}" style="text-decoration: none; color: var(--text-main); font-weight: 500;">REC-1082</a>
+                                        <span style="color: var(--text-main); font-weight: 500;">REC-1082</span>
                                     </td>
                                     <td><span class="badge badge-primary">In Progress</span></td>
                                     <td class="text-muted">2 days ago</td>
                                 </tr>
                                 <tr>
                                     <td>
-                                        <a href="{{ url_for('record_details') }}" style="text-decoration: none; color: var(--text-main); font-weight: 500;">REC-1081</a>
+                                        <span style="color: var(--text-main); font-weight: 500;">REC-1081</span>
                                     </td>
                                     <td><span class="badge badge-danger">Archived</span></td>
                                     <td class="text-muted">3 days ago</td>
                                 </tr>
                                 <tr>
                                     <td>
-                                        <a href="{{ url_for('record_details') }}" style="text-decoration: none; color: var(--text-main); font-weight: 500;">REC-1080</a>
+                                        <span style="color: var(--text-main); font-weight: 500;">REC-1080</span>
                                     </td>
                                     <td><span class="badge badge-success">Active</span></td>
                                     <td class="text-muted">1 week ago</td>
@@ -326,12 +324,6 @@
                     </div>
                     <p class="text-muted text-sm mb-md">Common tasks you might want to perform.</p>
                     <div class="btn-group" style="flex-direction: column;">
-                        <a href="{{ url_for('create_record') }}" class="btn btn-primary" style="justify-content: center;">
-                            <i class="ph ph-plus-circle"></i> Create New Record
-                        </a>
-                        <a href="{{ url_for('records_list') }}" class="btn btn-secondary" style="justify-content: center;">
-                            <i class="ph ph-list-magnifying-glass"></i> Browse Records
-                        </a>
                         <button class="btn btn-secondary" style="justify-content: center;">
                             <i class="ph ph-export"></i> Export Report
                         </button>
