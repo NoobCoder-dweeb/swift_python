@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import json
+import threading
+import time
 from dataclasses import dataclass, asdict
 from datetime import date, datetime
+from pathlib import Path
 from typing import Any
 
 
@@ -135,10 +139,6 @@ def _resolve_assignee(code: str | None) -> str:
 
 
 # Draft and audit models for email processing (in-memory)
-import json
-from pathlib import Path
-
-
 def _classify_inquiry(subject: str, body: str) -> str | None:
     text = f'{subject} {body}'.lower()
 
@@ -448,17 +448,18 @@ def next_draft_id() -> str:
     return f'DFT-{highest + 1}'
 
 
-def add_draft_from_email(email_payload: dict[str,str]) -> Draft | None:
+def add_draft_from_email(email_payload: dict[str, object]) -> Draft | None:
     # Deduplicate by exact sender+subject+body for pending drafts
-    sender = email_payload.get('from', 'noreply@example.com')
-    subject = email_payload.get('subject','No subject')
-    body = email_payload.get('body','')
+    sender = str(email_payload.get('from', 'noreply@example.com'))
+    subject = str(email_payload.get('subject', 'No subject'))
+    body = str(email_payload.get('body', ''))
+    expand_short_body = bool(email_payload.get('expand_short_body', True))
 
     # Normalize sender display name
     sender_name = sender.split('@')[0].replace('.', ' ').title()
 
     # If the incoming body is short, expand it into a more structured email-like body
-    if len((body or '').strip()) < 80:
+    if expand_short_body and len((body or '').strip()) < 80:
         body = (
             f"Hi,\n\n{body}\n\n"
             "Could you share a few more details about your request? Specifically:\n"
@@ -609,9 +610,6 @@ def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason:
 
 
 # Background email listener (simulated with hardcoded emails)
-import threading
-import time
-
 # Simple in-process event queue and condition for server-sent events
 EVENTS_QUEUE: list[dict] = []
 events_cond = threading.Condition()

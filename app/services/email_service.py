@@ -4,6 +4,8 @@ from datetime import datetime
 from app.schemas.email import IncomingEmail
 from app.schemas.draft import EmailPayload
 from app.services.draft_service import DraftService
+from app.services.email_preprocessor import preprocess_email
+from data import add_draft_from_email
 
 
 class EmailService:
@@ -13,12 +15,17 @@ class EmailService:
 
     async def process_email(self, email: IncomingEmail):
         email_id = f"EML-{uuid4().hex[:8].upper()}"
+        preprocessed = preprocess_email(email)
+        cleaned_email = preprocessed.email
 
         email_record = {
             "email_id": email_id,
-            "sender": email.sender,
-            "subject": email.subject,
-            "body": email.body,
+            "sender": cleaned_email.sender,
+            "subject": cleaned_email.subject,
+            "body": cleaned_email.body,
+            "raw_body": preprocessed.original_body,
+            "preprocessed": preprocessed.changed,
+            "removed_line_count": len(preprocessed.removed_lines),
             "status": "received",
             "created_at": datetime.now().isoformat(),
         }
@@ -27,9 +34,9 @@ class EmailService:
 
         draft = await self.draft_service.generate_draft(
             EmailPayload(
-                sender=email.sender,
-                subject=email.subject,
-                body=email.body,
+                sender=cleaned_email.sender,
+                subject=cleaned_email.subject,
+                body=cleaned_email.body,
             )
         )
 
@@ -41,6 +48,52 @@ class EmailService:
             "success": True,
             "email": email_record,
             "draft": draft,
+        }
+
+    async def ingest_email(self, email: IncomingEmail):
+        email_id = f"EML-{uuid4().hex[:8].upper()}"
+        preprocessed = preprocess_email(email)
+        cleaned_email = preprocessed.email
+
+        email_record = {
+            "email_id": email_id,
+            "sender": cleaned_email.sender,
+            "subject": cleaned_email.subject,
+            "body": cleaned_email.body,
+            "raw_body": preprocessed.original_body,
+            "preprocessed": preprocessed.changed,
+            "removed_line_count": len(preprocessed.removed_lines),
+            "status": "received",
+            "created_at": datetime.now().isoformat(),
+        }
+        self.queue[email_id] = email_record
+
+        draft = add_draft_from_email(
+            {
+                "from": cleaned_email.sender,
+                "subject": cleaned_email.subject,
+                "body": cleaned_email.body,
+                "expand_short_body": False,
+            }
+        )
+
+        email_record["status"] = "processed" if draft else "received"
+        email_record["draft_id"] = draft.draft_id if draft else None
+        email_record["updated_at"] = datetime.now().isoformat()
+
+        return {
+            "success": True,
+            "ingested": draft is not None,
+            "email": email_record,
+            "draft": draft.to_dict() if draft else None,
+            "message": (
+                "Email received and queued as a pending draft."
+                if draft
+                else (
+                    "Email received, but no pending draft was created because "
+                    "only pricing and availability inquiries are currently supported."
+                )
+            ),
         }
 
     def get_queue(self):
