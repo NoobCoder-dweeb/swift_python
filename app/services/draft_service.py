@@ -1,7 +1,8 @@
-from uuid import uuid4
 from datetime import datetime
 
+from app.crews.sales_inquiry_crew import run_sales_inquiry_workflow
 from app.schemas.draft import EmailPayload, DraftResponse
+from app.schemas.email import IncomingEmail
 
 
 class DraftService:
@@ -9,27 +10,26 @@ class DraftService:
         self.drafts = {}
 
     async def generate_draft(self, email: EmailPayload) -> DraftResponse:
-        draft_id = f"DFT-{uuid4().hex[:8].upper()}"
-
-        draft = DraftResponse(
-            draft_id=draft_id,
-            sender=email.sender,
-            subject=email.subject,
-            customer_inquiry=email.body,
-            ai_draft=(
-                "Dear Customer,\n\n"
-                "Thank you for your inquiry. "
-                "We are currently checking the requested product details, "
-                "stock availability, and pricing information.\n\n"
-                "A sales representative will review this draft before it is sent.\n\n"
-                "Best regards,\n"
-                "Safetyware Sales Team"
-            ),
-            status="pending",
+        workflow = run_sales_inquiry_workflow(
+            IncomingEmail(
+                sender=email.sender,
+                subject=email.subject,
+                body=email.body,
+            )
         )
 
-        self.drafts[draft_id] = {
+        draft = DraftResponse(
+            draft_id=workflow.draft_id,
+            sender=email.sender,
+            subject=email.subject,
+            customer_inquiry=workflow.customer_inquiry,
+            ai_draft=workflow.ai_draft,
+            status=workflow.status,
+        )
+
+        self.drafts[workflow.draft_id] = {
             **draft.model_dump(),
+            "workflow": workflow.model_dump(),
             "created_at": datetime.now().isoformat(),
             "updated_at": datetime.now().isoformat(),
         }

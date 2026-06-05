@@ -1,0 +1,85 @@
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, Field
+
+
+InquiryType = Literal["pricing", "availability", "mixed", "unsupported", "unknown"]
+WorkflowMode = Literal["deterministic", "crewai"]
+
+
+class InquiryDetails(BaseModel):
+    sender: str
+    subject: str
+    body: str
+    inquiry_type: InquiryType = "unknown"
+    product_name: str | None = None
+    quantity: int | None = None
+    requested_delivery: str | None = None
+    missing_information: list[str] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
+    confidence: float = 0.0
+
+
+class ProductContext(BaseModel):
+    product: str | None = None
+    sku: str | None = None
+    stock_availability: int | None = None
+    price: float | None = None
+    currency: str = "USD"
+    lead_time_days: int | None = None
+    source: str = "local_catalog"
+    confidence: float = 0.0
+    notes: list[str] = Field(default_factory=list)
+
+
+class DraftValidationResult(BaseModel):
+    valid: bool
+    action: Literal["approve", "regenerate", "reject"]
+    reasons: list[str] = Field(default_factory=list)
+
+
+class SalesWorkflowResult(BaseModel):
+    draft_id: str
+    sender: str
+    subject: str
+    customer_inquiry: str
+    inquiry: InquiryDetails
+    product_context: ProductContext
+    ai_draft: str
+    validation: DraftValidationResult
+    status: Literal["pending", "blocked"] = "pending"
+    execution_mode: WorkflowMode = "deterministic"
+    chokeholds: list[str] = Field(default_factory=list)
+    elapsed_ms: float = 0.0
+
+
+class StressScenario(BaseModel):
+    name: str
+    sender: str = "stress.customer@example.com"
+    subject: str
+    body: str
+    expected_type: InquiryType | None = None
+    required_terms: list[str] = Field(default_factory=list)
+    forbidden_terms: list[str] = Field(default_factory=list)
+    expect_valid: bool | None = None
+
+
+class StressCaseResult(BaseModel):
+    name: str
+    passed: bool
+    elapsed_ms: float
+    issues: list[str] = Field(default_factory=list)
+    chokeholds: list[str] = Field(default_factory=list)
+    workflow: SalesWorkflowResult
+
+
+class StressSuiteResult(BaseModel):
+    mode: WorkflowMode
+    total: int
+    passed: int
+    failed: int
+    elapsed_ms: float
+    case_results: list[StressCaseResult]
+    chokeholds: list[str] = Field(default_factory=list)
