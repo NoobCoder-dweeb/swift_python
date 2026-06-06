@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
 
+import app.core.environment  # noqa: F401
 from app.crews.workflow_models import (
     DraftValidationResult,
     InquiryDetails,
@@ -19,7 +20,7 @@ class ProductLookupClient(Protocol):
 
 @dataclass(frozen=True)
 class LocalLLMConfig:
-    model: str = "ollama/llama3.2:3b"
+    model: str = "llama3.2:3b"
     provider: str = "ollama"
     base_url: str = "http://127.0.0.1:11434"
     timeout: int = 45
@@ -36,6 +37,87 @@ class LocalLLMConfig:
                 os.environ.get("SWIFT_LOCAL_LLM_TEMPERATURE", str(cls.temperature))
             ),
         )
+
+    @classmethod
+    def for_role(cls, role: str, default_model: str) -> "LocalLLMConfig":
+        prefix = f"SWIFT_{role.upper()}_LLM"
+        return cls(
+            model=os.environ.get(
+                f"{prefix}_MODEL",
+                os.environ.get("SWIFT_LOCAL_LLM_MODEL", default_model)
+                if role == "sales"
+                else default_model,
+            ),
+            provider=os.environ.get(
+                f"{prefix}_PROVIDER",
+                os.environ.get("SWIFT_LOCAL_LLM_PROVIDER", cls.provider),
+            ),
+            base_url=os.environ.get(
+                f"{prefix}_BASE_URL",
+                os.environ.get("SWIFT_LOCAL_LLM_BASE_URL", cls.base_url),
+            ),
+            timeout=int(
+                os.environ.get(
+                    f"{prefix}_TIMEOUT",
+                    os.environ.get("SWIFT_LOCAL_LLM_TIMEOUT", str(cls.timeout)),
+                )
+            ),
+            temperature=float(
+                os.environ.get(
+                    f"{prefix}_TEMPERATURE",
+                    os.environ.get(
+                        "SWIFT_LOCAL_LLM_TEMPERATURE", str(cls.temperature)
+                    ),
+                )
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class MultiAgentLLMConfig:
+    supervisor: LocalLLMConfig = field(
+        default_factory=lambda: LocalLLMConfig(model="nemotron-mini:4b")
+    )
+    sales: LocalLLMConfig = field(
+        default_factory=lambda: LocalLLMConfig(model="llama3.2:3b")
+    )
+    drafting: LocalLLMConfig = field(
+        default_factory=lambda: LocalLLMConfig(model="qwen2.5:3b")
+    )
+
+    @classmethod
+    def from_env(
+        cls, sales_override: LocalLLMConfig | None = None
+    ) -> "MultiAgentLLMConfig":
+        config = cls(
+            supervisor=LocalLLMConfig.for_role(
+                "supervisor", "nemotron-mini:4b"
+            ),
+            sales=sales_override
+            or LocalLLMConfig.for_role("sales", "llama3.2:3b"),
+            drafting=LocalLLMConfig.for_role("draft", "qwen2.5:3b"),
+        )
+        config.validate_unique_models()
+        return config
+
+    def validate_unique_models(self) -> None:
+        role_models = {
+            "supervisor": self.supervisor.model,
+            "sales": self.sales.model,
+            "draft": self.drafting.model,
+        }
+        if len(set(role_models.values())) != len(role_models):
+            raise ValueError(
+                "CrewAI role models must be unique: "
+                + ", ".join(f"{role}={model}" for role, model in role_models.items())
+            )
+
+    def model_names(self) -> dict[str, str]:
+        return {
+            "supervisor": self.supervisor.model,
+            "sales": self.sales.model,
+            "draft": self.drafting.model,
+        }
 
 
 DEFAULT_PRODUCT_CATALOG: list[ProductContext] = [
@@ -278,7 +360,7 @@ class EmailDraftingAgent:
                 "Please send a product pricing or stock availability question and I can "
                 "help route it for review.\n\n"
                 "Best regards,\n"
-                "Swift Support"
+                "Project Swift Support"
             )
 
         product = context.product or (inquiry.product_name if inquiry else None)
@@ -289,7 +371,7 @@ class EmailDraftingAgent:
                 "quantity required, and target delivery timing so we can check pricing "
                 "and stock availability accurately?\n\n"
                 "Best regards,\n"
-                "Swift Support"
+                "Project Swift Support"
             )
 
         lines = [
@@ -335,7 +417,7 @@ class EmailDraftingAgent:
                 )
                 lines.append(f"Please confirm the missing details: {readable}.")
 
-        lines.extend(["", "Best regards,", "Swift Support"])
+        lines.extend(["", "Best regards,", "Project Swift Support"])
         return "\n".join(lines)
 
     def validate_draft(
@@ -352,6 +434,30 @@ class EmailDraftingAgent:
             reasons.append("missing_signature")
         if any(term in lower for term in ("unknown", "tbd", "invented")):
             reasons.append("contains_unapproved_placeholder")
+        if re.search(r"\[[^\]]+\]", draft):
+            reasons.append("contains_signature_placeholder")
+        if any(
+            term in lower
+            for term in (
+                "your name",
+                "your position",
+                "your company",
+                "sales representative",
+            )
+        ):
+            reasons.append("contains_generic_signature_placeholder")
+        if lower.lstrip().startswith("subject:"):
+            reasons.append("contains_subject_line")
+        if any(
+            term in lower
+            for term in (
+                "no additional cost",
+                "no extra cost",
+                "free of charge",
+                "no cost",
+            )
+        ):
+            reasons.append("contains_unapproved_commercial_claim")
 
         if info:
             product = (
@@ -377,13 +483,20 @@ def create_local_llm(config: LocalLLMConfig | None = None):
     from crewai import LLM
 
     config = config or LocalLLMConfig.from_env()
+    model = _normalize_model_name(config.model, config.provider)
     return LLM(
-        model=config.model,
+        model=model,
         provider=config.provider,
         base_url=config.base_url,
         temperature=config.temperature,
         timeout=config.timeout,
     )
+
+
+def _normalize_model_name(model: str, provider: str) -> str:
+    if provider == "ollama" and model.startswith("ollama/"):
+        return model.removeprefix("ollama/")
+    return model
 
 
 def create_sales_processing_crewai_agent(llm: Any = None, verbose: bool = False):
@@ -404,6 +517,28 @@ def create_sales_processing_crewai_agent(llm: Any = None, verbose: bool = False)
         verbose=verbose,
         allow_delegation=False,
         max_iter=5,
+    )
+
+
+def create_supervisor_crewai_agent(llm: Any = None, verbose: bool = False):
+    _configure_crewai_storage()
+    from crewai import Agent
+
+    return Agent(
+        role="Sales Workflow Supervisor",
+        goal=(
+            "Supervise the sales inquiry workflow, verify that product facts came "
+            "from approved data, and keep every AI response gated for human review."
+        ),
+        backstory=(
+            "You are a sales operations supervisor. You check draft quality, "
+            "guardrail compliance, and whether the draft is ready to notify a "
+            "human sales officer for approval."
+        ),
+        llm=llm,
+        verbose=verbose,
+        allow_delegation=False,
+        max_iter=4,
     )
 
 
@@ -430,7 +565,7 @@ def create_email_drafting_crewai_agent(llm: Any = None, verbose: bool = False):
 
 def _configure_crewai_storage() -> None:
     storage_home = Path(
-        os.environ.get("SWIFT_CREWAI_HOME", "/private/tmp/project_swift_crewai_home")
+        os.environ.get("SWIFT_CREWAI_HOME", "/tmp/project_swift_crewai_home")
     )
     storage_home.mkdir(parents=True, exist_ok=True)
     os.environ["HOME"] = str(storage_home)

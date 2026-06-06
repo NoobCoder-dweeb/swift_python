@@ -1,13 +1,17 @@
+import asyncio
+import json
 from datetime import datetime
 
 from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.routing import NoMatchFound
 
+import app.core.environment  # noqa: F401
 from app.api.v1.routes import drafts, audits, health, emails
-from data import RECORDS, USERS, get_audits, get_drafts
+from data import EVENTS_QUEUE, RECORDS, USERS, events_cond, get_audits, get_drafts
 
 app = FastAPI(title="Project Swift Backend")
 
@@ -96,4 +100,37 @@ async def audit_page(request: Request):
         request=request,
         name="audit.html",
         context=_template_context(request, audits=sorted_audits, sort_order=order),
+    )
+
+
+def _wait_for_sse_events(timeout: float = 1.0) -> list[dict]:
+    with events_cond:
+        events_cond.wait(timeout=timeout)
+        events = list(EVENTS_QUEUE)
+        EVENTS_QUEUE.clear()
+        return events
+
+
+@app.get("/stream")
+async def stream(request: Request):
+    async def event_stream():
+        try:
+            while not await request.is_disconnected():
+                events = await asyncio.to_thread(_wait_for_sse_events)
+                if not events:
+                    yield ": keep-alive\n\n"
+                    continue
+
+                for event in events:
+                    payload = event.get("payload", event)
+                    event_type = event.get("type", "message")
+                    yield f"event: {event_type}\n"
+                    yield f"data: {json.dumps(payload)}\n\n"
+        except asyncio.CancelledError:
+            return
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
     )

@@ -223,6 +223,8 @@ class Draft:
     updated: str
     revisions: int = 0
     last_rejection_reason: str = ''
+    ai_draft_text: str = ''
+    workflow: dict[str, Any] | None = None
 
     @property
     def customer_inquiry(self) -> str:
@@ -234,6 +236,9 @@ class Draft:
 
     @property
     def ai_draft(self) -> str:
+        if self.ai_draft_text.strip():
+            return self.ai_draft_text
+
         revision_note = f"\n\nRevision note: updated draft v{self.revisions}." if self.revisions else ""
         category = self.inquiry_category
         inquiry_text = f'{self.subject} {self.customer_inquiry}'.lower()
@@ -435,6 +440,8 @@ def load_state() -> None:
                 updated=d['updated'],
                 revisions=d.get('revisions', 0),
                 last_rejection_reason=d.get('last_rejection_reason', ''),
+                ai_draft_text=d.get('ai_draft_text', ''),
+                workflow=d.get('workflow'),
             ))
         AUDITS.clear()
         AUDITS.extend(audits)
@@ -444,7 +451,13 @@ def load_state() -> None:
 
 
 def next_draft_id() -> str:
-    highest = max([int(d.draft_id.split('-')[1]) for d in DRAFTS], default=100)
+    numeric_ids: list[int] = []
+    for draft in DRAFTS:
+        try:
+            numeric_ids.append(int(draft.draft_id.split('-')[1]))
+        except Exception:
+            continue
+    highest = max(numeric_ids, default=100)
     return f'DFT-{highest + 1}'
 
 
@@ -500,6 +513,68 @@ def add_draft_from_email(email_payload: dict[str, object]) -> Draft | None:
         publish_event({'type': 'draft_created', 'payload': draft.to_dict()})
     except Exception:
         pass
+    return draft
+
+
+def add_generated_draft(
+    email_payload: dict[str, object],
+    *,
+    ai_draft: str,
+    status: str = 'pending',
+    workflow: dict[str, Any] | None = None,
+    draft_id: str | None = None,
+) -> Draft | None:
+    sender = str(email_payload.get('from') or email_payload.get('sender') or 'noreply@example.com')
+    subject = str(email_payload.get('subject') or 'No subject')
+    body = str(email_payload.get('body') or '')
+    normalized_status = status if status in {'pending', 'blocked'} else 'pending'
+
+    if _classify_inquiry(subject, body) is None and normalized_status == 'pending':
+        return None
+
+    existing = next(
+        (
+            d for d in DRAFTS
+            if d.sender == sender
+            and d.subject == subject
+            and d.body == body
+            and d.status == normalized_status
+        ),
+        None,
+    )
+    if existing:
+        existing.ai_draft_text = ai_draft
+        existing.workflow = workflow
+        existing.updated = datetime.now().isoformat()
+        save_state()
+        if existing.status == 'pending':
+            try:
+                publish_event({'type': 'draft_updated', 'payload': existing.to_dict()})
+            except Exception:
+                pass
+        return existing
+
+    now = datetime.now().isoformat()
+    draft = Draft(
+        draft_id=draft_id or next_draft_id(),
+        sender=sender,
+        subject=subject,
+        body=body,
+        status=normalized_status,
+        created=now,
+        updated=now,
+        revisions=0,
+        last_rejection_reason='',
+        ai_draft_text=ai_draft,
+        workflow=workflow,
+    )
+    DRAFTS.insert(0, draft)
+    save_state()
+    if draft.status == 'pending':
+        try:
+            publish_event({'type': 'draft_created', 'payload': draft.to_dict()})
+        except Exception:
+            pass
     return draft
 
 

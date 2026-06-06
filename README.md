@@ -36,14 +36,17 @@ stock availability query.
 The real sales workflow lives under `app/crews`, not in `data.py`. The default
 path is deterministic so tests can run without a model server. To run through
 CrewAI with a local small language model, start an OpenAI-compatible or
-Ollama-compatible local model endpoint and enable CrewAI:
+Ollama-compatible local model endpoint. The app loads CrewAI/Ollama settings
+from `.env`:
 
 ```bash
-export SWIFT_CREWAI_ENABLED=1
-export SWIFT_LOCAL_LLM_MODEL="ollama/llama3.2:3b"
-export SWIFT_LOCAL_LLM_PROVIDER="ollama"
-export SWIFT_LOCAL_LLM_BASE_URL="http://127.0.0.1:11434"
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
+
+CrewAI uses a separate small model for each role. The supervisor defaults to
+Nemotron Mini, the sales processing/database-context agent defaults to Llama
+3.2 3B, and the response drafting agent defaults to Qwen 2.5 3B. The role model
+names must remain unique so one model is not reused across the crew.
 
 Run the stress harness:
 

@@ -7,12 +7,18 @@ from uuid import uuid4
 from app.crews.agents import (
     EmailDraftingAgent,
     LocalLLMConfig,
+    MultiAgentLLMConfig,
     SalesProcessingAgent,
     create_email_drafting_crewai_agent,
     create_local_llm,
     create_sales_processing_crewai_agent,
+    create_supervisor_crewai_agent,
 )
-from app.crews.tasks import create_draft_response_task, create_extract_inquiry_task
+from app.crews.tasks import (
+    create_draft_response_task,
+    create_extract_inquiry_task,
+    create_validation_task,
+)
 from app.crews.workflow_models import (
     DraftValidationResult,
     InquiryDetails,
@@ -51,6 +57,7 @@ def run_sales_inquiry_workflow(
     *,
     use_crewai: bool | None = None,
     llm_config: LocalLLMConfig | None = None,
+    crew_llm_config: MultiAgentLLMConfig | None = None,
     verbose: bool = False,
 ) -> SalesWorkflowResult:
     start = time.perf_counter()
@@ -58,6 +65,8 @@ def run_sales_inquiry_workflow(
     cleaned_email = preprocessed.email
     processor = SalesProcessingAgent()
     drafter = EmailDraftingAgent()
+    agent_models: dict[str, str] = {}
+    supervisor_review: DraftValidationResult | None = None
 
     inquiry = processor.extract_inquiry(
         sender=cleaned_email.sender,
@@ -82,11 +91,14 @@ def run_sales_inquiry_workflow(
             inquiry=inquiry,
             product_context=product_context,
             llm_config=llm_config,
+            crew_llm_config=crew_llm_config,
             verbose=verbose,
         )
         if crew_result.draft:
             ai_draft = crew_result.draft
             execution_mode = "crewai"
+            agent_models = crew_result.agent_models
+            supervisor_review = crew_result.supervisor_review
         else:
             ai_draft = drafter.generate_response(inquiry, product_context)
             chokeholds.append(crew_result.error or "crewai_execution_failed")
@@ -100,6 +112,21 @@ def run_sales_inquiry_workflow(
             action="reject",
             reasons=[*validation.reasons, *inquiry.risk_flags],
         )
+
+    if supervisor_review and not supervisor_review.valid:
+        chokeholds.extend(f"supervisor_{reason}" for reason in supervisor_review.reasons)
+        if supervisor_review.action == "reject":
+            validation = DraftValidationResult(
+                valid=False,
+                action="reject",
+                reasons=[*validation.reasons, *supervisor_review.reasons],
+            )
+        elif validation.valid:
+            validation = DraftValidationResult(
+                valid=False,
+                action="regenerate",
+                reasons=supervisor_review.reasons,
+            )
 
     if not validation.valid and validation.action == "regenerate":
         chokeholds.extend(validation.reasons)
@@ -116,15 +143,25 @@ def run_sales_inquiry_workflow(
         validation=validation,
         status="blocked" if validation.action == "reject" else "pending",
         execution_mode=execution_mode,
+        agent_models=agent_models,
+        supervisor_review=supervisor_review,
         chokeholds=_dedupe(chokeholds),
         elapsed_ms=round(elapsed_ms, 2),
     )
 
 
 class _CrewDraftResult:
-    def __init__(self, draft: str | None = None, error: str | None = None) -> None:
+    def __init__(
+        self,
+        draft: str | None = None,
+        error: str | None = None,
+        agent_models: dict[str, str] | None = None,
+        supervisor_review: DraftValidationResult | None = None,
+    ) -> None:
         self.draft = draft
         self.error = error
+        self.agent_models = agent_models or {}
+        self.supervisor_review = supervisor_review
 
 
 def _run_crewai_draft(
@@ -132,12 +169,28 @@ def _run_crewai_draft(
     inquiry: InquiryDetails,
     product_context: ProductContext,
     llm_config: LocalLLMConfig | None,
+    crew_llm_config: MultiAgentLLMConfig | None,
     verbose: bool,
 ) -> _CrewDraftResult:
     try:
-        llm = create_local_llm(llm_config)
-        sales_agent = create_sales_processing_crewai_agent(llm=llm, verbose=verbose)
-        drafting_agent = create_email_drafting_crewai_agent(llm=llm, verbose=verbose)
+        multi_config = crew_llm_config or MultiAgentLLMConfig.from_env(
+            sales_override=llm_config
+        )
+        multi_config.validate_unique_models()
+        agent_models = multi_config.model_names()
+
+        supervisor_llm = create_local_llm(multi_config.supervisor)
+        sales_llm = create_local_llm(multi_config.sales)
+        drafting_llm = create_local_llm(multi_config.drafting)
+        supervisor_agent = create_supervisor_crewai_agent(
+            llm=supervisor_llm, verbose=verbose
+        )
+        sales_agent = create_sales_processing_crewai_agent(
+            llm=sales_llm, verbose=verbose
+        )
+        drafting_agent = create_email_drafting_crewai_agent(
+            llm=drafting_llm, verbose=verbose
+        )
 
         # Keep the extraction task in the CrewAI graph for observability, while
         # deterministic extraction remains the validated source of truth.
@@ -166,10 +219,40 @@ def _run_crewai_draft(
         result = crew.kickoff()
         draft = str(result).strip()
         if not draft:
-            return _CrewDraftResult(error="crewai_returned_empty_draft")
-        return _CrewDraftResult(draft=draft)
+            return _CrewDraftResult(
+                error="crewai_returned_empty_draft", agent_models=agent_models
+            )
+
+        supervisor_review = None
+        try:
+            validation_task = create_validation_task(
+                supervisor_agent,
+                inquiry=inquiry,
+                product_context=product_context,
+                draft=draft,
+            )
+            supervisor_crew = Crew(
+                agents=[supervisor_agent],
+                tasks=[validation_task],
+                process=Process.sequential,
+                verbose=verbose,
+                memory=False,
+                cache=False,
+            )
+            supervisor_crew.kickoff()
+            pydantic_output = getattr(validation_task.output, "pydantic", None)
+            if isinstance(pydantic_output, DraftValidationResult):
+                supervisor_review = pydantic_output
+        except Exception:
+            supervisor_review = None
+
+        return _CrewDraftResult(
+            draft=draft,
+            agent_models=agent_models,
+            supervisor_review=supervisor_review,
+        )
     except Exception as exc:
-        return _CrewDraftResult(error=f"crewai_error:{exc.__class__.__name__}")
+        return _CrewDraftResult(error=_format_crewai_error(exc))
 
 
 def _should_use_crewai(use_crewai: bool | None) -> bool:
@@ -180,6 +263,12 @@ def _should_use_crewai(use_crewai: bool | None) -> bool:
         "true",
         "yes",
     }
+
+
+def _format_crewai_error(exc: Exception) -> str:
+    detail = str(exc).strip() or repr(exc)
+    detail = " ".join(detail.split())
+    return f"crewai_error:{exc.__class__.__name__}:{detail[:240]}"
 
 
 def _detect_static_chokeholds(

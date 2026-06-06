@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from app.schemas.draft import EmailPayload, DraftResponse
 from app.services.draft_service import DraftService
 
@@ -16,8 +16,10 @@ async def create_draft(email: EmailPayload):
 
 
 @router.get("/")
-async def list_drafts():
-    return draft_service.list_drafts()
+async def list_drafts(order: str = "desc"):
+    drafts = draft_service.list_drafts()
+    reverse = order.lower() != "asc"
+    return sorted(drafts, key=lambda item: item.get("created", ""), reverse=reverse)
 
 
 @router.get("/{draft_id}")
@@ -36,5 +38,15 @@ async def approve_draft(draft_id: str):
 
 
 @router.post("/{draft_id}/reject")
-async def reject_draft(draft_id: str, reason: str = ""):
-    return draft_service.reject_draft(draft_id, reason)
+async def reject_draft(draft_id: str, request: Request, reason: str = ""):
+    rejection_reason = reason
+    content_type = (request.headers.get("content-type") or "").split(";")[0].lower()
+    if content_type == "application/json":
+        payload = await request.json()
+        if isinstance(payload, dict):
+            rejection_reason = str(
+                payload.get("rejection_reason")
+                or payload.get("reason")
+                or rejection_reason
+            )
+    return draft_service.reject_draft(draft_id, rejection_reason)

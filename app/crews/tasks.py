@@ -4,7 +4,11 @@ import json
 from typing import Any
 
 from app.crews.agents import _configure_crewai_storage
-from app.crews.workflow_models import InquiryDetails, ProductContext
+from app.crews.workflow_models import (
+    DraftValidationResult,
+    InquiryDetails,
+    ProductContext,
+)
 
 
 def create_extract_inquiry_task(
@@ -47,14 +51,18 @@ def create_draft_response_task(
         description=(
             "Draft a customer reply for human sales review.\n\n"
             "Use only the approved inquiry and product context below. Do not invent "
-            "prices, stock, lead times, customer records, or internal policies. If "
-            "required data is missing, ask for it.\n\n"
+            "prices, stock, lead times, discounts, costs, customer records, or "
+            "internal policies. If required data is missing, ask for it.\n\n"
+            "Do not include a Subject line. Do not include bracketed placeholders "
+            "such as [Your Name], [Your Position], or [Your Company]. Sign exactly "
+            "as:\nBest regards,\nProject Swift Support\n\n"
             f"Inquiry JSON:\n{inquiry.model_dump_json(indent=2)}\n\n"
             f"Product context JSON:\n{product_context.model_dump_json(indent=2)}"
         ),
         expected_output=(
             "A concise email reply with greeting, approved product facts, missing "
-            "information request when needed, and signature."
+            "information request when needed, and the exact Project Swift Support "
+            "signature. No subject line or placeholders."
         ),
         agent=agent,
     )
@@ -77,8 +85,12 @@ def create_validation_task(
 
     return Task(
         description=(
-            "Validate whether this draft is safe for human sales review. Return "
-            "strict JSON only with keys valid, action, and reasons.\n\n"
+            "Validate whether this draft is safe for human sales review. Reject or "
+            "request regeneration for bracketed placeholders, generic signatures, "
+            "subject lines, invented prices, invented costs, discounts, or claims "
+            "such as no additional cost unless those claims exist in product "
+            "context. Return strict JSON only with keys valid, action, and "
+            "reasons.\n\n"
             f"{json.dumps(payload, indent=2)}"
         ),
         expected_output=(
@@ -86,4 +98,5 @@ def create_validation_task(
             "and reasons list."
         ),
         agent=agent,
+        output_pydantic=DraftValidationResult,
     )

@@ -5,7 +5,6 @@ from app.schemas.email import IncomingEmail
 from app.schemas.draft import EmailPayload
 from app.services.draft_service import DraftService
 from app.services.email_preprocessor import preprocess_email
-from data import add_draft_from_email
 
 
 class EmailService:
@@ -68,27 +67,26 @@ class EmailService:
         }
         self.queue[email_id] = email_record
 
-        draft = add_draft_from_email(
-            {
-                "from": cleaned_email.sender,
-                "subject": cleaned_email.subject,
-                "body": cleaned_email.body,
-                "expand_short_body": False,
-            }
+        draft = await self.draft_service.generate_draft(
+            EmailPayload(
+                sender=cleaned_email.sender,
+                subject=cleaned_email.subject,
+                body=cleaned_email.body,
+            )
         )
 
-        email_record["status"] = "processed" if draft else "received"
-        email_record["draft_id"] = draft.draft_id if draft else None
+        email_record["status"] = "processed" if draft.status == "pending" else "received"
+        email_record["draft_id"] = draft.draft_id if draft.status == "pending" else None
         email_record["updated_at"] = datetime.now().isoformat()
 
         return {
             "success": True,
-            "ingested": draft is not None,
+            "ingested": draft.status == "pending",
             "email": email_record,
-            "draft": draft.to_dict() if draft else None,
+            "draft": draft.model_dump() if draft.status == "pending" else None,
             "message": (
                 "Email received and queued as a pending draft."
-                if draft
+                if draft.status == "pending"
                 else (
                     "Email received, but no pending draft was created because "
                     "only pricing and availability inquiries are currently supported."
