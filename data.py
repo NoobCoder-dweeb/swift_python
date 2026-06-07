@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-import json
 import threading
 import time
 from dataclasses import dataclass, asdict
 from datetime import date, datetime
-from pathlib import Path
 from typing import Any
+from uuid import uuid4
+
+from app.repositories.state_repository import get_state_repository
 
 
 @dataclass
@@ -384,13 +385,6 @@ class Draft:
         payload['updated_display'] = self.updated_display
         return payload
 
-DRAFTS: list[Draft] = []
-
-AUDITS: list[dict[str, Any]] = []
-
-DATA_STORE = Path(__file__).parent / 'data_store.json'
-
-
 def _format_human_datetime(value: str) -> str:
     try:
         parsed = datetime.fromisoformat(value)
@@ -408,53 +402,56 @@ def _draft_version_id(draft_id: str, revisions: int) -> str:
 
 
 def save_state() -> None:
-    payload = {
-        'drafts': [d.to_dict() for d in DRAFTS],
-        'audits': AUDITS,
-    }
-    try:
-        DATA_STORE.write_text(json.dumps(payload, indent=2))
-    except Exception:
-        pass
+    """Compatibility hook retained for callers; state now lives in PostgreSQL."""
+    return None
 
 
 def load_state() -> None:
-    if not DATA_STORE.exists():
-        return
-    try:
-        raw = DATA_STORE.read_text()
-        payload = json.loads(raw)
-        drafts = payload.get('drafts', [])
-        audits = payload.get('audits', [])
-        audits = [a for a in audits if (a.get('action') or '').lower() in {'approved', 'rejected'}]
-        DRAFTS.clear()
-        for d in drafts:
-            # reconstruct Draft objects
-            DRAFTS.append(Draft(
-                draft_id=d['draft_id'],
-                sender=d['sender'],
-                subject=d['subject'],
-                body=d['body'],
-                status=d['status'],
-                created=d['created'],
-                updated=d['updated'],
-                revisions=d.get('revisions', 0),
-                last_rejection_reason=d.get('last_rejection_reason', ''),
-                ai_draft_text=d.get('ai_draft_text', ''),
-                workflow=d.get('workflow'),
-            ))
-        AUDITS.clear()
-        AUDITS.extend(audits)
-    except Exception:
-        # ignore corrupt file
-        return
+    """Compatibility hook retained for callers; state now lives in PostgreSQL."""
+    get_state_repository().initialize()
+
+
+def _row_to_draft(row: dict[str, Any]) -> Draft:
+    return Draft(
+        draft_id=str(row['draft_id']),
+        sender=str(row['sender']),
+        subject=str(row['subject']),
+        body=str(row['body']),
+        status=str(row['status']),
+        created=str(row['created']),
+        updated=str(row['updated']),
+        revisions=int(row.get('revisions', 0)),
+        last_rejection_reason=str(row.get('last_rejection_reason') or ''),
+        ai_draft_text=str(row.get('ai_draft_text') or ''),
+        workflow=row.get('workflow'),
+    )
+
+
+def _draft_to_row(draft: Draft) -> dict[str, Any]:
+    return {
+        'draft_id': draft.draft_id,
+        'sender': draft.sender,
+        'subject': draft.subject,
+        'body': draft.body,
+        'status': draft.status,
+        'created': draft.created,
+        'updated': draft.updated,
+        'revisions': draft.revisions,
+        'last_rejection_reason': draft.last_rejection_reason,
+        'ai_draft_text': draft.ai_draft_text,
+        'workflow': draft.workflow,
+    }
+
+
+def _store_draft(draft: Draft) -> Draft:
+    return _row_to_draft(get_state_repository().upsert_draft(_draft_to_row(draft)))
 
 
 def next_draft_id() -> str:
     numeric_ids: list[int] = []
-    for draft in DRAFTS:
+    for row in get_state_repository().list_drafts():
         try:
-            numeric_ids.append(int(draft.draft_id.split('-')[1]))
+            numeric_ids.append(int(str(row.get('draft_id', '')).split('-')[1]))
         except Exception:
             continue
     highest = max(numeric_ids, default=100)
@@ -485,11 +482,17 @@ def add_draft_from_email(email_payload: dict[str, object]) -> Draft | None:
     if _classify_inquiry(subject, body) is None:
         return None
 
-    existing = next((d for d in DRAFTS if d.sender == sender and d.subject == subject and d.body == body and d.status == 'pending'), None)
-    if existing:
+    existing_row = get_state_repository().find_draft(
+        sender=sender,
+        subject=subject,
+        body=body,
+        status='pending',
+    )
+    if existing_row:
+        existing = _row_to_draft(existing_row)
         # update timestamp and return existing
         existing.updated = datetime.now().isoformat()
-        save_state()
+        _store_draft(existing)
         try:
             publish_event({'type': 'draft_updated', 'payload': existing.to_dict()})
         except Exception:
@@ -507,8 +510,7 @@ def add_draft_from_email(email_payload: dict[str, object]) -> Draft | None:
         revisions = 0,
         last_rejection_reason = '',
     )
-    DRAFTS.insert(0, draft)
-    save_state()
+    _store_draft(draft)
     try:
         publish_event({'type': 'draft_created', 'payload': draft.to_dict()})
     except Exception:
@@ -532,21 +534,18 @@ def add_generated_draft(
     if _classify_inquiry(subject, body) is None and normalized_status == 'pending':
         return None
 
-    existing = next(
-        (
-            d for d in DRAFTS
-            if d.sender == sender
-            and d.subject == subject
-            and d.body == body
-            and d.status == normalized_status
-        ),
-        None,
+    existing_row = get_state_repository().find_draft(
+        sender=sender,
+        subject=subject,
+        body=body,
+        status=normalized_status,
     )
-    if existing:
+    if existing_row:
+        existing = _row_to_draft(existing_row)
         existing.ai_draft_text = ai_draft
         existing.workflow = workflow
         existing.updated = datetime.now().isoformat()
-        save_state()
+        _store_draft(existing)
         if existing.status == 'pending':
             try:
                 publish_event({'type': 'draft_updated', 'payload': existing.to_dict()})
@@ -568,8 +567,7 @@ def add_generated_draft(
         ai_draft_text=ai_draft,
         workflow=workflow,
     )
-    DRAFTS.insert(0, draft)
-    save_state()
+    _store_draft(draft)
     if draft.status == 'pending':
         try:
             publish_event({'type': 'draft_created', 'payload': draft.to_dict()})
@@ -580,14 +578,14 @@ def add_generated_draft(
 
 def get_drafts() -> list[Draft]:
     return [
-        d for d in DRAFTS
+        d for d in (_row_to_draft(row) for row in get_state_repository().list_drafts())
         if d.status == 'pending' and d.inquiry_category in {'pricing', 'availability'}
     ]
 
 
 def get_audits() -> list[dict]:
     enriched: list[dict] = []
-    for audit in AUDITS:
+    for audit in get_state_repository().list_audits():
         if (audit.get('action') or '').lower() not in {'approved', 'rejected'}:
             continue
         entry = dict(audit)
@@ -597,15 +595,14 @@ def get_audits() -> list[dict]:
 
 
 def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -> dict | None:
-    draft = next((d for d in DRAFTS if d.draft_id == draft_id), None)
+    draft_row = get_state_repository().get_draft(draft_id)
+    draft = _row_to_draft(draft_row) if draft_row else None
     if not draft or draft.inquiry_category not in {'pricing', 'availability'}:
         return None
     # If already approved, return existing approval audit (idempotent)
-    existing = next((a for a in AUDITS if a.get('draft_id') == draft_id and a.get('action') == 'approved'), None)
+    existing = get_state_repository().find_audit(draft_id=draft_id, action='approved')
     if existing:
-        if draft in DRAFTS:
-            DRAFTS.remove(draft)
-        save_state()
+        get_state_repository().delete_draft(draft_id)
         try:
             publish_event({'type': 'approved', 'payload': existing})
         except Exception:
@@ -613,6 +610,7 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
         return existing
 
     audit = {
+        'audit_id': f"AUD-{uuid4().hex[:8].upper()}",
         'draft_id': draft.draft_id,
         'version_id': _draft_version_id(draft.draft_id, draft.revisions),
         'sender': draft.sender,
@@ -629,9 +627,8 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
         'customer_inquiry': draft.customer_inquiry,
         'ai_draft': draft.ai_draft,
     }
-    AUDITS.insert(0, audit)
-    DRAFTS.remove(draft)
-    save_state()
+    audit = get_state_repository().insert_audit(audit)
+    get_state_repository().delete_draft(draft.draft_id)
     try:
         publish_event({'type': 'approved', 'payload': audit})
     except Exception:
@@ -644,9 +641,10 @@ def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason:
     Simulate asking the agent to regenerate a draft. Updates the draft body/subject and records a regeneration audit.
     Returns the updated draft as dict or None if not found.
     """
-    draft = next((d for d in DRAFTS if d.draft_id == draft_id), None)
-    if not draft:
+    draft_row = get_state_repository().get_draft(draft_id)
+    if not draft_row:
         return None
+    draft = _row_to_draft(draft_row)
     reviewed_version_id = _draft_version_id(draft.draft_id, draft.revisions)
     draft.revisions = getattr(draft, 'revisions', 0) + 1
     draft.last_rejection_reason = (rejection_reason or '').strip()
@@ -657,6 +655,7 @@ def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason:
     regenerated_version_id = _draft_version_id(draft.draft_id, draft.revisions)
 
     rejection_audit = {
+        'audit_id': f"AUD-{uuid4().hex[:8].upper()}",
         'draft_id': draft.draft_id,
         'version_id': reviewed_version_id,
         'next_version_id': regenerated_version_id,
@@ -675,8 +674,8 @@ def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason:
         'customer_inquiry': draft.customer_inquiry,
         'ai_draft': draft.ai_draft,
     }
-    AUDITS.insert(0, rejection_audit)
-    save_state()
+    _store_draft(draft)
+    rejection_audit = get_state_repository().insert_audit(rejection_audit)
     try:
         publish_event({'type': 'regenerated', 'payload': {'draft': draft.to_dict(), 'audit': rejection_audit}})
     except Exception:
@@ -715,20 +714,18 @@ def ensure_sample_drafts() -> None:
 
 
 def ensure_guardrail_audit_example() -> None:
-    existing = next(
-        (
-            audit for audit in AUDITS
-            if audit.get('draft_id') == INVALID_GUARDRAIL_AUDIT['draft_id']
-        ),
-        None,
+    existing = get_state_repository().find_audit(
+        draft_id=INVALID_GUARDRAIL_AUDIT['draft_id'],
+        action=INVALID_GUARDRAIL_AUDIT['action'],
     )
     if existing:
         return
 
-    AUDITS.insert(0, dict(INVALID_GUARDRAIL_AUDIT))
-    save_state()
+    audit = dict(INVALID_GUARDRAIL_AUDIT)
+    audit['audit_id'] = f"AUD-{uuid4().hex[:8].upper()}"
+    get_state_repository().insert_audit(audit)
 
-# load persisted state on import
+# initialize configured state backend and seed deterministic demo data
 load_state()
 ensure_sample_drafts()
 ensure_guardrail_audit_example()

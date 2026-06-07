@@ -1,10 +1,12 @@
 from uuid import uuid4
 from datetime import datetime
 
+from app.repositories.state_repository import get_state_repository
+
 
 class AuditService:
     def __init__(self):
-        self.audits = {}
+        self.repository = get_state_repository()
 
     def create_audit(
         self,
@@ -26,11 +28,10 @@ class AuditService:
             "created_at": datetime.now().isoformat(),
         }
 
-        self.audits[audit_id] = audit
-        return audit
+        return self.repository.insert_audit(audit)
 
     def list_audits(self):
-        return list(self.audits.values())
+        return self.repository.list_audits()
 
     def get_audit(self, audit_id: str):
-        return self.audits.get(audit_id)
+        return self.repository.get_audit(audit_id)

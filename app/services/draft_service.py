@@ -1,6 +1,7 @@
 import asyncio
 
 from app.crews.sales_inquiry_crew import run_sales_inquiry_workflow
+from app.repositories.state_repository import get_state_repository
 from app.schemas.draft import EmailPayload, DraftResponse
 from app.schemas.email import IncomingEmail
 from data import (
@@ -13,7 +14,7 @@ from data import (
 
 class DraftService:
     def __init__(self):
-        self.drafts = {}
+        self.repository = get_state_repository()
 
     async def generate_draft(self, email: EmailPayload) -> DraftResponse:
         workflow = await asyncio.to_thread(
@@ -46,21 +47,23 @@ class DraftService:
             status=workflow.status,
         )
 
-        self.drafts[draft_id] = {
-            **draft.model_dump(),
-            "workflow": workflow.model_dump(),
-        }
-
         return draft
 
     def list_drafts(self):
         return [draft.to_dict() for draft in get_drafts()]
 
     def get_draft(self, draft_id: str):
-        return self.drafts.get(draft_id) or next(
-            (draft.to_dict() for draft in get_drafts() if draft.draft_id == draft_id),
-            None,
-        )
+        row = self.repository.get_draft(draft_id)
+        if row:
+            return next(
+                (draft.to_dict() for draft in get_drafts() if draft.draft_id == draft_id),
+                {
+                    **row,
+                    "customer_inquiry": row["body"],
+                    "ai_draft": row.get("ai_draft_text", ""),
+                },
+            )
+        return None
 
     def approve_draft(self, draft_id: str):
         audit = approve_pending_draft(draft_id, approver="Sales Officer")

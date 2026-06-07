@@ -1,6 +1,7 @@
 from uuid import uuid4
 from datetime import datetime
 
+from app.repositories.state_repository import get_state_repository
 from app.schemas.email import IncomingEmail
 from app.schemas.draft import EmailPayload
 from app.services.draft_service import DraftService
@@ -9,7 +10,7 @@ from app.services.email_preprocessor import preprocess_email
 
 class EmailService:
     def __init__(self):
-        self.queue = {}
+        self.repository = get_state_repository()
         self.draft_service = DraftService()
 
     async def process_email(self, email: IncomingEmail):
@@ -29,7 +30,7 @@ class EmailService:
             "created_at": datetime.now().isoformat(),
         }
 
-        self.queue[email_id] = email_record
+        self.repository.upsert_email(email_record)
 
         draft = await self.draft_service.generate_draft(
             EmailPayload(
@@ -42,6 +43,7 @@ class EmailService:
         email_record["status"] = "processed"
         email_record["draft_id"] = draft.draft_id
         email_record["updated_at"] = datetime.now().isoformat()
+        self.repository.upsert_email(email_record)
 
         return {
             "success": True,
@@ -65,7 +67,7 @@ class EmailService:
             "status": "received",
             "created_at": datetime.now().isoformat(),
         }
-        self.queue[email_id] = email_record
+        self.repository.upsert_email(email_record)
 
         draft = await self.draft_service.generate_draft(
             EmailPayload(
@@ -78,6 +80,7 @@ class EmailService:
         email_record["status"] = "processed" if draft.status == "pending" else "received"
         email_record["draft_id"] = draft.draft_id if draft.status == "pending" else None
         email_record["updated_at"] = datetime.now().isoformat()
+        self.repository.upsert_email(email_record)
 
         return {
             "success": True,
@@ -95,10 +98,10 @@ class EmailService:
         }
 
     def get_queue(self):
-        return list(self.queue.values())
+        return self.repository.list_emails()
 
     async def reprocess(self, email_id: str):
-        email_record = self.queue.get(email_id)
+        email_record = self.repository.get_email(email_id)
 
         if not email_record:
             return {
@@ -117,6 +120,7 @@ class EmailService:
         email_record["status"] = "reprocessed"
         email_record["draft_id"] = draft.draft_id
         email_record["updated_at"] = datetime.now().isoformat()
+        self.repository.upsert_email(email_record)
 
         return {
             "success": True,

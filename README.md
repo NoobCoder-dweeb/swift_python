@@ -2,6 +2,33 @@
 
 This project reimplements the provided HTML/CSS/JS admin panel as a Python backend application.
 
+## Docker and PostgreSQL
+
+Audits, drafts, and received emails are stored in PostgreSQL when the app runs
+with `SWIFT_STORAGE_BACKEND=postgres` and `DATABASE_URL` set. The web container
+does not persist those objects to local files.
+
+Start the app and database together:
+
+```bash
+docker compose up --build
+```
+
+The API will be available at `http://127.0.0.1:8000`, and PostgreSQL will be
+available on localhost port `5432` with the development credentials from
+`docker-compose.yml`.
+
+For non-Docker local development, point the app at a PostgreSQL database:
+
+```bash
+export DATABASE_URL=postgresql://swift:swift@127.0.0.1:5432/swift
+export SWIFT_STORAGE_BACKEND=postgres
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+The app expects PostgreSQL in normal runtime. The test suite sets
+`SWIFT_STORAGE_BACKEND=memory` so tests do not require a running database.
+
 ## Dummy email receiver
 
 Start the local receiver on any open port:
@@ -40,6 +67,8 @@ Ollama-compatible local model endpoint. The app loads CrewAI/Ollama settings
 from `.env`:
 
 ```bash
+export DATABASE_URL=postgresql://swift:swift@127.0.0.1:5432/swift
+export SWIFT_STORAGE_BACKEND=postgres
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 

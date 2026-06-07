@@ -4,7 +4,7 @@ from flask import Flask, jsonify, redirect, render_template, request, flash, url
 import json
 from datetime import datetime
 
-from data import ANALYTICS, EVENTS, RECORDS, SETTINGS, USERS, DRAFTS, AUDITS, add_record, add_user_invite, add_draft_from_email, approve_draft, get_drafts, get_audits, start_email_listener, EVENTS_QUEUE, events_cond, publish_event
+from data import ANALYTICS, EVENTS, RECORDS, SETTINGS, USERS, add_record, add_user_invite, approve_draft, get_drafts, get_audits, start_email_listener, EVENTS_QUEUE, events_cond
 
 app = Flask(__name__)
 app.secret_key = 'dev-secret-key'
@@ -108,13 +108,10 @@ def api_approve_draft(draft_id):
         flash(f"Draft {draft_id} not found.", 'info')
         return redirect(url_for('pending_page'))
 
-    # If audit exists (idempotent), inform user and redirect
-    if audit.get('action') == 'approved' and audit in AUDITS:
-        # flash message and redirect to pending page to show updated state
-        flash(f"Draft {draft_id} approved and processed.", 'success')
-        if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify(audit), 200
-        return redirect(url_for('pending_page'))
+    flash(f"Draft {draft_id} approved and processed.", 'success')
+    if request.is_json or request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return jsonify(audit), 200
+    return redirect(url_for('pending_page'))
 
 
 @app.post('/api/drafts/<draft_id>/reject')
