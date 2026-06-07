@@ -39,6 +39,7 @@ def run_sales_inquiry_crew(
     llm_config: LocalLLMConfig | None = None,
     verbose: bool = False,
 ) -> dict:
+    """Why: preserves the original dict API while using the structured workflow."""
     result = run_sales_inquiry_workflow(
         IncomingEmail(sender=sender, subject=subject, body=body),
         use_crewai=use_crewai,
@@ -60,6 +61,7 @@ def run_sales_inquiry_workflow(
     crew_llm_config: MultiAgentLLMConfig | None = None,
     verbose: bool = False,
 ) -> SalesWorkflowResult:
+    """Why: orchestrates preprocessing, extraction, drafting, validation, and audit data."""
     start = time.perf_counter()
     preprocessed = preprocess_email(email)
     cleaned_email = preprocessed.email
@@ -151,6 +153,8 @@ def run_sales_inquiry_workflow(
 
 
 class _CrewDraftResult:
+    """Why: carries optional CrewAI output without throwing away fallback context."""
+
     def __init__(
         self,
         draft: str | None = None,
@@ -158,6 +162,7 @@ class _CrewDraftResult:
         agent_models: dict[str, str] | None = None,
         supervisor_review: DraftValidationResult | None = None,
     ) -> None:
+        """Why: stores both success and failure details for workflow reporting."""
         self.draft = draft
         self.error = error
         self.agent_models = agent_models or {}
@@ -172,6 +177,7 @@ def _run_crewai_draft(
     crew_llm_config: MultiAgentLLMConfig | None,
     verbose: bool,
 ) -> _CrewDraftResult:
+    """Why: tries the multi-agent path while keeping deterministic fallback possible."""
     try:
         multi_config = crew_llm_config or MultiAgentLLMConfig.from_env(
             sales_override=llm_config
@@ -256,6 +262,7 @@ def _run_crewai_draft(
 
 
 def _should_use_crewai(use_crewai: bool | None) -> bool:
+    """Why: lets tests force deterministic mode while deployments use env config."""
     if use_crewai is not None:
         return use_crewai
     return os.environ.get("SWIFT_CREWAI_ENABLED", "").strip().lower() in {
@@ -266,6 +273,7 @@ def _should_use_crewai(use_crewai: bool | None) -> bool:
 
 
 def _format_crewai_error(exc: Exception) -> str:
+    """Why: records CrewAI failures compactly without leaking huge tracebacks."""
     detail = str(exc).strip() or repr(exc)
     detail = " ".join(detail.split())
     return f"crewai_error:{exc.__class__.__name__}:{detail[:240]}"
@@ -278,6 +286,7 @@ def _detect_static_chokeholds(
     product_context: ProductContext,
     preprocessed_changed: bool,
 ) -> list[str]:
+    """Why: surfaces known workflow weak spots before they become silent failures."""
     chokeholds: list[str] = []
     if len(email.body) > 6000:
         chokeholds.append("long_thread_context_pressure")
@@ -299,6 +308,7 @@ def _detect_static_chokeholds(
 
 
 def _looks_multilingual(text: str) -> bool:
+    """Why: flags code-switching inputs that deterministic English rules may miss."""
     lower = text.lower()
     return any(
         token in lower
@@ -315,6 +325,7 @@ def _looks_multilingual(text: str) -> bool:
 
 
 def _dedupe(values: list[str]) -> list[str]:
+    """Why: keeps repeated chokehold signals readable in reports."""
     seen: set[str] = set()
     result: list[str] = []
     for value in values:

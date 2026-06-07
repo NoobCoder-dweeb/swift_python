@@ -15,11 +15,17 @@ from app.crews.workflow_models import (
 
 
 class ProductLookupClient(Protocol):
-    def get_product(self, query: str) -> dict[str, Any]: ...
+    """Why: allows tests or ERP/Odoo clients to supply product facts."""
+
+    def get_product(self, query: str) -> dict[str, Any]:
+        """Why: defines the lookup contract without depending on one ERP client."""
+        ...
 
 
 @dataclass(frozen=True)
 class LocalLLMConfig:
+    """Why: captures local model settings without hard-coding them in agents."""
+
     model: str = "llama3.2:3b"
     provider: str = "ollama"
     base_url: str = "http://127.0.0.1:11434"
@@ -28,53 +34,59 @@ class LocalLLMConfig:
 
     @classmethod
     def from_env(cls) -> "LocalLLMConfig":
+        """Why: lets deployments tune local LLM settings through environment variables."""
         return cls(
-            model=os.environ.get("SWIFT_LOCAL_LLM_MODEL", cls.model),
-            provider=os.environ.get("SWIFT_LOCAL_LLM_PROVIDER", cls.provider),
-            base_url=os.environ.get("SWIFT_LOCAL_LLM_BASE_URL", cls.base_url),
-            timeout=int(os.environ.get("SWIFT_LOCAL_LLM_TIMEOUT", str(cls.timeout))),
-            temperature=float(
-                os.environ.get("SWIFT_LOCAL_LLM_TEMPERATURE", str(cls.temperature))
+            model=_env_text("SWIFT_LOCAL_LLM_MODEL", cls.model),
+            provider=_env_text("SWIFT_LOCAL_LLM_PROVIDER", cls.provider),
+            base_url=_env_text("SWIFT_LOCAL_LLM_BASE_URL", cls.base_url),
+            timeout=_env_int("SWIFT_LOCAL_LLM_TIMEOUT", cls.timeout, minimum=1),
+            temperature=_env_float(
+                "SWIFT_LOCAL_LLM_TEMPERATURE",
+                cls.temperature,
+                minimum=0.0,
             ),
         )
 
     @classmethod
     def for_role(cls, role: str, default_model: str) -> "LocalLLMConfig":
+        """Why: supports separate model choices for each CrewAI responsibility."""
         prefix = f"SWIFT_{role.upper()}_LLM"
         return cls(
-            model=os.environ.get(
+            model=_env_text(
                 f"{prefix}_MODEL",
-                os.environ.get("SWIFT_LOCAL_LLM_MODEL", default_model)
+                _env_text("SWIFT_LOCAL_LLM_MODEL", default_model)
                 if role == "sales"
                 else default_model,
             ),
-            provider=os.environ.get(
+            provider=_env_text(
                 f"{prefix}_PROVIDER",
-                os.environ.get("SWIFT_LOCAL_LLM_PROVIDER", cls.provider),
+                _env_text("SWIFT_LOCAL_LLM_PROVIDER", cls.provider),
             ),
-            base_url=os.environ.get(
+            base_url=_env_text(
                 f"{prefix}_BASE_URL",
-                os.environ.get("SWIFT_LOCAL_LLM_BASE_URL", cls.base_url),
+                _env_text("SWIFT_LOCAL_LLM_BASE_URL", cls.base_url),
             ),
-            timeout=int(
-                os.environ.get(
-                    f"{prefix}_TIMEOUT",
-                    os.environ.get("SWIFT_LOCAL_LLM_TIMEOUT", str(cls.timeout)),
-                )
+            timeout=_env_int(
+                f"{prefix}_TIMEOUT",
+                _env_int("SWIFT_LOCAL_LLM_TIMEOUT", cls.timeout, minimum=1),
+                minimum=1,
             ),
-            temperature=float(
-                os.environ.get(
-                    f"{prefix}_TEMPERATURE",
-                    os.environ.get(
-                        "SWIFT_LOCAL_LLM_TEMPERATURE", str(cls.temperature)
-                    ),
-                )
+            temperature=_env_float(
+                f"{prefix}_TEMPERATURE",
+                _env_float(
+                    "SWIFT_LOCAL_LLM_TEMPERATURE",
+                    cls.temperature,
+                    minimum=0.0,
+                ),
+                minimum=0.0,
             ),
         )
 
 
 @dataclass(frozen=True)
 class MultiAgentLLMConfig:
+    """Why: groups role-specific LLMs so one model is not reused accidentally."""
+
     supervisor: LocalLLMConfig = field(
         default_factory=lambda: LocalLLMConfig(model="nemotron-mini:4b")
     )
@@ -89,6 +101,7 @@ class MultiAgentLLMConfig:
     def from_env(
         cls, sales_override: LocalLLMConfig | None = None
     ) -> "MultiAgentLLMConfig":
+        """Why: builds the multi-agent model map from deployment configuration."""
         config = cls(
             supervisor=LocalLLMConfig.for_role(
                 "supervisor", "nemotron-mini:4b"
@@ -101,6 +114,7 @@ class MultiAgentLLMConfig:
         return config
 
     def validate_unique_models(self) -> None:
+        """Why: avoids role collapse when separate agents should provide checks."""
         role_models = {
             "supervisor": self.supervisor.model,
             "sales": self.sales.model,
@@ -113,6 +127,7 @@ class MultiAgentLLMConfig:
             )
 
     def model_names(self) -> dict[str, str]:
+        """Why: records which model handled each role for observability."""
         return {
             "supervisor": self.supervisor.model,
             "sales": self.sales.model,
@@ -182,10 +197,14 @@ _QUANTITY_RE = re.compile(
 
 
 class SalesProcessingAgent:
+    """Why: extracts safe structured sales context before drafting begins."""
+
     def __init__(self, product_client: ProductLookupClient | None = None) -> None:
+        """Why: allows approved product data to come from a real client or local catalog."""
         self.product_client = product_client
 
     def extract_inquiry(self, sender: str, subject: str, body: str) -> InquiryDetails:
+        """Why: turns free-form email text into bounded workflow inputs."""
         text = f"{subject}\n{body}".strip()
         lower = text.lower()
         risk_flags = self.detect_risks(text)
@@ -241,8 +260,22 @@ class SalesProcessingAgent:
         )
 
     def get_product_context(self, query: str) -> dict[str, Any]:
+        """Why: exposes product lookup in the older dict format used by tests."""
         if self.product_client:
-            return self.product_client.get_product(query)
+            try:
+                return ProductContext.model_validate(
+                    self.product_client.get_product(query)
+                ).model_dump()
+            except Exception as exc:
+                return ProductContext(
+                    product=self._detect_product(query.lower()),
+                    source="product_client",
+                    confidence=0.0,
+                    notes=[
+                        "Product lookup failed; draft should ask for confirmation.",
+                        _format_error_note(exc),
+                    ],
+                ).model_dump()
 
         product_name = self._detect_product(query.lower())
         context = self.lookup_product_context(product_name, query)
@@ -251,8 +284,20 @@ class SalesProcessingAgent:
     def lookup_product_context(
         self, product_name: str | None, query: str = ""
     ) -> ProductContext:
+        """Why: keeps drafting grounded in approved catalog/ERP facts."""
         if self.product_client:
-            return ProductContext.model_validate(self.product_client.get_product(query))
+            try:
+                return ProductContext.model_validate(self.product_client.get_product(query))
+            except Exception as exc:
+                return ProductContext(
+                    product=product_name,
+                    source="product_client",
+                    confidence=0.0,
+                    notes=[
+                        "Product lookup failed; draft should ask for confirmation.",
+                        _format_error_note(exc),
+                    ],
+                )
 
         target = product_name or self._detect_product(query.lower())
         for item in DEFAULT_PRODUCT_CATALOG:
@@ -267,6 +312,7 @@ class SalesProcessingAgent:
         )
 
     def detect_risks(self, text: str) -> list[str]:
+        """Why: blocks prompt injection and personal-data requests before drafting."""
         lower = text.lower()
         risks: list[str] = []
         if any(re.search(pattern, lower) for pattern in _PROMPT_INJECTION_PATTERNS):
@@ -276,12 +322,14 @@ class SalesProcessingAgent:
         return risks
 
     def _detect_product(self, lower_text: str) -> str | None:
+        """Why: maps customer wording to approved product catalog names."""
         for product, aliases in _PRODUCT_ALIASES.items():
             if any(alias in lower_text for alias in aliases):
                 return product
         return None
 
     def _detect_quantity(self, lower_text: str) -> int | None:
+        """Why: extracts order size so stock and pricing replies can be specific."""
         matches = [
             int(match.group("quantity").replace(",", ""))
             for match in _QUANTITY_RE.finditer(lower_text)
@@ -292,6 +340,7 @@ class SalesProcessingAgent:
         return max(matches)
 
     def _detect_delivery(self, text: str) -> str | None:
+        """Why: captures urgency/timing signals that affect availability replies."""
         lowered = text.lower()
         for phrase in (
             "next week",
@@ -312,6 +361,7 @@ class SalesProcessingAgent:
         quantity: int | None,
         requested_delivery: str | None,
     ) -> list[str]:
+        """Why: tells the draft to ask for facts that are needed but absent."""
         missing: list[str] = []
         if inquiry_type in {"pricing", "availability", "mixed"}:
             if not product_name:
@@ -324,7 +374,10 @@ class SalesProcessingAgent:
 
 
 class EmailDraftingAgent:
+    """Why: creates bounded customer replies from structured, approved context."""
+
     def generate(self, info: dict[str, Any] | ProductContext | InquiryDetails) -> str:
+        """Why: preserves compatibility with tests and newer workflow models."""
         if isinstance(info, ProductContext):
             context = info
             inquiry = None
@@ -352,6 +405,7 @@ class EmailDraftingAgent:
         inquiry: InquiryDetails | None,
         context: ProductContext,
     ) -> str:
+        """Why: drafts from known facts only, asking for missing details instead of guessing."""
         if inquiry and inquiry.inquiry_type == "unsupported":
             return (
                 "Hi,\n\n"
@@ -423,6 +477,7 @@ class EmailDraftingAgent:
     def validate_draft(
         self, draft: str, info: dict[str, Any] | ProductContext | None = None
     ) -> DraftValidationResult:
+        """Why: catches unsafe, incomplete, or placeholder-filled drafts before review."""
         reasons: list[str] = []
         lower = draft.lower()
 
@@ -479,8 +534,12 @@ class EmailDraftingAgent:
 
 
 def create_local_llm(config: LocalLLMConfig | None = None):
+    """Why: centralizes CrewAI LLM construction for every agent factory."""
     _configure_crewai_storage()
-    from crewai import LLM
+    try:
+        from crewai import LLM
+    except Exception as exc:
+        raise RuntimeError(f"CrewAI LLM import failed: {_format_error_note(exc)}") from exc
 
     config = config or LocalLLMConfig.from_env()
     model = _normalize_model_name(config.model, config.provider)
@@ -494,14 +553,19 @@ def create_local_llm(config: LocalLLMConfig | None = None):
 
 
 def _normalize_model_name(model: str, provider: str) -> str:
+    """Why: CrewAI expects Ollama model names without a duplicate provider prefix."""
     if provider == "ollama" and model.startswith("ollama/"):
         return model.removeprefix("ollama/")
     return model
 
 
 def create_sales_processing_crewai_agent(llm: Any = None, verbose: bool = False):
+    """Why: wraps sales extraction instructions in a CrewAI agent when enabled."""
     _configure_crewai_storage()
-    from crewai import Agent
+    try:
+        from crewai import Agent
+    except Exception as exc:
+        raise RuntimeError(f"CrewAI Agent import failed: {_format_error_note(exc)}") from exc
 
     return Agent(
         role="Sales Processing Agent",
@@ -521,8 +585,12 @@ def create_sales_processing_crewai_agent(llm: Any = None, verbose: bool = False)
 
 
 def create_supervisor_crewai_agent(llm: Any = None, verbose: bool = False):
+    """Why: adds an independent review role before drafts reach humans."""
     _configure_crewai_storage()
-    from crewai import Agent
+    try:
+        from crewai import Agent
+    except Exception as exc:
+        raise RuntimeError(f"CrewAI Agent import failed: {_format_error_note(exc)}") from exc
 
     return Agent(
         role="Sales Workflow Supervisor",
@@ -543,8 +611,12 @@ def create_supervisor_crewai_agent(llm: Any = None, verbose: bool = False):
 
 
 def create_email_drafting_crewai_agent(llm: Any = None, verbose: bool = False):
+    """Why: isolates customer-facing copy generation from extraction/supervision."""
     _configure_crewai_storage()
-    from crewai import Agent
+    try:
+        from crewai import Agent
+    except Exception as exc:
+        raise RuntimeError(f"CrewAI Agent import failed: {_format_error_note(exc)}") from exc
 
     return Agent(
         role="Email Drafting Agent",
@@ -564,10 +636,22 @@ def create_email_drafting_crewai_agent(llm: Any = None, verbose: bool = False):
 
 
 def _configure_crewai_storage() -> None:
+    """Why: keeps CrewAI runtime files out of the repository and disables tracing noise."""
     storage_home = Path(
         os.environ.get("SWIFT_CREWAI_HOME", "/tmp/project_swift_crewai_home")
     )
-    storage_home.mkdir(parents=True, exist_ok=True)
+    try:
+        storage_home.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        fallback_home = Path("/tmp/project_swift_crewai_home")
+        try:
+            fallback_home.mkdir(parents=True, exist_ok=True)
+        except OSError as fallback_exc:
+            raise RuntimeError(
+                "CrewAI storage directory could not be created: "
+                f"{_format_error_note(fallback_exc)}"
+            ) from exc
+        storage_home = fallback_home
     os.environ["HOME"] = str(storage_home)
     os.environ.setdefault("CREWAI_STORAGE_DIR", "project_swift")
     os.environ.setdefault("CREWAI_TRACING_ENABLED", "false")
@@ -575,4 +659,47 @@ def _configure_crewai_storage() -> None:
 
 
 def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
+    """Why: keeps keyword checks readable at classification call sites."""
     return any(needle in text for needle in needles)
+
+
+def _env_text(name: str, default: str) -> str:
+    """Why: treats blank environment overrides as missing configuration."""
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip()
+
+
+def _env_int(name: str, default: int, *, minimum: int | None = None) -> int:
+    """Why: keeps malformed numeric env vars from crashing app startup."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    if minimum is not None and value < minimum:
+        return default
+    return value
+
+
+def _env_float(name: str, default: float, *, minimum: float | None = None) -> float:
+    """Why: keeps malformed float env vars from crashing app startup."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        return default
+    if minimum is not None and value < minimum:
+        return default
+    return value
+
+
+def _format_error_note(exc: Exception) -> str:
+    """Why: records failure reasons compactly without exposing tracebacks."""
+    detail = str(exc).strip() or repr(exc)
+    return f"{exc.__class__.__name__}: {' '.join(detail.split())[:160]}"

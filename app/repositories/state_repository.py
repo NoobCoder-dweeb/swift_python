@@ -13,63 +13,84 @@ EmailRow = dict[str, Any]
 
 
 class StateRepository(Protocol):
+    """lets services stay stateless while storage can vary by environment."""
+
     def initialize(self) -> None:
+        """prepares backing storage before request handlers use it."""
         ...
 
     def list_drafts(self) -> list[DraftRow]:
+        """feeds review queues from the configured state store."""
         ...
 
     def get_draft(self, draft_id: str) -> DraftRow | None:
+        """supports direct review and decision actions by stable ID."""
         ...
 
     def find_draft(
         self, *, sender: str, subject: str, body: str, status: str
     ) -> DraftRow | None:
+        """prevents duplicate pending drafts for the same customer inquiry."""
         ...
 
     def upsert_draft(self, draft: DraftRow) -> DraftRow:
+        """handles both initial persistence and regenerated draft updates."""
         ...
 
     def delete_draft(self, draft_id: str) -> None:
+        """removes approved drafts from the pending review surface."""
         ...
 
     def list_audits(self) -> list[AuditRow]:
+        """exposes decision history for compliance and UI timelines."""
         ...
 
     def get_audit(self, audit_id: str) -> AuditRow | None:
+        """makes one recorded decision addressable by ID."""
         ...
 
     def find_audit(self, *, draft_id: str, action: str) -> AuditRow | None:
+        """keeps approval actions idempotent across retries."""
         ...
 
     def insert_audit(self, audit: AuditRow) -> AuditRow:
+        """records reviewer/system decisions as immutable workflow evidence."""
         ...
 
     def list_emails(self) -> list[EmailRow]:
+        """gives operators visibility into intake history."""
         ...
 
     def get_email(self, email_id: str) -> EmailRow | None:
+        """lets reprocessing start from the original stored email."""
         ...
 
     def upsert_email(self, email: EmailRow) -> EmailRow:
+        """persists status transitions from received to processed."""
         ...
 
 
 class MemoryStateRepository:
+    """keeps tests isolated without requiring a running PostgreSQL server."""
+
     def __init__(self) -> None:
+        """protects shared test state from concurrent request mutations."""
         self._lock = RLock()
         self._drafts: dict[str, DraftRow] = {}
         self._audits: dict[str, AuditRow] = {}
         self._emails: dict[str, EmailRow] = {}
 
     def initialize(self) -> None:
+        """matches the PostgreSQL repository contract even with no setup."""
         return None
 
     def list_drafts(self) -> list[DraftRow]:
+        """returns copies so callers cannot mutate repository internals."""
         with self._lock:
             return [deepcopy(row) for row in self._drafts.values()]
 
     def get_draft(self, draft_id: str) -> DraftRow | None:
+        """mirrors database lookup semantics for tests."""
         with self._lock:
             row = self._drafts.get(draft_id)
             return deepcopy(row) if row else None
@@ -77,6 +98,7 @@ class MemoryStateRepository:
     def find_draft(
         self, *, sender: str, subject: str, body: str, status: str
     ) -> DraftRow | None:
+        """supports deduplication logic without database-specific code."""
         with self._lock:
             for row in self._drafts.values():
                 if (
@@ -89,24 +111,29 @@ class MemoryStateRepository:
         return None
 
     def upsert_draft(self, draft: DraftRow) -> DraftRow:
+        """lets tests exercise create/update paths without persistence files."""
         with self._lock:
             self._drafts[str(draft["draft_id"])] = deepcopy(draft)
             return deepcopy(draft)
 
     def delete_draft(self, draft_id: str) -> None:
+        """simulates approval cleanup in isolated tests."""
         with self._lock:
             self._drafts.pop(draft_id, None)
 
     def list_audits(self) -> list[AuditRow]:
+        """exposes copied audit history for assertions."""
         with self._lock:
             return [deepcopy(row) for row in self._audits.values()]
 
     def get_audit(self, audit_id: str) -> AuditRow | None:
+        """mirrors direct database audit lookup in tests."""
         with self._lock:
             row = self._audits.get(audit_id)
             return deepcopy(row) if row else None
 
     def find_audit(self, *, draft_id: str, action: str) -> AuditRow | None:
+        """keeps retry/idempotency behavior testable without PostgreSQL."""
         with self._lock:
             for row in self._audits.values():
                 if row.get("draft_id") == draft_id and row.get("action") == action:
@@ -114,6 +141,7 @@ class MemoryStateRepository:
         return None
 
     def insert_audit(self, audit: AuditRow) -> AuditRow:
+        """assigns IDs consistently when tests omit them."""
         row = deepcopy(audit)
         row.setdefault("audit_id", f"AUD-{uuid4().hex[:8].upper()}")
         with self._lock:
@@ -121,25 +149,32 @@ class MemoryStateRepository:
             return deepcopy(row)
 
     def list_emails(self) -> list[EmailRow]:
+        """lets email queue tests inspect stored intake records."""
         with self._lock:
             return [deepcopy(row) for row in self._emails.values()]
 
     def get_email(self, email_id: str) -> EmailRow | None:
+        """supports reprocess tests with the same lookup path as production."""
         with self._lock:
             row = self._emails.get(email_id)
             return deepcopy(row) if row else None
 
     def upsert_email(self, email: EmailRow) -> EmailRow:
+        """stores intake status changes without leaking mutable references."""
         with self._lock:
             self._emails[str(email["email_id"])] = deepcopy(email)
             return deepcopy(email)
 
 
 class PostgresStateRepository:
+    """makes the app process stateless by storing workflow objects in PostgreSQL."""
+
     def __init__(self, database_url: str) -> None:
+        """keeps connection configuration explicit and environment-driven."""
         self.database_url = database_url
 
     def initialize(self) -> None:
+        """bootstraps tables so Docker startup does not need a manual migration."""
         with self._connect() as conn:
             conn.execute(
                 """
@@ -207,6 +242,7 @@ class PostgresStateRepository:
             )
 
     def list_drafts(self) -> list[DraftRow]:
+        """feeds pending-review views from durable storage."""
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM swift_drafts ORDER BY created DESC"
@@ -214,6 +250,7 @@ class PostgresStateRepository:
         return [self._draft_from_row(row) for row in rows]
 
     def get_draft(self, draft_id: str) -> DraftRow | None:
+        """lets approval/rejection act on a durable draft row."""
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM swift_drafts WHERE draft_id = %s", (draft_id,)
@@ -223,6 +260,7 @@ class PostgresStateRepository:
     def find_draft(
         self, *, sender: str, subject: str, body: str, status: str
     ) -> DraftRow | None:
+        """avoids duplicate pending drafts when the same email is retried."""
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -236,6 +274,7 @@ class PostgresStateRepository:
         return self._draft_from_row(row) if row else None
 
     def upsert_draft(self, draft: DraftRow) -> DraftRow:
+        """handles new drafts and regenerated versions through one write path."""
         with self._connect() as conn:
             conn.execute(
                 """
@@ -273,10 +312,12 @@ class PostgresStateRepository:
         return dict(draft)
 
     def delete_draft(self, draft_id: str) -> None:
+        """approved drafts should leave the active review table."""
         with self._connect() as conn:
             conn.execute("DELETE FROM swift_drafts WHERE draft_id = %s", (draft_id,))
 
     def list_audits(self) -> list[AuditRow]:
+        """returns JSON payloads in decision-time order for audit screens."""
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT payload FROM swift_audits ORDER BY timestamp DESC NULLS LAST"
@@ -284,6 +325,7 @@ class PostgresStateRepository:
         return [dict(row["payload"]) for row in rows]
 
     def get_audit(self, audit_id: str) -> AuditRow | None:
+        """retrieves the original decision payload without column loss."""
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT payload FROM swift_audits WHERE audit_id = %s", (audit_id,)
@@ -291,6 +333,7 @@ class PostgresStateRepository:
         return dict(row["payload"]) if row else None
 
     def find_audit(self, *, draft_id: str, action: str) -> AuditRow | None:
+        """makes repeated approval requests return the original audit."""
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -304,6 +347,7 @@ class PostgresStateRepository:
         return dict(row["payload"]) if row else None
 
     def insert_audit(self, audit: AuditRow) -> AuditRow:
+        """stores flexible audit details while indexing common lookup fields."""
         row = dict(audit)
         row.setdefault("audit_id", f"AUD-{uuid4().hex[:8].upper()}")
         with self._connect() as conn:
@@ -328,6 +372,7 @@ class PostgresStateRepository:
         return row
 
     def list_emails(self) -> list[EmailRow]:
+        """shows intake history using the stored canonical payload."""
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT payload FROM swift_emails ORDER BY created_at DESC"
@@ -335,6 +380,7 @@ class PostgresStateRepository:
         return [dict(row["payload"]) for row in rows]
 
     def get_email(self, email_id: str) -> EmailRow | None:
+        """retrieves the exact stored email for reprocessing."""
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT payload FROM swift_emails WHERE email_id = %s", (email_id,)
@@ -342,6 +388,7 @@ class PostgresStateRepository:
         return dict(row["payload"]) if row else None
 
     def upsert_email(self, email: EmailRow) -> EmailRow:
+        """persists receipt, processing, and draft linkage transitions."""
         with self._connect() as conn:
             conn.execute(
                 """
@@ -381,6 +428,7 @@ class PostgresStateRepository:
         return dict(email)
 
     def _connect(self):
+        """lazily imports psycopg so test-memory mode has fewer dependencies."""
         try:
             import psycopg
             from psycopg.rows import dict_row
@@ -394,12 +442,14 @@ class PostgresStateRepository:
 
     @staticmethod
     def _json(value: Any):
+        """tells psycopg to encode Python dict/list values as JSONB."""
         from psycopg.types.json import Jsonb
 
         return Jsonb(value)
 
     @staticmethod
     def _draft_from_row(row: dict[str, Any]) -> DraftRow:
+        """normalizes database rows to the service-layer draft shape."""
         return {
             "draft_id": row["draft_id"],
             "sender": row["sender"],
@@ -419,6 +469,7 @@ _repository: StateRepository | None = None
 
 
 def get_state_repository() -> StateRepository:
+    """shares one repository instance so all services use the same backend."""
     global _repository
     if _repository is None:
         _repository = _build_repository()
@@ -427,6 +478,7 @@ def get_state_repository() -> StateRepository:
 
 
 def _build_repository() -> StateRepository:
+    """selects durable PostgreSQL for runtime and memory only for tests."""
     backend = (os.getenv("SWIFT_STORAGE_BACKEND") or "").strip().lower()
     database_url = os.getenv("DATABASE_URL", "").strip()
 

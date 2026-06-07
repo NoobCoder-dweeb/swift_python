@@ -26,6 +26,7 @@ app.include_router(emails.router, prefix="/api/emails", tags=["emails"])
 
 
 def _parse_sort_datetime(value: str | None) -> datetime:
+    """keeps sorting stable even when legacy/demo rows have missing dates."""
     if not value:
         return datetime.min
     try:
@@ -35,6 +36,7 @@ def _parse_sort_datetime(value: str | None) -> datetime:
 
 
 def _sort_items(items, timestamp_key: str, order: str):
+    """centralizes page/API sort behavior so templates stay simple."""
     reverse = order != "asc"
     return sorted(
         items,
@@ -44,12 +46,15 @@ def _sort_items(items, timestamp_key: str, order: str):
 
 
 def _get_sort_order(request: Request) -> str:
+    """normalizes user input so unsupported values cannot flip sort logic."""
     order = (request.query_params.get("order") or "desc").strip().lower()
     return "asc" if order == "asc" else "desc"
 
 
 def _template_context(request: Request, **values):
+    """preserves Flask-style template helpers while using FastAPI routing."""
     def url_for(name: str, **path_params):
+        """lets existing templates call url_for without framework-specific edits."""
         if name == "static" and "filename" in path_params:
             path_params["path"] = path_params.pop("filename")
         try:
@@ -63,11 +68,13 @@ def _template_context(request: Request, **values):
 
 @app.get("/")
 async def home():
+    """sends users to the operational dashboard instead of a blank root."""
     return RedirectResponse(url="/dashboard", status_code=307)
 
 
 @app.get("/dashboard", name="dashboard")
 async def dashboard(request: Request):
+    """renders the top-level work queue summary for human reviewers."""
     stats = {
         "total_records": len(RECORDS),
         "active_users": len(USERS),
@@ -83,6 +90,7 @@ async def dashboard(request: Request):
 
 @app.get("/pending", name="pending_page")
 async def pending_page(request: Request):
+    """exposes database-backed drafts that still need sales approval."""
     order = _get_sort_order(request)
     pending_drafts = _sort_items([d.to_dict() for d in get_drafts()], "created", order)
     return templates.TemplateResponse(
@@ -94,6 +102,7 @@ async def pending_page(request: Request):
 
 @app.get("/audit", name="audit_page")
 async def audit_page(request: Request):
+    """gives reviewers a human-readable history of decisions."""
     order = _get_sort_order(request)
     sorted_audits = _sort_items(get_audits(), "timestamp", order)
     return templates.TemplateResponse(
@@ -104,6 +113,7 @@ async def audit_page(request: Request):
 
 
 def _wait_for_sse_events(timeout: float = 1.0) -> list[dict]:
+    """blocks briefly to avoid tight polling while keeping SSE responsive."""
     with events_cond:
         events_cond.wait(timeout=timeout)
         events = list(EVENTS_QUEUE)
@@ -113,7 +123,9 @@ def _wait_for_sse_events(timeout: float = 1.0) -> list[dict]:
 
 @app.get("/stream")
 async def stream(request: Request):
+    """pushes draft/audit changes to the browser without page refreshes."""
     async def event_stream():
+        """isolates the generator lifecycle so disconnects stop cleanly."""
         try:
             while not await request.is_disconnected():
                 events = await asyncio.to_thread(_wait_for_sse_events)

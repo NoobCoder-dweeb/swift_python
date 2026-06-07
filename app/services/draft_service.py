@@ -13,10 +13,14 @@ from data import (
 
 
 class DraftService:
+    """coordinates workflow generation with persisted review state."""
+
     def __init__(self):
+        """shares the configured repository with route-level operations."""
         self.repository = get_state_repository()
 
     async def generate_draft(self, email: EmailPayload) -> DraftResponse:
+        """runs the heavier sales workflow off the event loop for API responsiveness."""
         workflow = await asyncio.to_thread(
             run_sales_inquiry_workflow,
             IncomingEmail(
@@ -50,9 +54,11 @@ class DraftService:
         return draft
 
     def list_drafts(self):
+        """exposes only reviewer-ready drafts rather than all stored workflow rows."""
         return [draft.to_dict() for draft in get_drafts()]
 
     def get_draft(self, draft_id: str):
+        """retrieves a specific draft for review or troubleshooting."""
         row = self.repository.get_draft(draft_id)
         if row:
             return next(
@@ -66,6 +72,7 @@ class DraftService:
         return None
 
     def approve_draft(self, draft_id: str):
+        """turns a pending draft into an immutable approval audit."""
         audit = approve_pending_draft(draft_id, approver="Sales Officer")
         if not audit:
             return {
@@ -82,6 +89,7 @@ class DraftService:
         }
 
     def reject_draft(self, draft_id: str, reason: str = ""):
+        """keeps rejected drafts in the review loop with reviewer feedback attached."""
         regenerated = reject_and_regenerate_draft(
             draft_id,
             requester="Sales Officer",

@@ -1,7 +1,7 @@
 import asyncio
 
 from app.crews.sales_inquiry_crew import run_sales_inquiry_workflow
-from app.crews.agents import EmailDraftingAgent
+from app.crews.agents import EmailDraftingAgent, LocalLLMConfig, SalesProcessingAgent
 from app.crews.workflow_models import ProductContext
 from app.crews.stress_test import run_stress_suite
 from app.schemas.draft import EmailPayload
@@ -10,6 +10,7 @@ from app.services.draft_service import DraftService
 
 
 def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
+    """Why: protects the core pricing-plus-stock workflow behavior."""
     result = run_sales_inquiry_workflow(
         IncomingEmail(
             sender="buyer@example.com",
@@ -29,6 +30,7 @@ def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
 
 
 def test_sales_workflow_blocks_prompt_injection_and_personal_data_request():
+    """Why: ensures unsafe requests are blocked before customer drafting."""
     result = run_sales_inquiry_workflow(
         IncomingEmail(
             sender="attacker@example.com",
@@ -50,6 +52,7 @@ def test_sales_workflow_blocks_prompt_injection_and_personal_data_request():
 
 
 def test_draft_service_uses_sales_workflow(monkeypatch):
+    """Why: verifies the API service uses the validated sales workflow."""
     monkeypatch.setenv("SWIFT_CREWAI_ENABLED", "0")
     service = DraftService()
 
@@ -70,6 +73,7 @@ def test_draft_service_uses_sales_workflow(monkeypatch):
 
 
 def test_draft_validation_rejects_crewai_placeholders_and_unapproved_cost_claims():
+    """Why: catches common LLM draft defects before human review."""
     draft = (
         "Subject: Re: Product X pricing and stock\n\n"
         "Dear Customer,\n\n"
@@ -94,6 +98,7 @@ def test_draft_validation_rejects_crewai_placeholders_and_unapproved_cost_claims
 
 
 def test_stress_suite_identifies_chokeholds():
+    """Why: keeps known weak spots visible in regression coverage."""
     result = run_stress_suite(use_crewai=False)
 
     assert result.total >= 8
@@ -102,3 +107,33 @@ def test_stress_suite_identifies_chokeholds():
         "approved_product_context_not_found" in item for item in result.chokeholds
     )
     assert any("multilingual" in item for item in result.chokeholds)
+
+
+def test_local_llm_config_ignores_malformed_numeric_env(monkeypatch):
+    """Why: bad .env values should not crash app startup."""
+    monkeypatch.setenv("SWIFT_LOCAL_LLM_TIMEOUT", "not-an-int")
+    monkeypatch.setenv("SWIFT_LOCAL_LLM_TEMPERATURE", "not-a-float")
+
+    config = LocalLLMConfig.from_env()
+
+    assert config.timeout == 45
+    assert config.temperature == 0.1
+
+
+def test_product_lookup_failure_returns_low_confidence_context():
+    """Why: ERP/Odoo outages should degrade to reviewable missing-context drafts."""
+
+    class FailingProductClient:
+        """Why: simulates an unavailable external product data source."""
+
+        def get_product(self, query):
+            """Why: raises like a failed ERP request would."""
+            raise RuntimeError("odoo unavailable")
+
+    context = SalesProcessingAgent(
+        product_client=FailingProductClient()
+    ).lookup_product_context("Product X", "Product X quote")
+
+    assert context.confidence == 0.0
+    assert context.source == "product_client"
+    assert any("Product lookup failed" in note for note in context.notes)

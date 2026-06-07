@@ -12,28 +12,35 @@ from app.schemas.email import IncomingEmail
 
 
 class EmailParseError(ValueError):
-    """Raised when a curl payload cannot be turned into an incoming email."""
+    """gives routes a typed error they can safely return as 400 responses."""
 
 
 class _HTMLTextExtractor(HTMLParser):
+    """converts HTML emails to plain text before drafting."""
+
     def __init__(self) -> None:
+        """collects text chunks while preserving useful line breaks."""
         super().__init__()
         self._chunks: list[str] = []
 
     def handle_data(self, data: str) -> None:
+        """keeps visible HTML text and ignores empty formatting whitespace."""
         text = data.strip()
         if text:
             self._chunks.append(text)
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """preserves block boundaries so sentences do not collapse together."""
         if tag in {"br", "p", "div", "li"}:
             self._chunks.append("\n")
 
     def get_text(self) -> str:
+        """returns normalized plain text for downstream preprocessing."""
         return _clean_body("\n".join(self._chunks))
 
 
 def incoming_email_from_mapping(payload: Mapping[str, Any]) -> IncomingEmail:
+    """supports webhook/form aliases without separate route code paths."""
     sender = payload.get("sender") or payload.get("from") or payload.get("mail_from")
     subject = payload.get("subject") or "No subject"
     body = payload.get("body") or payload.get("text") or payload.get("message")
@@ -51,6 +58,7 @@ def incoming_email_from_mapping(payload: Mapping[str, Any]) -> IncomingEmail:
 
 
 def parse_rfc822_email(raw: bytes) -> IncomingEmail:
+    """lets curl or mail listeners submit real RFC822-style messages."""
     if not raw.strip():
         raise EmailParseError("Email payload is empty.")
 
@@ -67,6 +75,7 @@ def parse_rfc822_email(raw: bytes) -> IncomingEmail:
 
 
 def _validate_incoming_email(email: IncomingEmail) -> None:
+    """fails early before empty intake records reach drafting/storage."""
     if not email.sender:
         raise EmailParseError("Email payload is missing a sender/from value.")
     if not email.body.strip():
@@ -74,6 +83,7 @@ def _validate_incoming_email(email: IncomingEmail) -> None:
 
 
 def _extract_body(message: Message) -> str:
+    """prefers readable text and ignores attachments for safer drafting context."""
     if message.is_multipart():
         body_part = message.get_body(preferencelist=("plain", "html"))
         if body_part:
@@ -92,6 +102,7 @@ def _extract_body(message: Message) -> str:
 
 
 def _part_to_text(part: Message) -> str:
+    """decodes varied email payload encodings into a single text body."""
     try:
         content = part.get_content()
     except Exception:
@@ -116,5 +127,6 @@ def _part_to_text(part: Message) -> str:
 
 
 def _clean_body(text: str) -> str:
+    """normalizes line endings so preprocessing rules behave consistently."""
     lines = [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
     return "\n".join(lines).strip()

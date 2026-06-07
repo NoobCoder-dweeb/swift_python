@@ -2,6 +2,7 @@ import pytest
 
 
 def test_email_draft_uses_only_odoo_data(email_drafting_agent):
+    """Why: ensures drafts stay grounded in approved product context."""
     info = {"product": "Helmet", "stock_availability": 5}
 
     draft = email_drafting_agent.generate(info)
@@ -12,6 +13,7 @@ def test_email_draft_uses_only_odoo_data(email_drafting_agent):
 
 
 def test_invalid_draft_format_triggers_regeneration(email_drafting_agent):
+    """Why: protects review quality by rejecting under-specified drafts."""
     info = {"product": "Helmet", "stock_availability": 5}
 
     result = email_drafting_agent.validate_draft("helmet 5", info)

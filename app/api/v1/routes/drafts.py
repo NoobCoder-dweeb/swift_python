@@ -10,13 +10,14 @@ draft_service = DraftService()
 @router.post("/", response_model=DraftResponse)
 async def create_draft(email: EmailPayload):
     """
-    Generate a draft from customer inquiry.
+    lets clients create a reviewable reply without going through email intake.
     """
     return await draft_service.generate_draft(email)
 
 
 @router.get("/")
 async def list_drafts(order: str = "desc"):
+    """gives the UI a sorted queue of drafts that need human action."""
     drafts = draft_service.list_drafts()
     reverse = order.lower() != "asc"
     return sorted(drafts, key=lambda item: item.get("created", ""), reverse=reverse)
@@ -24,6 +25,7 @@ async def list_drafts(order: str = "desc"):
 
 @router.get("/{draft_id}")
 async def get_draft(draft_id: str):
+    """retrieves one draft so a reviewer can inspect full context."""
     draft = draft_service.get_draft(draft_id)
 
     if not draft:
@@ -34,11 +36,13 @@ async def get_draft(draft_id: str):
 
 @router.post("/{draft_id}/approve")
 async def approve_draft(draft_id: str):
+    """records the sales officer decision and removes the draft from pending."""
     return draft_service.approve_draft(draft_id)
 
 
 @router.post("/{draft_id}/reject")
 async def reject_draft(draft_id: str, request: Request, reason: str = ""):
+    """captures reviewer feedback so the regenerated draft can improve."""
     rejection_reason = reason
     content_type = (request.headers.get("content-type") or "").split(";")[0].lower()
     if content_type == "application/json":

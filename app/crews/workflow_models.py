@@ -10,6 +10,8 @@ WorkflowMode = Literal["deterministic", "crewai"]
 
 
 class InquiryDetails(BaseModel):
+    """separates extracted customer intent from raw email text."""
+
     sender: str
     subject: str
     body: str
@@ -23,6 +25,8 @@ class InquiryDetails(BaseModel):
 
 
 class ProductContext(BaseModel):
+    """constrains draft generation to approved product data."""
+
     product: str | None = None
     sku: str | None = None
     stock_availability: int | None = None
@@ -35,12 +39,16 @@ class ProductContext(BaseModel):
 
 
 class DraftValidationResult(BaseModel):
+    """makes approval/regeneration/rejection decisions explicit."""
+
     valid: bool
     action: Literal["approve", "regenerate", "reject"]
     reasons: list[str] = Field(default_factory=list)
 
 
 class SalesWorkflowResult(BaseModel):
+    """carries every workflow artifact needed for review and audit."""
+
     draft_id: str
     sender: str
     subject: str
@@ -58,6 +66,8 @@ class SalesWorkflowResult(BaseModel):
 
 
 class StressScenario(BaseModel):
+    """defines edge cases that probe workflow safety and coverage."""
+
     name: str
     sender: str = "stress.customer@example.com"
     subject: str
@@ -69,6 +79,8 @@ class StressScenario(BaseModel):
 
 
 class StressCaseResult(BaseModel):
+    """records per-scenario outcomes for debugging regressions."""
+
     name: str
     passed: bool
     elapsed_ms: float
@@ -78,6 +90,8 @@ class StressCaseResult(BaseModel):
 
 
 class StressSuiteResult(BaseModel):
+    """summarizes stress coverage across all scenarios."""
+
     mode: WorkflowMode
     total: int
     passed: int

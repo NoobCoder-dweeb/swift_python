@@ -9,11 +9,15 @@ from app.services.email_preprocessor import preprocess_email
 
 
 class EmailService:
+    """persists incoming emails and connects them to generated sales drafts."""
+
     def __init__(self):
+        """keeps email storage and draft generation coordinated per service instance."""
         self.repository = get_state_repository()
         self.draft_service = DraftService()
 
     async def process_email(self, email: IncomingEmail):
+        """supports structured email intake from trusted listeners."""
         email_id = f"EML-{uuid4().hex[:8].upper()}"
         preprocessed = preprocess_email(email)
         cleaned_email = preprocessed.email
@@ -52,6 +56,7 @@ class EmailService:
         }
 
     async def ingest_email(self, email: IncomingEmail):
+        """supports local/manual ingestion while preserving the same persisted flow."""
         email_id = f"EML-{uuid4().hex[:8].upper()}"
         preprocessed = preprocess_email(email)
         cleaned_email = preprocessed.email
@@ -98,9 +103,11 @@ class EmailService:
         }
 
     def get_queue(self):
+        """exposes stored email intake history without relying on process memory."""
         return self.repository.list_emails()
 
     async def reprocess(self, email_id: str):
+        """lets operators regenerate a draft from the original cleaned email."""
         email_record = self.repository.get_email(email_id)
 
         if not email_record:

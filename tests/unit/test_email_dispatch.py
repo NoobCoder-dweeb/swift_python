@@ -2,6 +2,7 @@ import pytest
 
 
 def test_email_sent_after_approval(dispatch_service, mock_email_client):
+    """Why: ensures only approved drafts are sent to customers."""
     draft = {"to": "customer@example.com", "content": "Dear customer..."}
 
     dispatch_service.dispatch(draft, approved=True)
@@ -10,6 +11,7 @@ def test_email_sent_after_approval(dispatch_service, mock_email_client):
 
 
 def test_email_not_sent_when_rejected(dispatch_service, mock_email_client):
+    """Why: prevents rejected drafts from leaving the review workflow."""
     draft = {"to": "customer@example.com", "content": "Dear customer..."}
 
     dispatch_service.dispatch(draft, approved=False)

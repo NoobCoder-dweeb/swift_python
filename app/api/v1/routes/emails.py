@@ -19,7 +19,7 @@ email_service = EmailService()
 @router.post("/receive")
 async def receive_email(email: IncomingEmail):
     """
-    Endpoint called by email listener.
+    gives automated listeners a structured path into the drafting workflow.
     """
     return await email_service.process_email(email)
 
@@ -27,7 +27,7 @@ async def receive_email(email: IncomingEmail):
 @router.post("/ingest")
 async def ingest_email(request: Request):
     """
-    Dummy email receiver for curl-driven local testing.
+    accepts realistic local inputs so ingestion can be tested without mail infra.
 
     Accepts JSON/form payloads with sender/from, subject, and body fields, or a
     raw RFC822-style email body with From and Subject headers.
@@ -42,15 +42,18 @@ async def ingest_email(request: Request):
 
 @router.get("/queue")
 async def get_email_queue():
+    """lets operators inspect stored email intake history."""
     return email_service.get_queue()
 
 
 @router.post("/{email_id}/reprocess")
 async def reprocess_email(email_id: str):
+    """reruns draft generation when stored intake needs another pass."""
     return await email_service.reprocess(email_id)
 
 
 async def _email_from_request(request: Request) -> IncomingEmail:
+    """normalizes JSON, form, and raw email bodies into one schema."""
     content_type = (request.headers.get("content-type") or "").split(";")[0].lower()
 
     if content_type == "application/json":

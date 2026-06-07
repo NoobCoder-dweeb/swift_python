@@ -8,12 +8,15 @@ from app.schemas.email import IncomingEmail
 
 @dataclass(frozen=True)
 class PreprocessedEmail:
+    """carries both cleaned text and removal evidence for audit/debugging."""
+
     email: IncomingEmail
     original_body: str
     removed_lines: list[str]
 
     @property
     def changed(self) -> bool:
+        """flags whether preprocessing altered the customer body."""
         return self.email.body != self.original_body.strip()
 
 
@@ -86,6 +89,7 @@ _QUANTITY_RE = re.compile(
 
 
 def preprocess_email(email: IncomingEmail) -> PreprocessedEmail:
+    """removes non-request noise before the drafting workflow sees the email."""
     original_body = _normalize_newlines(email.body)
     candidate_lines, removed_lines = _remove_structural_noise(original_body)
     selected_lines = _select_relevant_lines(candidate_lines)
@@ -106,10 +110,12 @@ def preprocess_email(email: IncomingEmail) -> PreprocessedEmail:
 
 
 def _normalize_newlines(text: str) -> str:
+    """makes rule matching independent of email client line-ending style."""
     return text.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
 def _remove_structural_noise(body: str) -> tuple[list[str], list[str]]:
+    """strips greetings, signatures, quoted replies, and boilerplate."""
     kept: list[str] = []
     removed: list[str] = []
 
@@ -148,6 +154,7 @@ def _remove_structural_noise(body: str) -> tuple[list[str], list[str]]:
 
 
 def _select_relevant_lines(lines: list[str]) -> list[str]:
+    """reduces drafting context to lines likely about pricing or stock."""
     scored = [(_relevance_score(line), line) for line in lines]
     relevant = [line for score, line in scored if score > 0]
     if not relevant:
@@ -157,6 +164,7 @@ def _select_relevant_lines(lines: list[str]) -> list[str]:
 
 
 def _relevance_score(line: str) -> int:
+    """ranks customer lines by inquiry signals instead of position alone."""
     lower = line.lower()
     score = 0
 
@@ -173,6 +181,7 @@ def _relevance_score(line: str) -> int:
 
 
 def _join_lines(lines: list[str]) -> str:
+    """removes duplicate adjacent lines from messy email clients."""
     cleaned: list[str] = []
     previous = ""
     for line in lines:
@@ -184,6 +193,7 @@ def _join_lines(lines: list[str]) -> str:
 
 
 def _starts_quoted_block(line: str) -> bool:
+    """stops old thread content from influencing the new response."""
     lower = line.lower()
     return (
         lower.startswith("-----original message-----")
@@ -195,6 +205,7 @@ def _starts_quoted_block(line: str) -> bool:
 
 
 def _is_greeting(line: str) -> bool:
+    """removes salutations so drafting context starts with the actual request."""
     return bool(
         re.match(
             r"^(hi|hello|dear|good morning|good afternoon|good evening)\b[\w\s,.-]*$",
@@ -205,10 +216,12 @@ def _is_greeting(line: str) -> bool:
 
 
 def _is_signature_marker(line: str) -> bool:
+    """recognizes common signature separators that end useful content."""
     return line in {"--", "-- "}
 
 
 def _is_signoff(line: str) -> bool:
+    """stops parsing once the customer has likely finished the request."""
     return bool(
         re.match(
             r"^(thanks|thank you|regards|best regards|kind regards|sincerely|cheers)"
@@ -220,10 +233,12 @@ def _is_signoff(line: str) -> bool:
 
 
 def _is_boilerplate_line(line: str) -> bool:
+    """removes legal/security footers unrelated to the inquiry."""
     lower = line.lower()
     return any(re.search(pattern, lower) for pattern in _BOILERPLATE_PATTERNS)
 
 
 def _is_contact_line(line: str) -> bool:
+    """removes contact blocks to reduce irrelevant and personal data exposure."""
     lower = line.lower()
     return any(re.search(pattern, lower) for pattern in _CONTACT_PATTERNS)

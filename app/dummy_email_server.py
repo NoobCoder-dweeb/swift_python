@@ -6,6 +6,7 @@ import uvicorn
 
 
 def main() -> None:
+    """runs the FastAPI app as a standalone local email receiver."""
     parser = argparse.ArgumentParser(description="Run the local dummy email receiver.")
     parser.add_argument("--host", default="127.0.0.1", help="Host interface to bind.")
     parser.add_argument("--port", default=8025, type=int, help="Port to listen on.")
