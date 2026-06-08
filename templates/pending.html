@@ -1,64 +1,23 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="light">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pending Drafts - Project Swift</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% extends '_base.html' %}
+{% from '_components.html' import sort_toggle %}
+{% set page_title = 'Pending Drafts' %}
+
+{% block title %}Pending Drafts - Project Swift{% endblock %}
+{% block extra_styles %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/pending.css') }}">
-</head>
-<body>
-    {% include '_nav.html' %}
+{% endblock %}
 
-    <div class="main-content">
-        {% if backend_note %}
-        <div class="alert alert-info mb-lg" style="margin: 1rem 2rem 0;">
-            <i class="ph ph-code"></i>
-            <div>{{ backend_note }}</div>
-        </div>
-        {% endif %}
+{% block page_body_class %} page-body-compact{% endblock %}
 
-        <header class="page-header">
-            <div class="header-left">
-                <button class="sidebar-toggle" id="sidebarToggle">
-                    <i class="ph ph-list"></i>
-                </button>
-                <h1 class="page-title">Pending Drafts</h1>
-            </div>
-            <div class="header-right">
-                <button class="header-icon-btn" id="notifyBtn">
-                    <i class="ph ph-bell"></i>
-                    <span class="notification-dot" id="notificationDot" style="display:none;"></span>
-                </button>
-                <button class="header-icon-btn" id="themeToggle">
-                    <i class="ph ph-moon"></i>
-                </button>
-            </div>
-        </header>
-        <main class="page-body" style="padding: 1rem 2rem;">
-            <div class="toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-                <div>
+{% block content %}
+            <div class="toolbar page-toolbar">
+                <div class="toolbar-actions">
                     <button id="viewToggle" class="btn btn-text" data-compact="false">Compact View</button>
                     <button id="refreshDrafts" class="btn btn-outline">Refresh</button>
                 </div>
-                <div style="display:flex;align-items:center;gap:1rem;">
-                    <div style="display:flex;align-items:center;gap:0.5rem;">
-                        <a
-                            href="{{ url_for('pending_page', order='asc' if sort_order != 'asc' else 'desc') }}"
-                            class="header-icon-btn"
-                            aria-label="Toggle draft sort order"
-                            title="Toggle sort order"
-                            style="background:var(--surface-raised);color:var(--text-main);"
-                        >
-                            <i class="ph {% if sort_order == 'asc' %}ph-sort-ascending{% else %}ph-sort-descending{% endif %}"></i>
-                        </a>
-                        <span style="font-size:0.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">
-                            {{ 'Ascending' if sort_order == 'asc' else 'Descending' }}
-                        </span>
-                    </div>
-                    <div style="font-size:0.9rem;color:var(--muted);">Sales review queue</div>
+                <div class="toolbar-meta">
+                    {{ sort_toggle(url_for('pending_page', order='asc' if sort_order != 'asc' else 'desc'), sort_order, 'draft') }}
+                    <div class="toolbar-context">Sales review queue</div>
                 </div>
             </div>
 
@@ -121,10 +80,8 @@
                 <div class="card">No drafts pending.</div>
             {% endif %}
             </div>
-        </main>
-    </div>
+{% endblock %}
 
-    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% block extra_scripts %}
     <script src="{{ url_for('static', filename='js/pending.js') }}"></script>
-</body>
-</html>
+{% endblock %}

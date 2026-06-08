@@ -20,9 +20,11 @@
     --background: hsl(210, 20%, 98%);
     --surface: hsl(0, 0%, 100%);
     --surface-hover: hsl(210, 20%, 96%);
+    --surface-raised: hsl(0, 0%, 100%);
 
     --text-main: hsl(220, 39%, 11%);
     --text-muted: hsl(220, 15%, 40%);
+    --muted: var(--text-muted);
 
     --border: hsl(220, 20%, 90%);
     --accent: hsl(var(--hue), 84%, 54%);
@@ -60,6 +62,7 @@
     --background: hsl(222, 47%, 9%);
     --surface: hsl(222, 47%, 13%);
     --surface-hover: hsl(222, 47%, 16%);
+    --surface-raised: hsl(222, 47%, 15%);
 
     --text-main: hsl(0, 0%, 100%);
     --text-muted: hsl(215, 20%, 65%);
@@ -282,6 +285,8 @@ body {
     margin-left: var(--sidebar-width);
     min-height: 100vh;
     transition: var(--transition);
+    display: flex;
+    flex-direction: column;
 }
 
 .sidebar.collapsed ~ .main-content {
@@ -522,6 +527,97 @@ body {
 
 .page-body {
     padding: 2rem;
+    flex: 1;
+}
+
+.page-body-compact {
+    padding: 1rem 2rem;
+}
+
+.backend-note {
+    margin: 1rem 2rem 0;
+}
+
+.app-footer {
+    padding: 0 2rem 2rem;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+}
+
+.app-footer-card {
+    width: 100%;
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 1.15rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 2rem;
+    overflow: visible;
+}
+
+.app-footer-card:hover {
+    box-shadow: var(--shadow-sm);
+}
+
+.app-footer-brand,
+.app-footer-links {
+    display: flex;
+    align-items: center;
+}
+
+.app-footer-mark {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: var(--primary-light);
+    color: var(--primary);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    font-size: 0.95rem;
+}
+
+.app-footer-text {
+    color: var(--text-muted);
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+}
+
+.app-footer-brand {
+    gap: 0.75rem;
+    margin-right: 1rem;
+}
+
+.app-footer-links {
+    flex-direction: column;
+    gap: 0.75rem;
+    align-items: flex-end;
+    justify-content: flex-start;
+}
+
+.app-footer-link {
+    color: var(--text-muted);
+    text-decoration: none;
+    text-decoration-line: none;
+    font-weight: 600;
+    padding: 0.45rem 0.85rem;
+    border-radius: var(--radius-sm);
+    transition: var(--transition);
+}
+
+.app-footer-link:visited,
+.app-footer-link:hover {
+    text-decoration: none;
+    text-decoration-line: none;
+}
+
+.app-footer-link:hover,
+.app-footer-link:focus-visible {
+    color: var(--primary);
+    background: var(--primary-light);
 }
 
 /* ============================================
@@ -698,6 +794,19 @@ body {
     border-color: var(--primary);
     color: var(--primary);
     background: var(--surface-hover);
+    transform: translateY(-2px);
+}
+
+.btn-outline {
+    background: transparent;
+    color: var(--text-main);
+    border: 1px solid var(--border);
+}
+
+.btn-outline:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-light);
     transform: translateY(-2px);
 }
 
@@ -1138,6 +1247,48 @@ input:checked + .slider:before {
     margin-bottom: 1.5rem;
 }
 
+.page-toolbar {
+    margin-bottom: 1rem;
+}
+
+.toolbar-actions,
+.toolbar-meta,
+.sort-control {
+    display: flex;
+    align-items: center;
+}
+
+.toolbar-actions {
+    gap: 0.5rem;
+}
+
+.toolbar-meta {
+    gap: 1rem;
+    color: var(--text-muted);
+}
+
+.toolbar-icon-btn {
+    background: var(--surface-raised);
+    color: var(--text-main);
+}
+
+.sort-control {
+    gap: 0.5rem;
+}
+
+.sort-label {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.toolbar-context {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
 .filter-group {
     display: flex;
     align-items: center;
@@ -1316,8 +1467,38 @@ input:checked + .slider:before {
         align-items: stretch;
     }
 
+    .toolbar-actions,
+    .toolbar-meta {
+        justify-content: space-between;
+    }
+
     .page-body {
         padding: 1rem;
+    }
+
+    .page-body-compact {
+        padding: 1rem;
+    }
+
+    .app-footer {
+        padding: 0 1rem 1rem;
+    }
+
+    .app-footer-card {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1rem 1.125rem;
+    }
+
+    .app-footer-links {
+        gap: 0.5rem;
+        align-items: flex-start;
+        justify-content: flex-start;
+    }
+
+    .app-footer-brand {
+        margin-right: 0;
     }
 
     .page-header {

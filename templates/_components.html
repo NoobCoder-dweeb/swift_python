@@ -1,0 +1,13 @@
+{% macro sort_toggle(href, sort_order, label) -%}
+<div class="sort-control">
+    <a
+        href="{{ href }}"
+        class="header-icon-btn toolbar-icon-btn"
+        aria-label="Toggle {{ label }} sort order"
+        title="Toggle sort order"
+    >
+        <i class="ph {% if sort_order == 'asc' %}ph-sort-ascending{% else %}ph-sort-descending{% endif %}"></i>
+    </a>
+    <span class="sort-label">{{ 'Ascending' if sort_order == 'asc' else 'Descending' }}</span>
+</div>
+{%- endmacro %}

@@ -104,8 +104,6 @@
   background:var(--surface-hover);
 }
 .badge{background:var(--border);padding:0.25rem 0.4rem;border-radius:4px;font-size:0.78rem;color:var(--text-main)}
-.toolbar .btn{margin-right:0.5rem}
-
 .draft-card .draft-actions .btn{min-width:70px;white-space:nowrap}
 
 /* Toasts */
