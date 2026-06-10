@@ -18,3 +18,9 @@ class DraftResponse(BaseModel):
     customer_inquiry: str
     ai_draft: str
     status: str
+
+
+class DraftUpdatePayload(BaseModel):
+    """captures only the updatable fields for a pending draft."""
+
+    ai_draft: str

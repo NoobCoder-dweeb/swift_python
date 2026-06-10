@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from app.schemas.draft import EmailPayload, DraftResponse
+from app.schemas.draft import DraftResponse, DraftUpdatePayload, EmailPayload
 from app.services.draft_service import DraftService
 
 router = APIRouter()
@@ -38,6 +38,15 @@ async def get_draft(draft_id: str):
 async def approve_draft(draft_id: str):
     """records the sales officer decision and removes the draft from pending."""
     return draft_service.approve_draft(draft_id)
+
+
+@router.patch("/{draft_id}", response_model=DraftResponse)
+async def update_draft(draft_id: str, payload: DraftUpdatePayload):
+    """saves reviewer edits to a draft without leaving the pending page."""
+    updated = draft_service.update_draft(draft_id, payload.ai_draft)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Draft not found")
+    return updated
 
 
 @router.post("/{draft_id}/reject")

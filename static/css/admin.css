@@ -1265,6 +1265,7 @@ input:checked + .slider:before {
 .toolbar-meta {
     gap: 1rem;
     color: var(--text-muted);
+    flex-wrap: wrap;
 }
 
 .toolbar-icon-btn {
@@ -1274,6 +1275,9 @@ input:checked + .slider:before {
 
 .sort-control {
     gap: 0.5rem;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    white-space: nowrap;
 }
 
 .sort-label {
@@ -1282,6 +1286,7 @@ input:checked + .slider:before {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
+    line-height: 1;
 }
 
 .toolbar-context {

@@ -26,12 +26,14 @@
                     {% set shown = namespace(value=false) %}
                     {% for a in audits %}
                         {% set action = (a.action|default('')|lower) %}
-                        {% if action in ['approved','rejected','accepted'] %}
+                        {% if action in ['approved','rejected','accepted','edited'] %}
                         {% set shown.value = true %}
                         {% if action == 'approved' %}
                             {% set color = "var(--success, #28a745)" %}
                         {% elif action == 'rejected' %}
                             {% set color = "var(--danger, #dc3545)" %}
+                        {% elif action == 'edited' %}
+                            {% set color = "var(--primary, #007bff)" %}
                         {% else %}
                             {% set color = "var(--text-main, #333)" %}
                         {% endif %}
@@ -95,8 +97,12 @@
                                 <strong>User review:</strong>
                                 {% if action in ['approved','accepted'] %}
                                     <span class="audit-review-status audit-review-approved">Approved</span>
-                                {% else %}
+                                {% elif action == 'rejected' %}
                                     <span class="audit-review-status audit-review-rejected">Rejected</span>
+                                {% elif action == 'edited' %}
+                                    <span class="audit-review-status">Edited</span>
+                                {% else %}
+                                    <span class="audit-review-status">Reviewed</span>
                                 {% endif %}
                                 {% if a.review_comment %}
                                     <div class="audit-comment">Comment: {{ a.review_comment }}</div>
@@ -106,7 +112,9 @@
                                 {% endif %}
                             </div>
 
+                            {% if action in ['approved','rejected','accepted'] %}
                             <div class="audit-footer">Emailed to: {{ a.emailed_to }} — Sent: {{ a.sent }}</div>
+                            {% endif %}
                             </div>
                         </div>
                         {% endif %}

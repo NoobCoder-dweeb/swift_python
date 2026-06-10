@@ -1,4 +1,6 @@
 import asyncio
+from datetime import datetime
+from uuid import uuid4
 
 from app.crews.sales_inquiry_crew import run_sales_inquiry_workflow
 from app.repositories.state_repository import get_state_repository
@@ -9,6 +11,7 @@ from data import (
     approve_draft as approve_pending_draft,
     get_drafts,
     reject_and_regenerate_draft,
+    publish_event,
 )
 
 
@@ -70,6 +73,51 @@ class DraftService:
                 },
             )
         return None
+
+    def update_draft(self, draft_id: str, ai_draft: str):
+        """persists manual draft edits and records the change in an audit log."""
+        row = self.repository.get_draft(draft_id)
+        if not row or row.get("status") != "pending":
+            return None
+
+        previous_ai = row.get("ai_draft_text", "")
+        row["ai_draft_text"] = ai_draft
+        row["updated"] = datetime.now().isoformat()
+        self.repository.upsert_draft(row)
+
+        audit = {
+            "audit_id": f"AUD-{uuid4().hex[:8].upper()}",
+            "draft_id": draft_id,
+            "version_id": f"{draft_id}-v{row.get('revisions', 0)}",
+            "sender": row.get("sender"),
+            "subject": row.get("subject"),
+            "approver": "Sales Officer",
+            "action": "edited",
+            "timestamp": datetime.now().isoformat(),
+            "emailed_to": None,
+            "sent": False,
+            "content": "Edited the AI response draft in place.",
+            "customer_inquiry": row.get("body"),
+            "ai_draft": ai_draft,
+            "details": {
+                "previous_ai_draft": previous_ai,
+            },
+        }
+        self.repository.insert_audit(audit)
+
+        try:
+            publish_event({"type": "draft_updated", "payload": {**row, "ai_draft": ai_draft}})
+        except Exception:
+            pass
+
+        return DraftResponse(
+            draft_id=row["draft_id"],
+            sender=row["sender"],
+            subject=row["subject"],
+            customer_inquiry=row["body"],
+            ai_draft=ai_draft,
+            status=row["status"],
+        )
 
     def approve_draft(self, draft_id: str):
         """turns a pending draft into an immutable approval audit."""

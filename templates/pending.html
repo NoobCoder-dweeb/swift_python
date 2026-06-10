@@ -36,6 +36,9 @@
                                 {% if d.status == 'pending' %}
                                 <button class="btn btn-primary approve-btn" data-draft-id="{{ d.draft_id }}">Approve</button>
                                 <button class="btn btn-secondary reject-btn" data-draft-id="{{ d.draft_id }}">Reject</button>
+                                <button class="btn btn-secondary edit-btn" type="button" data-draft-id="{{ d.draft_id }}">Edit</button>
+                                <button class="btn btn-primary save-edit-btn is-hidden" type="button" data-draft-id="{{ d.draft_id }}">Save</button>
+                                <button class="btn btn-text cancel-edit-btn is-hidden" type="button" data-draft-id="{{ d.draft_id }}">Cancel</button>
                                 {% else %}
                                 <span class="badge">{{ d.status }}</span>
                                 {% endif %}

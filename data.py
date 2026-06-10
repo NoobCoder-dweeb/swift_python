@@ -617,7 +617,7 @@ def get_audits() -> list[dict]:
     """enriches persisted decision rows with display timestamps for the UI."""
     enriched: list[dict] = []
     for audit in get_state_repository().list_audits():
-        if (audit.get('action') or '').lower() not in {'approved', 'rejected'}:
+        if (audit.get('action') or '').lower() not in {'approved', 'rejected', 'edited'}:
             continue
         entry = dict(audit)
         entry['timestamp_display'] = _format_human_datetime(audit.get('timestamp', ''))
