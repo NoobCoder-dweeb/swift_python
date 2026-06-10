@@ -546,13 +546,14 @@ body {
 
 .app-footer-card {
     width: 100%;
-    max-width: 1120px;
-    margin: 0 auto;
+    max-width: none;
+    margin: 0;
     padding: 1.15rem 1.5rem;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 2rem;
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 0.9rem;
     overflow: visible;
 }
 
@@ -588,14 +589,17 @@ body {
 
 .app-footer-brand {
     gap: 0.75rem;
-    margin-right: 1rem;
+    margin-right: 0;
 }
 
 .app-footer-links {
-    flex-direction: column;
-    gap: 0.75rem;
-    align-items: flex-end;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.75rem;
+    align-items: center;
     justify-content: flex-start;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--border);
 }
 
 .app-footer-link {
