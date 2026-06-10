@@ -21,6 +21,7 @@ services:
       DATABASE_URL: postgresql://swift:swift@postgres:5432/swift
       SWIFT_STORAGE_BACKEND: postgres
       SWIFT_CREWAI_ENABLED: "0"
+      SWIFT_SEED_DEMO_DATA: "1"
     depends_on:
       postgres:
         condition: service_healthy

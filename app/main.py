@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -11,13 +12,24 @@ from starlette.routing import NoMatchFound
 
 import app.core.environment  # noqa: F401
 from app.api.v1.routes import drafts, audits, health, emails
+from app.core.config import get_app_settings
 from data import EVENTS_QUEUE, RECORDS, USERS, events_cond, get_audits, get_drafts
+
+settings = get_app_settings()
 
 app = FastAPI(title="Project Swift Backend")
 
-templates = Jinja2Templates(directory="templates")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates") if settings.ui_enabled else None
+
+if settings.ui_enabled:
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 app.include_router(health.router)
 app.include_router(drafts.router, prefix="/api/drafts", tags=["drafts"])
@@ -68,48 +80,63 @@ def _template_context(request: Request, **values):
 
 @app.get("/")
 async def home():
-    """sends users to the operational dashboard instead of a blank root."""
+    """routes humans to UI when bundled UI is enabled, otherwise describes APIs."""
+    if not settings.ui_enabled:
+        return {
+            "service": "project-swift",
+            "mode": "api-only",
+            "settings": settings.public_dict(),
+            "endpoints": {
+                "health": "/health",
+                "drafts": "/api/drafts/",
+                "emails": "/api/emails/ingest",
+                "audits": "/api/audits",
+                "events": "/stream",
+            },
+        }
     return RedirectResponse(url="/dashboard", status_code=307)
 
 
-@app.get("/dashboard", name="dashboard")
-async def dashboard(request: Request):
-    """renders the top-level work queue summary for human reviewers."""
-    stats = {
-        "total_records": len(RECORDS),
-        "active_users": len(USERS),
-        "pending_reviews": len(get_drafts()),
-        "resolved_issues": 847,
-    }
-    return templates.TemplateResponse(
-        request=request,
-        name="dashboard.html",
-        context=_template_context(request, stats=stats, records=RECORDS[:5]),
-    )
+if settings.ui_enabled:
 
+    @app.get("/dashboard", name="dashboard")
+    async def dashboard(request: Request):
+        """renders the top-level work queue summary for human reviewers."""
+        stats = {
+            "total_records": len(RECORDS),
+            "active_users": len(USERS),
+            "pending_reviews": len(get_drafts()),
+            "resolved_issues": 847,
+        }
+        return templates.TemplateResponse(
+            request=request,
+            name="dashboard.html",
+            context=_template_context(request, stats=stats, records=RECORDS[:5]),
+        )
 
-@app.get("/pending", name="pending_page")
-async def pending_page(request: Request):
-    """exposes database-backed drafts that still need sales approval."""
-    order = _get_sort_order(request)
-    pending_drafts = _sort_items([d.to_dict() for d in get_drafts()], "created", order)
-    return templates.TemplateResponse(
-        request=request,
-        name="pending.html",
-        context=_template_context(request, drafts=pending_drafts, sort_order=order),
-    )
+    @app.get("/pending", name="pending_page")
+    async def pending_page(request: Request):
+        """exposes database-backed drafts that still need sales approval."""
+        order = _get_sort_order(request)
+        pending_drafts = _sort_items(
+            [d.to_dict() for d in get_drafts()], "created", order
+        )
+        return templates.TemplateResponse(
+            request=request,
+            name="pending.html",
+            context=_template_context(request, drafts=pending_drafts, sort_order=order),
+        )
 
-
-@app.get("/audit", name="audit_page")
-async def audit_page(request: Request):
-    """gives reviewers a human-readable history of decisions."""
-    order = _get_sort_order(request)
-    sorted_audits = _sort_items(get_audits(), "timestamp", order)
-    return templates.TemplateResponse(
-        request=request,
-        name="audit.html",
-        context=_template_context(request, audits=sorted_audits, sort_order=order),
-    )
+    @app.get("/audit", name="audit_page")
+    async def audit_page(request: Request):
+        """gives reviewers a human-readable history of decisions."""
+        order = _get_sort_order(request)
+        sorted_audits = _sort_items(get_audits(), "timestamp", order)
+        return templates.TemplateResponse(
+            request=request,
+            name="audit.html",
+            context=_template_context(request, audits=sorted_audits, sort_order=order),
+        )
 
 
 def _wait_for_sse_events(timeout: float = 1.0) -> list[dict]:

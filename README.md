@@ -2,11 +2,44 @@
 
 This project reimplements the provided HTML/CSS/JS admin panel as a Python backend application.
 
+## Plug-and-play integration
+
+Project Swift can run without any external services for first startup:
+
+```bash
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+With no environment variables, it uses in-memory storage, the deterministic
+local drafting workflow, permissive CORS for an external UI, and no demo seed
+data. External vendors can then plug in the pieces they own:
+
+| External capability | Minimal configuration |
+| --- | --- |
+| User interface | Use the JSON APIs from any origin, or set `SWIFT_UI_ENABLED=false` for API-only mode. |
+| Email server/listener | POST structured JSON, form data, or raw RFC822 email to `/api/emails/ingest`. |
+| PostgreSQL | Set `DATABASE_URL` and optionally `SWIFT_STORAGE_BACKEND=postgres`. |
+| Agent service | Set `SWIFT_AGENT_BACKEND=external` and `SWIFT_EXTERNAL_AGENT_URL`. |
+
+Useful integration flags:
+
+```bash
+export SWIFT_UI_ENABLED=false
+export SWIFT_CORS_ORIGINS=https://ui.example.com
+export DATABASE_URL=postgresql://swift:swift@db.example.com:5432/swift
+export SWIFT_AGENT_BACKEND=external
+export SWIFT_EXTERNAL_AGENT_URL=https://agents.example.com/project-swift/draft
+export SWIFT_EXTERNAL_AGENT_API_KEY=replace-me
+```
+
+`/health` reports the resolved integration modes without exposing secrets.
+
 ## Docker and PostgreSQL
 
 Audits, drafts, and received emails are stored in PostgreSQL when the app runs
 with `SWIFT_STORAGE_BACKEND=postgres` and `DATABASE_URL` set. The web container
-does not persist those objects to local files.
+does not persist those objects to local files. The bundled Compose file enables
+demo seed data for local UI review.
 
 Start the app and database together:
 
@@ -26,8 +59,9 @@ export SWIFT_STORAGE_BACKEND=postgres
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-The app expects PostgreSQL in normal runtime. The test suite sets
-`SWIFT_STORAGE_BACKEND=memory` so tests do not require a running database.
+If no `DATABASE_URL` is supplied, the app now falls back to in-memory storage for
+zero-config startup. Set `SWIFT_STORAGE_BACKEND=postgres` when you want startup
+to fail fast unless PostgreSQL is configured.
 
 ## Dummy email receiver
 

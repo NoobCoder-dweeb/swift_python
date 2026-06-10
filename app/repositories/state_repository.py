@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import os
 from copy import deepcopy
 from threading import RLock
 from typing import Any, Protocol
 from uuid import uuid4
+
+from app.core.config import get_app_settings
 
 
 DraftRow = dict[str, Any]
@@ -478,20 +479,21 @@ def get_state_repository() -> StateRepository:
 
 
 def _build_repository() -> StateRepository:
-    """selects durable PostgreSQL for runtime and memory only for tests."""
-    backend = (os.getenv("SWIFT_STORAGE_BACKEND") or "").strip().lower()
-    database_url = os.getenv("DATABASE_URL", "").strip()
+    """selects storage from one plug-and-play settings object."""
+    settings = get_app_settings()
+    backend = settings.storage_mode
+    database_url = settings.database_url
 
     if backend == "memory":
         return MemoryStateRepository()
 
-    if backend and backend != "postgres":
+    if backend != "postgres":
         raise ValueError(f"Unsupported SWIFT_STORAGE_BACKEND: {backend}")
 
     if not database_url:
         raise ValueError(
             "DATABASE_URL is required for PostgreSQL storage. "
-            "Use SWIFT_STORAGE_BACKEND=memory only for isolated tests."
+            "Omit SWIFT_STORAGE_BACKEND or set it to memory for zero-config startup."
         )
 
     return PostgresStateRepository(database_url)

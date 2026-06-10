@@ -1,6 +1,8 @@
 from fastapi import APIRouter
 from datetime import datetime
 
+from app.core.config import get_app_settings
+
 router = APIRouter()
 
 
@@ -11,4 +13,5 @@ async def health_check():
         "status": "healthy",
         "service": "project-swift",
         "timestamp": datetime.utcnow().isoformat(),
+        "integrations": get_app_settings().public_dict(),
     }

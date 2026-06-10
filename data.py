@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Any
 from uuid import uuid4
 
+from app.core.config import get_app_settings
 from app.repositories.state_repository import get_state_repository
 
 
@@ -760,7 +761,8 @@ def ensure_guardrail_audit_example() -> None:
     audit['audit_id'] = f"AUD-{uuid4().hex[:8].upper()}"
     get_state_repository().insert_audit(audit)
 
-# initialize configured state backend and seed deterministic demo data
+# initialize configured state backend; sample records are opt-in for deployments
 load_state()
-ensure_sample_drafts()
-ensure_guardrail_audit_example()
+if get_app_settings().seed_demo_data:
+    ensure_sample_drafts()
+    ensure_guardrail_audit_example()
