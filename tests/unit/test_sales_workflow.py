@@ -29,6 +29,30 @@ def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
     assert result.validation.valid is True
 
 
+def test_sales_workflow_regeneration_uses_feedback_without_inventing_facts():
+    """Why: reviewer comments should guide the next draft without becoming fake data."""
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Product X price",
+            body="Can I get pricing for 40 units of Product X?",
+        ),
+        reviewer_feedback="Please make it brief and include stock availability.",
+        previous_draft="Old draft that omitted stock availability.",
+        draft_id="DFT-FEEDBACK-001",
+        use_crewai=False,
+    )
+
+    assert result.draft_id == "DFT-FEEDBACK-001"
+    assert result.reviewer_feedback == "Please make it brief and include stock availability."
+    assert result.previous_ai_draft == "Old draft that omitted stock availability."
+    assert "500 units" in result.ai_draft
+    assert "USD 120.00" in result.ai_draft
+    assert "600 units" not in result.ai_draft
+    assert result.validation.valid is True
+    assert any("Reviewer feedback applied" in note for note in result.learning_notes)
+
+
 def test_sales_workflow_blocks_prompt_injection_and_personal_data_request():
     """Why: ensures unsafe requests are blocked before customer drafting."""
     result = run_sales_inquiry_workflow(
@@ -95,6 +119,33 @@ def test_draft_validation_rejects_crewai_placeholders_and_unapproved_cost_claims
     assert "contains_signature_placeholder" in result.reasons
     assert "contains_subject_line" in result.reasons
     assert "contains_unapproved_commercial_claim" in result.reasons
+
+
+def test_draft_validation_rejects_invented_product_facts():
+    """Why: regenerated drafts must map to approved product context values."""
+    draft = (
+        "Hi,\n\n"
+        "Product X is available at USD 999.00 per unit. Current available stock "
+        "is 600 units. Typical lead time is 3 business days after order "
+        "confirmation.\n\n"
+        "Best regards,\n"
+        "Project Swift Support"
+    )
+
+    result = EmailDraftingAgent().validate_draft(
+        draft,
+        ProductContext(
+            product="Product X",
+            price=120.0,
+            stock_availability=500,
+            lead_time_days=10,
+        ),
+    )
+
+    assert result.valid is False
+    assert "contains_unapproved_price" in result.reasons
+    assert "contains_unapproved_stock_claim" in result.reasons
+    assert "contains_unapproved_lead_time" in result.reasons
 
 
 def test_stress_suite_identifies_chokeholds():

@@ -10,7 +10,6 @@ from data import (
     add_generated_draft,
     approve_draft as approve_pending_draft,
     get_drafts,
-    reject_and_regenerate_draft,
     publish_event,
 )
 
@@ -137,23 +136,105 @@ class DraftService:
         }
 
     def reject_draft(self, draft_id: str, reason: str = ""):
-        """keeps rejected drafts in the review loop with reviewer feedback attached."""
-        regenerated = reject_and_regenerate_draft(
-            draft_id,
-            requester="Sales Officer",
-            rejection_reason=reason,
-        )
-        if not regenerated:
+        """reruns the sales workflow with reviewer feedback before requeueing."""
+        row = self.repository.get_draft(draft_id)
+        if not row or row.get("status") != "pending":
             return {
                 "success": False,
                 "message": "Draft not found",
             }
 
+        reviewer_feedback = (reason or "").strip()
+        previous_ai = row.get("ai_draft_text", "")
+        reviewed_revisions = int(row.get("revisions", 0))
+        reviewed_version_id = _draft_version_id(draft_id, reviewed_revisions)
+        next_revisions = reviewed_revisions + 1
+        regenerated_version_id = _draft_version_id(draft_id, next_revisions)
+
+        workflow = run_sales_inquiry_workflow(
+            IncomingEmail(
+                sender=row["sender"],
+                subject=_base_subject(row["subject"]),
+                body=row["body"],
+            ),
+            reviewer_feedback=reviewer_feedback,
+            previous_draft=previous_ai,
+            draft_id=draft_id,
+        )
+
+        now = datetime.now().isoformat()
+        row["subject"] = workflow.subject
+        row["body"] = workflow.customer_inquiry
+        row["status"] = workflow.status
+        row["revisions"] = next_revisions
+        row["last_rejection_reason"] = reviewer_feedback
+        row["ai_draft_text"] = workflow.ai_draft
+        row["workflow"] = workflow.model_dump()
+        row["updated"] = now
+        self.repository.upsert_draft(row)
+
+        audit = {
+            "audit_id": f"AUD-{uuid4().hex[:8].upper()}",
+            "draft_id": draft_id,
+            "version_id": reviewed_version_id,
+            "next_version_id": regenerated_version_id,
+            "sender": row.get("sender"),
+            "subject": row.get("subject"),
+            "approver": "Sales Officer",
+            "action": "rejected",
+            "timestamp": now,
+            "emailed_to": None,
+            "sent": False,
+            "content": (
+                f"Rejected version {reviewed_version_id}. Supervisor-guided "
+                f"regeneration created {regenerated_version_id} using reviewer feedback."
+            ),
+            "review_comment": reviewer_feedback or None,
+            "customer_inquiry": workflow.customer_inquiry,
+            "ai_draft": workflow.ai_draft,
+            "details": {
+                "previous_ai_draft": previous_ai,
+                "regenerated_ai_draft": workflow.ai_draft,
+                "product_context": workflow.product_context.model_dump(),
+                "validation": workflow.validation.model_dump(),
+                "supervisor_review": (
+                    workflow.supervisor_review.model_dump()
+                    if workflow.supervisor_review
+                    else None
+                ),
+                "learning_notes": workflow.learning_notes,
+                "chokeholds": workflow.chokeholds,
+            },
+        }
+        audit = self.repository.insert_audit(audit)
+
+        regenerated = {
+            **row,
+            "customer_inquiry": workflow.customer_inquiry,
+            "ai_draft": workflow.ai_draft,
+        }
+        try:
+            publish_event(
+                {"type": "regenerated", "payload": {"draft": regenerated, "audit": audit}}
+            )
+        except Exception:
+            pass
+
         return {
             "success": True,
             "draft_id": draft_id,
-            "status": "pending",
-            "reason": reason,
+            "status": workflow.status,
+            "reason": reviewer_feedback,
             "draft": regenerated,
-            "message": "Draft rejected and regenerated for review.",
+            "message": "Draft rejected and regenerated through the supervised workflow.",
         }
+
+
+def _draft_version_id(draft_id: str, revisions: int) -> str:
+    """returns the same one-based version label used by audit records."""
+    return f"{draft_id}-v{revisions + 1}"
+
+
+def _base_subject(subject: str) -> str:
+    """keeps repeated regenerations from appending labels to the customer subject."""
+    return subject.split(" (Regenerated")[0]

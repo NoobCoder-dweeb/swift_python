@@ -59,10 +59,15 @@ def run_sales_inquiry_workflow(
     use_crewai: bool | None = None,
     llm_config: LocalLLMConfig | None = None,
     crew_llm_config: MultiAgentLLMConfig | None = None,
+    reviewer_feedback: str | None = None,
+    previous_draft: str | None = None,
+    draft_id: str | None = None,
     verbose: bool = False,
 ) -> SalesWorkflowResult:
     """Why: orchestrates preprocessing, extraction, drafting, validation, and audit data."""
     start = time.perf_counter()
+    reviewer_feedback = (reviewer_feedback or "").strip() or None
+    previous_draft = (previous_draft or "").strip() or None
     preprocessed = preprocess_email(email)
     cleaned_email = preprocessed.email
     processor = SalesProcessingAgent()
@@ -92,6 +97,8 @@ def run_sales_inquiry_workflow(
         crew_result = _run_crewai_draft(
             inquiry=inquiry,
             product_context=product_context,
+            reviewer_feedback=reviewer_feedback,
+            previous_draft=previous_draft,
             llm_config=llm_config,
             crew_llm_config=crew_llm_config,
             verbose=verbose,
@@ -102,10 +109,18 @@ def run_sales_inquiry_workflow(
             agent_models = crew_result.agent_models
             supervisor_review = crew_result.supervisor_review
         else:
-            ai_draft = drafter.generate_response(inquiry, product_context)
+            ai_draft = drafter.generate_response(
+                inquiry,
+                product_context,
+                reviewer_feedback=reviewer_feedback,
+            )
             chokeholds.append(crew_result.error or "crewai_execution_failed")
     else:
-        ai_draft = drafter.generate_response(inquiry, product_context)
+        ai_draft = drafter.generate_response(
+            inquiry,
+            product_context,
+            reviewer_feedback=reviewer_feedback,
+        )
 
     validation = drafter.validate_draft(ai_draft, product_context)
     if inquiry.inquiry_type == "unsupported":
@@ -132,10 +147,18 @@ def run_sales_inquiry_workflow(
 
     if not validation.valid and validation.action == "regenerate":
         chokeholds.extend(validation.reasons)
+        ai_draft = drafter.generate_response(
+            inquiry,
+            product_context,
+            reviewer_feedback=reviewer_feedback,
+        )
+        validation = drafter.validate_draft(ai_draft, product_context)
+        if not validation.valid:
+            chokeholds.extend(validation.reasons)
 
     elapsed_ms = (time.perf_counter() - start) * 1000
     return SalesWorkflowResult(
-        draft_id=f"DFT-{uuid4().hex[:8].upper()}",
+        draft_id=draft_id or f"DFT-{uuid4().hex[:8].upper()}",
         sender=cleaned_email.sender,
         subject=cleaned_email.subject,
         customer_inquiry=cleaned_email.body,
@@ -144,9 +167,12 @@ def run_sales_inquiry_workflow(
         ai_draft=ai_draft,
         validation=validation,
         status="blocked" if validation.action == "reject" else "pending",
+        reviewer_feedback=reviewer_feedback,
+        previous_ai_draft=previous_draft,
         execution_mode=execution_mode,
         agent_models=agent_models,
         supervisor_review=supervisor_review,
+        learning_notes=_build_learning_notes(reviewer_feedback, validation),
         chokeholds=_dedupe(chokeholds),
         elapsed_ms=round(elapsed_ms, 2),
     )
@@ -173,6 +199,8 @@ def _run_crewai_draft(
     *,
     inquiry: InquiryDetails,
     product_context: ProductContext,
+    reviewer_feedback: str | None,
+    previous_draft: str | None,
     llm_config: LocalLLMConfig | None,
     crew_llm_config: MultiAgentLLMConfig | None,
     verbose: bool,
@@ -210,6 +238,8 @@ def _run_crewai_draft(
             drafting_agent,
             inquiry=inquiry,
             product_context=product_context,
+            reviewer_feedback=reviewer_feedback,
+            previous_draft=previous_draft,
         )
 
         from crewai import Crew, Process
@@ -236,6 +266,8 @@ def _run_crewai_draft(
                 inquiry=inquiry,
                 product_context=product_context,
                 draft=draft,
+                reviewer_feedback=reviewer_feedback,
+                previous_draft=previous_draft,
             )
             supervisor_crew = Crew(
                 agents=[supervisor_agent],
@@ -277,6 +309,25 @@ def _format_crewai_error(exc: Exception) -> str:
     detail = str(exc).strip() or repr(exc)
     detail = " ".join(detail.split())
     return f"crewai_error:{exc.__class__.__name__}:{detail[:240]}"
+
+
+def _build_learning_notes(
+    reviewer_feedback: str | None,
+    validation: DraftValidationResult,
+) -> list[str]:
+    """Why: makes reviewer corrections available to audits and future operators."""
+    notes: list[str] = []
+    if reviewer_feedback:
+        notes.append(
+            "Reviewer feedback applied to regenerated draft as workflow guidance."
+        )
+        notes.append(
+            "Feedback was not treated as product truth; approved product context "
+            "remained the factual source."
+        )
+    if validation.reasons:
+        notes.extend(f"Supervisor/validator noted: {reason}" for reason in validation.reasons)
+    return _dedupe(notes)
 
 
 def _detect_static_chokeholds(

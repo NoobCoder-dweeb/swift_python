@@ -58,9 +58,12 @@ class SalesWorkflowResult(BaseModel):
     ai_draft: str
     validation: DraftValidationResult
     status: Literal["pending", "blocked"] = "pending"
+    reviewer_feedback: str | None = None
+    previous_ai_draft: str | None = None
     execution_mode: WorkflowMode = "deterministic"
     agent_models: dict[str, str] = Field(default_factory=dict)
     supervisor_review: DraftValidationResult | None = None
+    learning_notes: list[str] = Field(default_factory=list)
     chokeholds: list[str] = Field(default_factory=list)
     elapsed_ms: float = 0.0
 

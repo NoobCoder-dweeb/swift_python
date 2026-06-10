@@ -404,8 +404,11 @@ class EmailDraftingAgent:
         self,
         inquiry: InquiryDetails | None,
         context: ProductContext,
+        reviewer_feedback: str | None = None,
     ) -> str:
         """Why: drafts from known facts only, asking for missing details instead of guessing."""
+        feedback = (reviewer_feedback or "").strip()
+        feedback_lower = feedback.lower()
         if inquiry and inquiry.inquiry_type == "unsupported":
             return (
                 "Hi,\n\n"
@@ -428,6 +431,29 @@ class EmailDraftingAgent:
                 "Project Swift Support"
             )
 
+        wants_concise = any(
+            token in feedback_lower for token in ("short", "brief", "concise", "too long")
+        )
+        wants_price = any(
+            token in feedback_lower for token in ("price", "pricing", "quote", "rate")
+        )
+        wants_stock = any(
+            token in feedback_lower
+            for token in ("stock", "availability", "inventory", "available")
+        )
+        wants_lead_time = any(
+            token in feedback_lower
+            for token in ("lead time", "timeline", "delivery", "ship", "shipment")
+        )
+        avoid_price = any(
+            token in feedback_lower
+            for token in ("remove price", "without price", "no price", "do not mention price")
+        )
+        avoid_stock = any(
+            token in feedback_lower
+            for token in ("remove stock", "without stock", "do not mention stock")
+        )
+
         lines = [
             "Hi,",
             "",
@@ -435,19 +461,42 @@ class EmailDraftingAgent:
         ]
 
         requested_type = inquiry.inquiry_type if inquiry else "mixed"
-        if requested_type in {"pricing", "mixed"} and context.price is not None:
+        should_include_price = (
+            (requested_type in {"pricing", "mixed"} or wants_price)
+            and not avoid_price
+            and context.price is not None
+        )
+        should_include_stock = (
+            (requested_type in {"availability", "mixed"} or wants_stock)
+            and not avoid_stock
+            and context.stock_availability is not None
+        )
+        should_include_lead_time = context.lead_time_days is not None and (
+            requested_type in {"availability", "mixed"} or wants_lead_time
+        )
+
+        if should_include_price:
             lines.append(
                 f"The approved reference price is {context.currency} "
                 f"{context.price:.2f} per unit."
             )
-        if (
-            requested_type in {"availability", "mixed"}
-            and context.stock_availability is not None
-        ):
+        elif wants_price:
+            lines.append(
+                "I do not have an approved price in the product context, so sales "
+                "review should confirm pricing before quoting."
+            )
+
+        if should_include_stock:
             lines.append(
                 f"Current available stock is {context.stock_availability} units."
             )
-        if context.lead_time_days is not None:
+        elif wants_stock:
+            lines.append(
+                "I do not have approved stock availability in the product context, "
+                "so sales review should confirm inventory before committing stock."
+            )
+
+        if should_include_lead_time:
             lines.append(
                 f"Typical lead time is {context.lead_time_days} business days "
                 "after order confirmation."
@@ -470,6 +519,9 @@ class EmailDraftingAgent:
                     item.replace("_", " ") for item in inquiry.missing_information
                 )
                 lines.append(f"Please confirm the missing details: {readable}.")
+
+        if wants_concise:
+            lines = _condense_response_lines(lines)
 
         lines.extend(["", "Best regards,", "Project Swift Support"])
         return "\n".join(lines)
@@ -501,7 +553,7 @@ class EmailDraftingAgent:
             )
         ):
             reasons.append("contains_generic_signature_placeholder")
-        if lower.lstrip().startswith("subject:"):
+        if any(line.strip().lower().startswith("subject:") for line in draft.splitlines()):
             reasons.append("contains_subject_line")
         if any(
             term in lower
@@ -522,6 +574,12 @@ class EmailDraftingAgent:
             )
             if product and product.lower() not in lower:
                 reasons.append("missing_product_reference")
+            context = (
+                info
+                if isinstance(info, ProductContext)
+                else ProductContext.model_validate(info)
+            )
+            reasons.extend(_find_unapproved_fact_claims(draft, context))
 
         if reasons:
             return DraftValidationResult(
@@ -531,6 +589,78 @@ class EmailDraftingAgent:
             )
 
         return DraftValidationResult(valid=True, action="approve", reasons=[])
+
+
+def _condense_response_lines(lines: list[str]) -> list[str]:
+    """Why: honors concise feedback while preserving factual content lines."""
+    content = [line for line in lines[2:] if line.strip()]
+    if not content:
+        return lines
+    return [
+        "Hi,",
+        "",
+        " ".join(content[:4]),
+    ]
+
+
+def _find_unapproved_fact_claims(
+    draft: str,
+    context: ProductContext,
+) -> list[str]:
+    """Why: rejects regenerated drafts that drift from approved product data."""
+    reasons: list[str] = []
+    allowed_prices = {context.price} if context.price is not None else set()
+    for note in context.notes:
+        allowed_prices.update(
+            float(group)
+            for groups in re.findall(
+                r"(?:usd|\$)\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*usd",
+                note,
+                re.IGNORECASE,
+            )
+            for group in groups
+            if group
+        )
+
+    for match in re.finditer(
+        r"(?:usd|\$)\s*(?P<amount>\d+(?:\.\d{1,2})?)",
+        draft,
+        re.IGNORECASE,
+    ):
+        amount = float(match.group("amount"))
+        if allowed_prices and not any(abs(amount - price) < 0.01 for price in allowed_prices):
+            reasons.append("contains_unapproved_price")
+        elif not allowed_prices:
+            reasons.append("contains_unapproved_price")
+
+    stock_match = re.search(
+        r"(?:current\s+available\s+stock|available\s+stock|inventory)\D{0,20}"
+        r"(?P<stock>\d{1,6})\s+units?",
+        draft,
+        re.IGNORECASE,
+    )
+    if stock_match:
+        claimed_stock = int(stock_match.group("stock"))
+        if context.stock_availability is None or claimed_stock != context.stock_availability:
+            reasons.append("contains_unapproved_stock_claim")
+
+    lead_time_match = re.search(
+        r"(?:lead\s*time|delivery\s*timeline|timeline)\D{0,30}"
+        r"(?P<days>\d{1,3})\s+business\s+days?",
+        draft,
+        re.IGNORECASE,
+    )
+    if lead_time_match:
+        claimed_days = int(lead_time_match.group("days"))
+        if context.lead_time_days is None or claimed_days != context.lead_time_days:
+            reasons.append("contains_unapproved_lead_time")
+
+    return _dedupe(reasons)
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    """Why: keeps validation reasons stable and readable."""
+    return list(dict.fromkeys(values))
 
 
 def create_local_llm(config: LocalLLMConfig | None = None):
