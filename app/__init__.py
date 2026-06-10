@@ -1,1 +1,1 @@
-"""Why: marks app as an importable package for FastAPI, tests, and Docker."""
+"""marks app as an importable package for FastAPI, tests, and Docker."""

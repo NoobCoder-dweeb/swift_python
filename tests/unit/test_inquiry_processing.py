@@ -3,7 +3,7 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_email_listener_routes_valid_inquiry(email_listener, supervisor_agent):
-    """Why: confirms active listeners pass valid inquiries to supervision."""
+    """confirms active listeners pass valid inquiries to supervision."""
     email = {
         "from": "customer@example.com",
         "subject": "Safety helmet stock",
@@ -17,7 +17,7 @@ async def test_email_listener_routes_valid_inquiry(email_listener, supervisor_ag
 
 @pytest.mark.asyncio
 async def test_email_listener_inactive_does_not_route(email_listener, supervisor_agent):
-    """Why: prevents paused listeners from triggering workflow actions."""
+    """prevents paused listeners from triggering workflow actions."""
     email_listener.active = False
 
     await email_listener.process({"body": "helmet stock?"})

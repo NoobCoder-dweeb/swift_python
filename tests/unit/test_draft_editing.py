@@ -6,7 +6,7 @@ from data import add_generated_draft
 
 
 def test_update_pending_draft_records_edited_audit():
-    """Why: verifies inline edit saves and audit history capture."""
+    """verifies inline edit saves and audit history capture."""
     client = TestClient(app)
 
     draft = add_generated_draft(
@@ -36,7 +36,7 @@ def test_update_pending_draft_records_edited_audit():
 
 
 def test_reject_regenerates_from_stored_data_with_reviewer_feedback():
-    """Why: reject comments must rerun the supervised workflow, not fake a revision."""
+    """reject comments must rerun the supervised workflow, not fake a revision."""
     draft = add_generated_draft(
         {
             "from": "feedback.user@example.com",

@@ -1,7 +1,7 @@
 import pytest
 
 def test_sales_agent_queries_odoo_for_product_context(sales_agent, mock_odoo_client):
-    """Why: ensures product facts come from the approved data client."""
+    """ensures product facts come from the approved data client."""
     mock_odoo_client.get_product.return_value = {
         "product": "Helmet",
         "stock_availability": 5,

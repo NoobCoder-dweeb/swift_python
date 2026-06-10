@@ -17,7 +17,7 @@ def create_extract_inquiry_task(
     subject: str,
     body: str,
 ):
-    """Why: constrains the sales agent to structured extraction instead of prose."""
+    """constrains the sales agent to structured extraction instead of prose."""
     _configure_crewai_storage()
     from crewai import Task
 
@@ -47,7 +47,7 @@ def create_draft_response_task(
     reviewer_feedback: str | None = None,
     previous_draft: str | None = None,
 ):
-    """Why: gives the drafting agent explicit facts and boundaries for the reply."""
+    """gives the drafting agent explicit facts and boundaries for the reply."""
     _configure_crewai_storage()
     from crewai import Task
     feedback = (reviewer_feedback or "").strip()
@@ -91,7 +91,7 @@ def create_validation_task(
     reviewer_feedback: str | None = None,
     previous_draft: str | None = None,
 ):
-    """Why: asks a separate agent to catch unsafe claims before human review."""
+    """asks a separate agent to catch unsafe claims before human review."""
     _configure_crewai_storage()
     from crewai import Task
 

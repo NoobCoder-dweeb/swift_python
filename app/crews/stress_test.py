@@ -116,7 +116,7 @@ def run_stress_suite(
     use_crewai: bool = False,
     scenarios: list[StressScenario] | None = None,
 ) -> StressSuiteResult:
-    """Why: exercises high-risk inquiry patterns in one repeatable harness."""
+    """exercises high-risk inquiry patterns in one repeatable harness."""
     suite_start = time.perf_counter()
     mode = "crewai" if use_crewai else "deterministic"
     case_results = [
@@ -146,7 +146,7 @@ def run_stress_suite(
 
 
 def _run_case(scenario: StressScenario, *, use_crewai: bool) -> StressCaseResult:
-    """Why: isolates one scenario so failures report exact input and output context."""
+    """isolates one scenario so failures report exact input and output context."""
     start = time.perf_counter()
     workflow = run_sales_inquiry_workflow(
         IncomingEmail(
@@ -169,7 +169,7 @@ def _run_case(scenario: StressScenario, *, use_crewai: bool) -> StressCaseResult
 
 
 def _evaluate_case(scenario: StressScenario, draft: str, workflow) -> list[str]:
-    """Why: turns expected behavior into concrete regression signals."""
+    """turns expected behavior into concrete regression signals."""
     issues: list[str] = []
     draft_lower = draft.lower()
 
@@ -206,7 +206,7 @@ def _evaluate_case(scenario: StressScenario, draft: str, workflow) -> list[str]:
 
 
 def main() -> None:
-    """Why: lets engineers run stress checks from the command line."""
+    """lets engineers run stress checks from the command line."""
     parser = argparse.ArgumentParser(description="Stress test the sales workflow.")
     parser.add_argument(
         "--crewai",

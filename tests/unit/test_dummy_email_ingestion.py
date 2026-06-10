@@ -5,7 +5,7 @@ from app.main import app
 
 
 def test_ingest_raw_email_creates_pending_draft():
-    """Why: verifies real email payloads can enter the review workflow."""
+    """verifies real email payloads can enter the review workflow."""
     client = TestClient(app)
     raw_email = (
         b"From: curl.customer@example.com\r\n"
@@ -31,7 +31,7 @@ def test_ingest_raw_email_creates_pending_draft():
 
 
 def test_ingest_json_accepts_from_alias():
-    """Why: supports webhook payloads that use from instead of sender."""
+    """supports webhook payloads that use from instead of sender."""
     client = TestClient(app)
 
     response = client.post(
@@ -55,7 +55,7 @@ def test_ingest_json_accepts_from_alias():
 
 
 def test_ingest_preprocesses_irrelevant_email_content():
-    """Why: ensures noisy email threads are cleaned before draft generation."""
+    """ensures noisy email threads are cleaned before draft generation."""
     client = TestClient(app)
     raw_email = (
         b"From: noisy.customer@example.com\r\n"

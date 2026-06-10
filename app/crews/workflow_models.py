@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 InquiryType = Literal["pricing", "availability", "mixed", "unsupported", "unknown"]
-WorkflowMode = Literal["deterministic", "crewai"]
+WorkflowMode = Literal["deterministic", "crewai", "external"]
 
 
 class InquiryDetails(BaseModel):

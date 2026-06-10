@@ -10,7 +10,7 @@ from app.services.draft_service import DraftService
 
 
 def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
-    """Why: protects the core pricing-plus-stock workflow behavior."""
+    """protects the core pricing-plus-stock workflow behavior."""
     result = run_sales_inquiry_workflow(
         IncomingEmail(
             sender="buyer@example.com",
@@ -30,7 +30,7 @@ def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
 
 
 def test_sales_workflow_regeneration_uses_feedback_without_inventing_facts():
-    """Why: reviewer comments should guide the next draft without becoming fake data."""
+    """reviewer comments should guide the next draft without becoming fake data."""
     result = run_sales_inquiry_workflow(
         IncomingEmail(
             sender="buyer@example.com",
@@ -54,7 +54,7 @@ def test_sales_workflow_regeneration_uses_feedback_without_inventing_facts():
 
 
 def test_sales_workflow_blocks_prompt_injection_and_personal_data_request():
-    """Why: ensures unsafe requests are blocked before customer drafting."""
+    """ensures unsafe requests are blocked before customer drafting."""
     result = run_sales_inquiry_workflow(
         IncomingEmail(
             sender="attacker@example.com",
@@ -76,7 +76,7 @@ def test_sales_workflow_blocks_prompt_injection_and_personal_data_request():
 
 
 def test_draft_service_uses_sales_workflow(monkeypatch):
-    """Why: verifies the API service uses the validated sales workflow."""
+    """verifies the API service uses the validated sales workflow."""
     monkeypatch.setenv("SWIFT_CREWAI_ENABLED", "0")
     service = DraftService()
 
@@ -97,7 +97,7 @@ def test_draft_service_uses_sales_workflow(monkeypatch):
 
 
 def test_draft_validation_rejects_crewai_placeholders_and_unapproved_cost_claims():
-    """Why: catches common LLM draft defects before human review."""
+    """catches common LLM draft defects before human review."""
     draft = (
         "Subject: Re: Product X pricing and stock\n\n"
         "Dear Customer,\n\n"
@@ -122,7 +122,7 @@ def test_draft_validation_rejects_crewai_placeholders_and_unapproved_cost_claims
 
 
 def test_draft_validation_rejects_invented_product_facts():
-    """Why: regenerated drafts must map to approved product context values."""
+    """regenerated drafts must map to approved product context values."""
     draft = (
         "Hi,\n\n"
         "Product X is available at USD 999.00 per unit. Current available stock "
@@ -149,7 +149,7 @@ def test_draft_validation_rejects_invented_product_facts():
 
 
 def test_stress_suite_identifies_chokeholds():
-    """Why: keeps known weak spots visible in regression coverage."""
+    """keeps known weak spots visible in regression coverage."""
     result = run_stress_suite(use_crewai=False)
 
     assert result.total >= 8
@@ -161,7 +161,7 @@ def test_stress_suite_identifies_chokeholds():
 
 
 def test_local_llm_config_ignores_malformed_numeric_env(monkeypatch):
-    """Why: bad .env values should not crash app startup."""
+    """bad .env values should not crash app startup."""
     monkeypatch.setenv("SWIFT_LOCAL_LLM_TIMEOUT", "not-an-int")
     monkeypatch.setenv("SWIFT_LOCAL_LLM_TEMPERATURE", "not-a-float")
 
@@ -172,13 +172,13 @@ def test_local_llm_config_ignores_malformed_numeric_env(monkeypatch):
 
 
 def test_product_lookup_failure_returns_low_confidence_context():
-    """Why: ERP/Odoo outages should degrade to reviewable missing-context drafts."""
+    """ERP/Odoo outages should degrade to reviewable missing-context drafts."""
 
     class FailingProductClient:
-        """Why: simulates an unavailable external product data source."""
+        """simulates an unavailable external product data source."""
 
         def get_product(self, query):
-            """Why: raises like a failed ERP request would."""
+            """raises like a failed ERP request would."""
             raise RuntimeError("odoo unavailable")
 
     context = SalesProcessingAgent(
