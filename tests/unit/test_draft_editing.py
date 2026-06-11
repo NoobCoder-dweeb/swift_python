@@ -1,14 +1,12 @@
-from fastapi.testclient import TestClient
+import httpx
 
 from app.main import app
 from app.services.draft_service import DraftService
 from data import add_generated_draft
 
 
-def test_update_pending_draft_records_edited_audit():
+async def test_update_pending_draft_records_edited_audit():
     """verifies inline edit saves and audit history capture."""
-    client = TestClient(app)
-
     draft = add_generated_draft(
         {
             "from": "edit.user@example.com",
@@ -22,20 +20,26 @@ def test_update_pending_draft_records_edited_audit():
     assert draft is not None
     new_text = "Updated AI draft response with a minor clarification."
 
-    response = client.patch(f"/api/drafts/{draft.draft_id}", json={"ai_draft": new_text})
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.patch(
+            f"/api/drafts/{draft.draft_id}",
+            json={"ai_draft": new_text},
+        )
+        audits = (await client.get("/api/audits/")).json()
+
     assert response.status_code == 200
     payload = response.json()
     assert payload["draft_id"] == draft.draft_id
     assert payload["ai_draft"] == new_text
 
-    audits = client.get("/api/audits").json()
     assert any(
         item.get("draft_id") == draft.draft_id and item.get("action") == "edited"
         for item in audits
     )
 
 
-def test_reject_regenerates_from_stored_data_with_reviewer_feedback():
+async def test_reject_regenerates_from_stored_data_with_reviewer_feedback():
     """reject comments must rerun the supervised workflow, not fake a revision."""
     draft = add_generated_draft(
         {
@@ -66,7 +70,10 @@ def test_reject_regenerates_from_stored_data_with_reviewer_feedback():
     assert "USD 120.00" in regenerated["ai_draft"]
     assert "Old draft" not in regenerated["ai_draft"]
 
-    audits = TestClient(app).get("/api/audits").json()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        audits = (await client.get("/api/audits/")).json()
+
     audit = next(
         item
         for item in audits

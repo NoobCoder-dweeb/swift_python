@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 
 os.environ.setdefault("SWIFT_STORAGE_BACKEND", "memory")
+os.environ.setdefault("SWIFT_AGENT_BACKEND", "deterministic")
 
 from app.crews.agents import EmailDraftingAgent, SalesProcessingAgent
 

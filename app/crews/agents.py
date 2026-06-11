@@ -419,6 +419,15 @@ class EmailDraftingAgent:
                 "Best regards,\n"
                 "Project Swift Support"
             )
+        if inquiry and inquiry.inquiry_type == "unknown":
+            return (
+                "Hi,\n\n"
+                "Thanks for your message. This workflow only supports product pricing "
+                "and stock availability inquiries. Please send a product pricing or "
+                "availability question and I can help route it for review.\n\n"
+                "Best regards,\n"
+                "Project Swift Support"
+            )
 
         product = context.product or (inquiry.product_name if inquiry else None)
         if not product:

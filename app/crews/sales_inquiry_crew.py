@@ -151,6 +151,12 @@ def run_sales_inquiry_workflow(
             action="reject",
             reasons=[*validation.reasons, *inquiry.risk_flags],
         )
+    elif inquiry.inquiry_type == "unknown":
+        validation = DraftValidationResult(
+            valid=False,
+            action="reject",
+            reasons=[*validation.reasons, "unsupported_inquiry_type"],
+        )
 
     if supervisor_review and not supervisor_review.valid:
         chokeholds.extend(f"supervisor_{reason}" for reason in supervisor_review.reasons)

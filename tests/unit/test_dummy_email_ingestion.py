@@ -1,12 +1,11 @@
-from fastapi.testclient import TestClient
+import httpx
 
 from app.api.v1.routes.emails import email_service
 from app.main import app
 
 
-def test_ingest_raw_email_creates_pending_draft():
+async def test_ingest_raw_email_creates_pending_draft():
     """verifies real email payloads can enter the review workflow."""
-    client = TestClient(app)
     raw_email = (
         b"From: curl.customer@example.com\r\n"
         b"To: sales@example.com\r\n"
@@ -15,11 +14,13 @@ def test_ingest_raw_email_creates_pending_draft():
         b"Do you have 50 safety helmets in stock this week?"
     )
 
-    response = client.post(
-        "/api/emails/ingest",
-        content=raw_email,
-        headers={"Content-Type": "message/rfc822"},
-    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/api/emails/ingest",
+            content=raw_email,
+            headers={"Content-Type": "message/rfc822"},
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -30,18 +31,18 @@ def test_ingest_raw_email_creates_pending_draft():
     assert payload["draft"]["subject"] == "Curl safety helmet stock"
 
 
-def test_ingest_json_accepts_from_alias():
+async def test_ingest_json_accepts_from_alias():
     """supports webhook payloads that use from instead of sender."""
-    client = TestClient(app)
-
-    response = client.post(
-        "/api/emails/ingest",
-        json={
-            "from": "json.customer@example.com",
-            "subject": "JSON Product X pricing request",
-            "body": "Can I get pricing for 40 units of Product X?",
-        },
-    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/api/emails/ingest",
+            json={
+                "from": "json.customer@example.com",
+                "subject": "JSON Product X pricing request",
+                "body": "Can I get pricing for 40 units of Product X?",
+            },
+        )
 
     assert response.status_code == 200
     payload = response.json()
@@ -54,9 +55,8 @@ def test_ingest_json_accepts_from_alias():
     )
 
 
-def test_ingest_preprocesses_irrelevant_email_content():
+async def test_ingest_preprocesses_irrelevant_email_content():
     """ensures noisy email threads are cleaned before draft generation."""
-    client = TestClient(app)
     raw_email = (
         b"From: noisy.customer@example.com\r\n"
         b"To: sales@example.com\r\n"
@@ -77,11 +77,13 @@ def test_ingest_preprocesses_irrelevant_email_content():
         b"Please ignore this old reply.\r\n"
     )
 
-    response = client.post(
-        "/api/emails/ingest",
-        content=raw_email,
-        headers={"Content-Type": "message/rfc822"},
-    )
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/api/emails/ingest",
+            content=raw_email,
+            headers={"Content-Type": "message/rfc822"},
+        )
 
     assert response.status_code == 200
     payload = response.json()

@@ -1,8 +1,14 @@
 import asyncio
+from uuid import uuid4
+
+import httpx
 
 from app.crews.sales_inquiry_crew import run_sales_inquiry_workflow
 from app.crews.agents import EmailDraftingAgent, LocalLLMConfig, SalesProcessingAgent
 from app.crews.workflow_models import ProductContext
+from app.core.config import reset_app_settings
+from app.main import app
+from app.repositories.state_repository import get_state_repository
 from app.crews.stress_test import run_stress_suite
 from app.schemas.draft import EmailPayload
 from app.schemas.email import IncomingEmail
@@ -73,6 +79,56 @@ def test_sales_workflow_blocks_prompt_injection_and_personal_data_request():
     assert "personal_data" in result.inquiry.risk_flags
     assert "cannot help" in result.ai_draft.lower()
     assert "billing address:" not in result.ai_draft.lower()
+
+
+def test_sales_workflow_rejects_irrelevant_query():
+    """keeps out-of-scope questions from entering the review queue."""
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="traveler@example.com",
+            subject="Travel recommendation",
+            body="Can you recommend tourist spots for a weekend in Tokyo?",
+        ),
+        use_crewai=False,
+    )
+
+    assert result.status == "blocked"
+    assert result.inquiry.inquiry_type == "unknown"
+    assert result.validation.valid is False
+    assert result.validation.action == "reject"
+    assert "unsupported_inquiry_type" in result.validation.reasons
+    assert "only supports product pricing" in result.ai_draft.lower()
+
+
+async def test_create_draft_response_matches_persisted_database_row(monkeypatch):
+    """guards against API responses drifting from the stored draft text."""
+    monkeypatch.setenv("SWIFT_AGENT_BACKEND", "deterministic")
+    reset_app_settings()
+    unique = uuid4().hex
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/api/drafts/",
+            json={
+                "sender": f"irrelevant.{unique}@example.com",
+                "subject": "Travel recommendation",
+                "body": "Can you recommend tourist spots for a weekend in Tokyo?",
+            },
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "blocked"
+
+        stored = get_state_repository().get_draft(payload["draft_id"])
+        assert stored is not None
+        assert stored["status"] == payload["status"]
+        assert stored["ai_draft_text"] == payload["ai_draft"]
+
+        stored_response = await client.get(f"/api/drafts/{payload['draft_id']}")
+        assert stored_response.status_code == 200
+        assert stored_response.json()["ai_draft"] == payload["ai_draft"]
 
 
 def test_draft_service_uses_sales_workflow(monkeypatch):
