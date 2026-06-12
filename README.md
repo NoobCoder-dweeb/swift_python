@@ -63,6 +63,40 @@ The API will be available at `http://127.0.0.1:8000`, and PostgreSQL will be
 available on localhost port `5432` with the development credentials from
 `docker-compose.yml`.
 
+Inspect PostgreSQL from the running container:
+
+```bash
+# List databases.
+docker compose exec postgres psql -U swift -d swift -c "\l"
+
+# List public tables.
+docker compose exec postgres psql -U swift -d swift -c "\dt public.*"
+
+# Describe one table.
+docker compose exec postgres psql -U swift -d swift -c "\d+ swift_products"
+
+# Count records in the main workflow tables.
+docker compose exec postgres psql -U swift -d swift -c "SELECT COUNT(*) AS draft_count FROM swift_drafts;"
+docker compose exec postgres psql -U swift -d swift -c "SELECT COUNT(*) AS audit_count FROM swift_audits;"
+docker compose exec postgres psql -U swift -d swift -c "SELECT COUNT(*) AS email_count FROM swift_emails;"
+docker compose exec postgres psql -U swift -d swift -c "SELECT COUNT(*) AS product_count FROM swift_products;"
+
+# Show safety gear product records.
+docker compose exec postgres psql -U swift -d swift -c "SELECT product_id, sku, name, category, currency, unit_price, stock_availability, unit_of_measure, status FROM swift_products ORDER BY product_id;"
+
+# Show pending drafts and recent audit entries.
+docker compose exec postgres psql -U swift -d swift -c "SELECT draft_id, sender, subject, status, created, updated FROM swift_drafts ORDER BY created DESC;"
+docker compose exec postgres psql -U swift -d swift -c "SELECT audit_id, draft_id, action, timestamp FROM swift_audits ORDER BY timestamp DESC NULLS LAST;"
+```
+
+If you prefer plain `docker exec`, first find the container name:
+
+```bash
+docker ps --filter "name=postgres"
+docker exec -it swift_python-postgres-1 psql -U swift -d swift -c "\dt public.*"
+docker exec -it swift_python-postgres-1 psql -U swift -d swift -c "SELECT product_id, name, unit_price, stock_availability FROM swift_products ORDER BY product_id;"
+```
+
 For non-Docker local development, point the app at a PostgreSQL database:
 
 ```bash
