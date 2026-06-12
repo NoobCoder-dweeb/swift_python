@@ -2,6 +2,7 @@ import httpx
 
 from app.core.config import reset_app_settings
 from app.main import app
+from app.repositories.state_repository import get_state_repository
 from app.services.draft_service import DraftService
 from data import add_generated_draft
 
@@ -68,7 +69,7 @@ async def test_reject_regenerates_from_stored_data_with_reviewer_feedback():
     )
     assert regenerated["revisions"] == 1
     assert "500 units" in regenerated["ai_draft"]
-    assert "USD 120.00" in regenerated["ai_draft"]
+    assert "RM 120.00" in regenerated["ai_draft"]
     assert "Old draft" not in regenerated["ai_draft"]
 
     transport = httpx.ASGITransport(app=app)
@@ -128,7 +129,7 @@ async def test_approval_sends_response_to_original_gmail_sender(monkeypatch):
             "subject": "Product X pricing for Gmail approval test",
             "body": "Can I get pricing for 40 units of Product X?",
         },
-        ai_draft="Hi,\n\nProduct X is USD 120.00 per unit.\n\nBest regards,\nProject Swift Support",
+        ai_draft="Hi,\n\nProduct X is RM 120.00 per unit.\n\nBest regards,\nProject Swift Support",
         status="pending",
     )
 
@@ -154,3 +155,48 @@ async def test_approval_sends_response_to_original_gmail_sender(monkeypatch):
     assert len(sent_messages) == 1
     assert sent_messages[0]["To"] == "shaukoay.dev@gmail.com"
     assert sent_messages[0].get_content().strip() == draft.ai_draft
+
+
+async def test_approval_succeeds_without_smtp_and_records_manual_send(monkeypatch):
+    """local Docker approval should not fail just because SMTP is unset."""
+    for name in (
+        "SWIFT_SMTP_HOST",
+        "SWIFT_SMTP_USERNAME",
+        "SWIFT_SMTP_PASSWORD",
+        "SWIFT_SMTP_FROM_EMAIL",
+    ):
+        monkeypatch.setenv(name, "")
+    reset_app_settings()
+
+    draft = add_generated_draft(
+        {
+            "from": "local.customer@example.com",
+            "subject": "Product X pricing approval without SMTP",
+            "body": "Can I get pricing for 40 units of Product X?",
+        },
+        ai_draft="Hi,\n\nProduct X is RM 120.00 per unit.\n\nBest regards,\nProject Swift Support",
+        status="pending",
+    )
+
+    assert draft is not None
+
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            response = await client.post(f"/api/drafts/{draft.draft_id}/approve")
+    finally:
+        reset_app_settings()
+
+    assert response.status_code == 200
+    payload = response.json()
+    audit = payload["audit"]
+    assert payload["success"] is True
+    assert payload["status"] == "approved"
+    assert "SMTP is not configured" in payload["message"]
+    assert audit["action"] == "approved"
+    assert audit["sent"] is False
+    assert audit["dispatch_error"] == "smtp_not_configured"
+    assert audit["details"]["requires_manual_send"] is True
+    assert get_state_repository().get_draft(draft.draft_id) is None

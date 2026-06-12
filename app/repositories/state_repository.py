@@ -241,6 +241,30 @@ class PostgresStateRepository:
                     ON swift_emails (created_at DESC)
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS swift_products (
+                    product_id TEXT PRIMARY KEY,
+                    sku TEXT NOT NULL UNIQUE,
+                    name TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    currency TEXT NOT NULL DEFAULT 'RM',
+                    unit_price NUMERIC(10,2) NOT NULL,
+                    stock_availability INTEGER NOT NULL DEFAULT 0,
+                    unit_of_measure TEXT NOT NULL DEFAULT 'unit',
+                    status TEXT NOT NULL DEFAULT 'active',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS swift_products_status_idx
+                    ON swift_products (status, name)
+                """
+            )
 
     def list_drafts(self) -> list[DraftRow]:
         """feeds pending-review views from durable storage."""

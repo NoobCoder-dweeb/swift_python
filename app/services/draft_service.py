@@ -126,7 +126,7 @@ class DraftService:
                 "success": False,
                 "message": "Draft not found",
             }
-        if not audit.get("sent"):
+        if not audit.get("sent") and audit.get("action") != "approved":
             return {
                 "success": False,
                 "draft_id": draft_id,
@@ -142,7 +142,15 @@ class DraftService:
             "draft_id": draft_id,
             "status": "approved",
             "audit": audit,
-            "message": "Draft approved and queued for dispatch.",
+            "message": (
+                "Draft approved. Email delivery was skipped because SMTP is not configured."
+                if (
+                    audit.get("dispatch_error") == "smtp_not_configured"
+                    or audit.get("details", {}).get("email_delivery")
+                    == "skipped_smtp_not_configured"
+                )
+                else "Draft approved and queued for dispatch."
+            ),
         }
 
     def reject_draft(self, draft_id: str, reason: str = ""):

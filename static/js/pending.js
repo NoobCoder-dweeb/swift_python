@@ -209,10 +209,10 @@
         const backup = card ? card.outerHTML : null;
         if(card) card.remove();
         showToast('Approving...', 'info');
+        recentApproved.add(id);
+        setTimeout(()=>recentApproved.delete(id),5000);
         const res = await postAction(`/api/drafts/${id}/approve`);
         if(res && res.success !== false){
-          recentApproved.add(id);
-          setTimeout(()=>recentApproved.delete(id),5000);
           showToast('Draft approved', 'success');
         }else{
           showToast('Approve failed', 'error');

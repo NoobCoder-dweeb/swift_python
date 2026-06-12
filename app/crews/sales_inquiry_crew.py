@@ -26,6 +26,7 @@ from app.crews.workflow_models import (
     WorkflowMode,
 )
 from app.core.config import get_app_settings
+from app.repositories.product_repository import build_product_lookup_client
 from app.schemas.email import IncomingEmail
 from app.services.email_preprocessor import preprocess_email
 
@@ -70,7 +71,7 @@ def run_sales_inquiry_workflow(
     previous_draft = (previous_draft or "").strip() or None
     preprocessed = preprocess_email(email)
     cleaned_email = preprocessed.email
-    processor = SalesProcessingAgent()
+    processor = SalesProcessingAgent(product_client=build_product_lookup_client())
     drafter = EmailDraftingAgent()
     agent_models: dict[str, str] = {}
     supervisor_review: DraftValidationResult | None = None
@@ -84,6 +85,17 @@ def run_sales_inquiry_workflow(
         inquiry.product_name,
         f"{cleaned_email.subject}\n{cleaned_email.body}",
     )
+    if product_context.product and inquiry.product_name != product_context.product:
+        inquiry = inquiry.model_copy(
+            update={
+                "product_name": product_context.product,
+                "missing_information": [
+                    item
+                    for item in inquiry.missing_information
+                    if item != "product_name"
+                ],
+            }
+        )
 
     execution_mode: WorkflowMode = "deterministic"
     agent_backend = _resolve_agent_backend(use_crewai)

@@ -42,7 +42,7 @@ def test_external_agent_backend_accepts_valid_vendor_draft(monkeypatch):
                 "ai_draft": (
                     "Hi,\n\n"
                     "Thanks for your inquiry about Product X. The approved reference "
-                    "price is USD 120.00 per unit. Current available stock is "
+                    "price is RM 120.00 per unit. Current available stock is "
                     "500 units.\n\n"
                     "Best regards,\n"
                     "Project Swift Support"
@@ -69,7 +69,7 @@ def test_external_agent_backend_accepts_valid_vendor_draft(monkeypatch):
     assert result.execution_mode == "external"
     assert result.agent_models["provider"] == "vendor-agent"
     assert result.validation.valid is True
-    assert "USD 120.00" in result.ai_draft
+    assert "RM 120.00" in result.ai_draft
     assert "500 units" in result.ai_draft
 
     reset_app_settings()

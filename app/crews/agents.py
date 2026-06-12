@@ -141,7 +141,7 @@ DEFAULT_PRODUCT_CATALOG: list[ProductContext] = [
         sku="SAFE-HELMET-001",
         stock_availability=120,
         price=25.0,
-        currency="USD",
+        currency="RM",
         lead_time_days=7,
         confidence=0.95,
         notes=["Aliases: helmet, hard hat, safety helmet"],
@@ -151,17 +151,17 @@ DEFAULT_PRODUCT_CATALOG: list[ProductContext] = [
         sku="PROD-X-001",
         stock_availability=500,
         price=120.0,
-        currency="USD",
+        currency="RM",
         lead_time_days=10,
         confidence=0.9,
-        notes=["Bulk orders of 100 or more units may qualify for 95.00 USD pricing."],
+        notes=["Bulk orders of 100 or more units may qualify for RM 95.00 pricing."],
     ),
     ProductContext(
         product="Safety Gloves",
         sku="SAFE-GLOVE-001",
         stock_availability=900,
         price=8.5,
-        currency="USD",
+        currency="RM",
         lead_time_days=5,
         confidence=0.88,
         notes=["Aliases: gloves, safety gloves"],
@@ -391,7 +391,7 @@ class EmailDraftingAgent:
                     "sku": info.get("sku"),
                     "stock_availability": info.get("stock_availability"),
                     "price": info.get("price"),
-                    "currency": info.get("currency", "USD"),
+                    "currency": info.get("currency", "RM"),
                     "lead_time_days": info.get("lead_time_days"),
                     "confidence": info.get("confidence", 0.0),
                 }
@@ -430,6 +430,23 @@ class EmailDraftingAgent:
             )
 
         product = context.product or (inquiry.product_name if inquiry else None)
+        product_missing = (
+            context.confidence == 0.0
+            and any(
+                "No approved product record matched" in note
+                for note in context.notes
+            )
+        )
+        if product_missing:
+            product_phrase = f" for {product}" if product else ""
+            return (
+                "Hi,\n\n"
+                f"Thanks for your inquiry{product_phrase}. The product does not "
+                "exist in our approved product database, so I cannot quote price "
+                "or stock availability for it.\n\n"
+                "Best regards,\n"
+                "Project Swift Support"
+            )
         if not product:
             return (
                 "Hi,\n\n"
@@ -496,9 +513,12 @@ class EmailDraftingAgent:
             )
 
         if should_include_stock:
-            lines.append(
-                f"Current available stock is {context.stock_availability} units."
-            )
+            if context.stock_availability == 0:
+                lines.append(f"{product} is not in stock.")
+            else:
+                lines.append(
+                    f"Current available stock is {context.stock_availability} units."
+                )
         elif wants_stock:
             lines.append(
                 "I do not have approved stock availability in the product context, "
@@ -513,7 +533,12 @@ class EmailDraftingAgent:
 
         if inquiry:
             if inquiry.quantity and context.stock_availability is not None:
-                if inquiry.quantity <= context.stock_availability:
+                if context.stock_availability == 0:
+                    lines.append(
+                        "Because this product is not in stock, sales review should "
+                        "confirm restock timing before committing availability."
+                    )
+                elif inquiry.quantity <= context.stock_availability:
                     lines.append(
                         f"Your requested quantity of {inquiry.quantity} units appears "
                         "to be within the current available stock."
@@ -623,7 +648,8 @@ def _find_unapproved_fact_claims(
         allowed_prices.update(
             float(group)
             for groups in re.findall(
-                r"(?:usd|\$)\s*(\d+(?:\.\d{1,2})?)|(\d+(?:\.\d{1,2})?)\s*usd",
+                r"(?:usd|rm|myr|\$)\s*(\d+(?:\.\d{1,2})?)|"
+                r"(\d+(?:\.\d{1,2})?)\s*(?:usd|rm|myr)",
                 note,
                 re.IGNORECASE,
             )
@@ -631,11 +657,16 @@ def _find_unapproved_fact_claims(
             if group
         )
 
+    allowed_currency = _normalize_currency(context.currency)
     for match in re.finditer(
-        r"(?:usd|\$)\s*(?P<amount>\d+(?:\.\d{1,2})?)",
+        r"(?P<currency>usd|rm|myr|\$)\s*(?P<amount>\d+(?:\.\d{1,2})?)",
         draft,
         re.IGNORECASE,
     ):
+        currency = _normalize_currency(match.group("currency"))
+        if currency != allowed_currency:
+            reasons.append("contains_unapproved_currency")
+            continue
         amount = float(match.group("amount"))
         if allowed_prices and not any(abs(amount - price) < 0.01 for price in allowed_prices):
             reasons.append("contains_unapproved_price")
@@ -665,6 +696,15 @@ def _find_unapproved_fact_claims(
             reasons.append("contains_unapproved_lead_time")
 
     return _dedupe(reasons)
+
+
+def _normalize_currency(currency: str) -> str:
+    value = (currency or "").strip().lower()
+    if value in {"rm", "myr"}:
+        return "rm"
+    if value in {"usd", "$"}:
+        return "usd"
+    return value
 
 
 def _dedupe(values: list[str]) -> list[str]:

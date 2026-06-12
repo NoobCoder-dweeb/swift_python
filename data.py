@@ -478,7 +478,12 @@ def _store_draft(draft: Draft) -> Draft:
 def next_draft_id() -> str:
     """supports legacy numeric IDs for drafts created outside the workflow."""
     numeric_ids: list[int] = []
-    for row in get_state_repository().list_drafts():
+    repository = get_state_repository()
+    rows = [
+        *repository.list_drafts(),
+        *repository.list_audits(),
+    ]
+    for row in rows:
         try:
             numeric_ids.append(int(str(row.get('draft_id', '')).split('-')[1]))
         except Exception:
@@ -649,7 +654,7 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
         subject=draft.subject,
         body=draft.ai_draft,
     )
-    if not dispatch.sent:
+    if not dispatch.sent and dispatch.error != 'smtp_not_configured':
         return {
             'draft_id': draft.draft_id,
             'sender': draft.sender,
@@ -663,6 +668,8 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
             'ai_draft': draft.ai_draft,
         }
 
+    emailed = bool(dispatch.sent)
+    dispatch_skipped = dispatch.error == 'smtp_not_configured'
     audit = {
         'audit_id': f"AUD-{uuid4().hex[:8].upper()}",
         'draft_id': draft.draft_id,
@@ -673,13 +680,24 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
         'action': 'approved',
         'timestamp': datetime.now().isoformat(),
         'emailed_to': recipient,
-        'sent': True,
+        'sent': emailed,
+        'dispatch_error': dispatch.error,
         'content': (
             f"Approved version {_draft_version_id(draft.draft_id, draft.revisions)} "
-            f"and sent it to {recipient}."
+            + (
+                f"and sent it to {recipient}."
+                if emailed
+                else "without sending email because SMTP is not configured."
+            )
         ),
         'customer_inquiry': draft.customer_inquiry,
         'ai_draft': draft.ai_draft,
+        'details': {
+            'email_delivery': (
+                'sent' if emailed else 'skipped_smtp_not_configured'
+            ),
+            'requires_manual_send': dispatch_skipped,
+        },
     }
     audit = get_state_repository().insert_audit(audit)
     get_state_repository().delete_draft(draft.draft_id)

@@ -31,7 +31,7 @@ class ProductContext(BaseModel):
     sku: str | None = None
     stock_availability: int | None = None
     price: float | None = None
-    currency: str = "USD"
+    currency: str = "RM"
     lead_time_days: int | None = None
     source: str = "local_catalog"
     confidence: float = 0.0

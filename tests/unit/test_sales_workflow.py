@@ -30,7 +30,7 @@ def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
     assert result.inquiry.product_name == "Product X"
     assert result.inquiry.quantity == 250
     assert result.product_context.stock_availability == 500
-    assert "USD 120.00" in result.ai_draft
+    assert "RM 120.00" in result.ai_draft
     assert "500 units" in result.ai_draft
     assert result.validation.valid is True
 
@@ -53,7 +53,7 @@ def test_sales_workflow_regeneration_uses_feedback_without_inventing_facts():
     assert result.reviewer_feedback == "Please make it brief and include stock availability."
     assert result.previous_ai_draft == "Old draft that omitted stock availability."
     assert "500 units" in result.ai_draft
-    assert "USD 120.00" in result.ai_draft
+    assert "RM 120.00" in result.ai_draft
     assert "600 units" not in result.ai_draft
     assert result.validation.valid is True
     assert any("Reviewer feedback applied" in note for note in result.learning_notes)
@@ -98,6 +98,111 @@ def test_sales_workflow_rejects_irrelevant_query():
     assert result.validation.action == "reject"
     assert "unsupported_inquiry_type" in result.validation.reasons
     assert "only supports product pricing" in result.ai_draft.lower()
+
+
+def test_sales_workflow_reports_missing_postgres_product(monkeypatch):
+    """unknown database products should get a direct non-existence response."""
+
+    class MissingProductClient:
+        def get_product(self, query):
+            return {
+                "product": "Safety Harness",
+                "source": "postgres",
+                "confidence": 0.0,
+                "notes": ["No approved product record matched the inquiry."],
+            }
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: MissingProductClient(),
+    )
+
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Safety harness stock",
+            body="Do you have safety harness in stock?",
+        ),
+        use_crewai=False,
+    )
+
+    assert result.status == "pending"
+    assert "product does not exist" in result.ai_draft.lower()
+    assert "quote price or stock availability" in result.ai_draft
+
+
+def test_sales_workflow_zero_postgres_stock_says_not_in_stock(monkeypatch):
+    """zero inventory should be phrased as not in stock, not as a 0-unit quote."""
+
+    class ZeroStockProductClient:
+        def get_product(self, query):
+            return {
+                "product": "Face Shield",
+                "sku": "SAFE-FACE-SHIELD",
+                "stock_availability": 0,
+                "price": 12.5,
+                "currency": "RM",
+                "source": "postgres",
+                "confidence": 0.96,
+                "notes": ["Unit of measure: unit"],
+            }
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: ZeroStockProductClient(),
+    )
+
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Face shield quote and stock",
+            body="Can you quote 20 face shields and confirm stock?",
+        ),
+        use_crewai=False,
+    )
+
+    assert result.product_context.source == "postgres"
+    assert "RM 12.50" in result.ai_draft
+    assert "not in stock" in result.ai_draft.lower()
+    assert "0 units" not in result.ai_draft
+
+
+def test_sales_workflow_uses_postgres_product_facts_only(monkeypatch):
+    """database-backed products should draft from stored price and stock facts."""
+
+    class StoredProductClient:
+        def get_product(self, query):
+            return {
+                "product": "Steel-Toe Safety Boots",
+                "sku": "SAFE-BOOT-STTOE-BLK",
+                "stock_availability": 180,
+                "price": 58.0,
+                "currency": "RM",
+                "source": "postgres",
+                "confidence": 0.96,
+                "notes": ["Unit of measure: pair"],
+            }
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: StoredProductClient(),
+    )
+
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Boots pricing and inventory",
+            body="Please quote 12 steel-toe safety boots and confirm inventory.",
+        ),
+        use_crewai=False,
+    )
+
+    assert result.inquiry.product_name == "Steel-Toe Safety Boots"
+    assert result.validation.valid is True
+    assert "Steel-Toe Safety Boots" in result.ai_draft
+    assert "RM 58.00" in result.ai_draft
+    assert "180 units" in result.ai_draft
+    assert "Please confirm the missing details: product name" not in result.ai_draft
 
 
 async def test_create_draft_response_matches_persisted_database_row(monkeypatch):
@@ -157,7 +262,7 @@ def test_draft_validation_rejects_crewai_placeholders_and_unapproved_cost_claims
     draft = (
         "Subject: Re: Product X pricing and stock\n\n"
         "Dear Customer,\n\n"
-        "Product X is available at USD 120.00 per unit. There is no additional "
+        "Product X is available at RM 120.00 per unit. There is no additional "
         "cost at this quantity.\n\n"
         "Best regards,\n"
         "[Your Name]\n"
@@ -181,7 +286,7 @@ def test_draft_validation_rejects_invented_product_facts():
     """regenerated drafts must map to approved product context values."""
     draft = (
         "Hi,\n\n"
-        "Product X is available at USD 999.00 per unit. Current available stock "
+        "Product X is available at RM 999.00 per unit. Current available stock "
         "is 600 units. Typical lead time is 3 business days after order "
         "confirmation.\n\n"
         "Best regards,\n"
