@@ -126,6 +126,16 @@ class DraftService:
                 "success": False,
                 "message": "Draft not found",
             }
+        if not audit.get("sent"):
+            return {
+                "success": False,
+                "draft_id": draft_id,
+                "status": "pending",
+                "audit": audit,
+                "message": (
+                    "Draft approval failed because the email could not be sent."
+                ),
+            }
 
         return {
             "success": True,

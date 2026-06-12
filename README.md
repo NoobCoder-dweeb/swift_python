@@ -18,6 +18,7 @@ data. External vendors can then plug in the pieces they own:
 | --- | --- |
 | User interface | Use the JSON APIs from any origin, or set `SWIFT_UI_ENABLED=false` for API-only mode. |
 | Email server/listener | POST structured JSON, form data, or raw RFC822 email to `/api/emails/ingest`. |
+| Email delivery | Set `SWIFT_SMTP_HOST`, `SWIFT_SMTP_USERNAME`, `SWIFT_SMTP_PASSWORD`, and `SWIFT_SMTP_FROM_EMAIL`. |
 | PostgreSQL | Set `DATABASE_URL` and optionally `SWIFT_STORAGE_BACKEND=postgres`. |
 | Agent service | Set `SWIFT_AGENT_BACKEND=external` and `SWIFT_EXTERNAL_AGENT_URL`. |
 
@@ -30,9 +31,20 @@ export DATABASE_URL=postgresql://swift:swift@db.example.com:5432/swift
 export SWIFT_AGENT_BACKEND=external
 export SWIFT_EXTERNAL_AGENT_URL=https://agents.example.com/project-swift/draft
 export SWIFT_EXTERNAL_AGENT_API_KEY=replace-me
+export SWIFT_SMTP_HOST=smtp.gmail.com
+export SWIFT_SMTP_PORT=587
+export SWIFT_SMTP_USERNAME=your-sender@gmail.com
+export SWIFT_SMTP_PASSWORD=your-gmail-app-password
+export SWIFT_SMTP_FROM_EMAIL=your-sender@gmail.com
 ```
 
 `/health` reports the resolved integration modes without exposing secrets.
+
+When SMTP is configured, approving a draft sends the approved response to the
+original sender address on the draft. For example, a draft created from
+`shaukoay.dev@gmail.com` is sent back to `shaukoay.dev@gmail.com`; a draft from
+another customer address is sent to that address instead. For Gmail SMTP, use a
+Google app password rather than your normal account password.
 
 ## Docker and PostgreSQL
 

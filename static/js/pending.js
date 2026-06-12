@@ -210,7 +210,7 @@
         if(card) card.remove();
         showToast('Approving...', 'info');
         const res = await postAction(`/api/drafts/${id}/approve`);
-        if(res){
+        if(res && res.success !== false){
           recentApproved.add(id);
           setTimeout(()=>recentApproved.delete(id),5000);
           showToast('Draft approved', 'success');

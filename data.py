@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from app.core.config import get_app_settings
 from app.repositories.state_repository import get_state_repository
+from app.services.email_dispatcher import send_approved_draft
 
 
 @dataclass
@@ -642,6 +643,26 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
             pass
         return existing
 
+    recipient = (emailed_to or draft.sender or 'simulated-user@example.com').strip()
+    dispatch = send_approved_draft(
+        recipient=recipient,
+        subject=draft.subject,
+        body=draft.ai_draft,
+    )
+    if not dispatch.sent:
+        return {
+            'draft_id': draft.draft_id,
+            'sender': draft.sender,
+            'subject': draft.subject,
+            'approver': approver,
+            'action': 'approval_failed',
+            'emailed_to': recipient,
+            'sent': False,
+            'dispatch_error': dispatch.error,
+            'customer_inquiry': draft.customer_inquiry,
+            'ai_draft': draft.ai_draft,
+        }
+
     audit = {
         'audit_id': f"AUD-{uuid4().hex[:8].upper()}",
         'draft_id': draft.draft_id,
@@ -651,11 +672,11 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
         'approver': approver,
         'action': 'approved',
         'timestamp': datetime.now().isoformat(),
-        'emailed_to': emailed_to or 'simulated-user@example.com',
+        'emailed_to': recipient,
         'sent': True,
         'content': (
             f"Approved version {_draft_version_id(draft.draft_id, draft.revisions)} "
-            f"and sent it to {emailed_to or 'simulated-user@example.com'}."
+            f"and sent it to {recipient}."
         ),
         'customer_inquiry': draft.customer_inquiry,
         'ai_draft': draft.ai_draft,

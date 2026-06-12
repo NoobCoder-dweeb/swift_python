@@ -29,6 +29,17 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_int(name: str, default: int) -> int:
+    """keeps malformed optional integer config from breaking startup."""
+    value = _env_text(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 def _env_list(name: str, default: tuple[str, ...] = ("*",)) -> list[str]:
     """supports comma-separated CORS origins for external frontends."""
     value = _env_text(name)
@@ -50,6 +61,14 @@ class AppSettings:
     external_agent_url: str
     external_agent_api_key: str
     external_agent_timeout: float
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    smtp_password: str
+    smtp_from_email: str
+    smtp_from_name: str
+    smtp_use_tls: bool
+    smtp_timeout: float
 
     @property
     def storage_mode(self) -> str:
@@ -67,6 +86,7 @@ class AppSettings:
             "cors_origins": self.cors_origins,
             "agent_backend": self.resolved_agent_backend,
             "external_agent_configured": bool(self.external_agent_url),
+            "smtp_configured": self.smtp_configured,
         }
 
     @property
@@ -79,6 +99,16 @@ class AppSettings:
         if _env_bool("SWIFT_CREWAI_ENABLED", False):
             return "crewai"
         return "deterministic"
+
+    @property
+    def smtp_configured(self) -> bool:
+        """reports whether approval can deliver emails through SMTP."""
+        return bool(self.smtp_host and self.smtp_from_address)
+
+    @property
+    def smtp_from_address(self) -> str:
+        """uses an explicit sender address or falls back to the SMTP username."""
+        return self.smtp_from_email or self.smtp_username
 
 
 @lru_cache(maxsize=1)
@@ -94,6 +124,14 @@ def get_app_settings() -> AppSettings:
         external_agent_url=_env_text("SWIFT_EXTERNAL_AGENT_URL"),
         external_agent_api_key=_env_text("SWIFT_EXTERNAL_AGENT_API_KEY"),
         external_agent_timeout=_env_float("SWIFT_EXTERNAL_AGENT_TIMEOUT", 20.0),
+        smtp_host=_env_text("SWIFT_SMTP_HOST"),
+        smtp_port=_env_int("SWIFT_SMTP_PORT", 587),
+        smtp_username=_env_text("SWIFT_SMTP_USERNAME"),
+        smtp_password=_env_text("SWIFT_SMTP_PASSWORD"),
+        smtp_from_email=_env_text("SWIFT_SMTP_FROM_EMAIL"),
+        smtp_from_name=_env_text("SWIFT_SMTP_FROM_NAME", "Project Swift Support"),
+        smtp_use_tls=_env_bool("SWIFT_SMTP_USE_TLS", True),
+        smtp_timeout=_env_float("SWIFT_SMTP_TIMEOUT", 20.0),
     )
 
 

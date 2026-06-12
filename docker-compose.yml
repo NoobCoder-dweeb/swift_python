@@ -1,12 +1,9 @@
 services:
   postgres:
     image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: swift
-      POSTGRES_USER: swift
-      POSTGRES_PASSWORD: swift
+    env_file: docker.env
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U swift -d swift"]
+      test: [ "CMD-SHELL", "pg_isready -U swift -d swift" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -17,11 +14,7 @@ services:
 
   app:
     build: .
-    environment:
-      DATABASE_URL: postgresql://swift:swift@postgres:5432/swift
-      SWIFT_STORAGE_BACKEND: postgres
-      SWIFT_CREWAI_ENABLED: "0"
-      SWIFT_SEED_DEMO_DATA: "1"
+    env_file: docker.env
     depends_on:
       postgres:
         condition: service_healthy
