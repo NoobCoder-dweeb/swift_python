@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+from importlib import import_module
 import re
 from decimal import Decimal
 from typing import Any
 
 from app.core.config import get_app_settings
+
+try:
+    psycopg = import_module("psycopg")
+    dict_row = import_module("psycopg.rows").dict_row
+except ImportError as exc:  # pragma: no cover - depends on optional runtime install
+    psycopg = None
+    dict_row = None
+    _PSYCOPG_IMPORT_ERROR = exc
+else:
+    _PSYCOPG_IMPORT_ERROR = None
 
 
 class PostgresProductLookupClient:
@@ -27,19 +38,12 @@ class PostgresProductLookupClient:
         return _row_to_context(best)
 
     def _list_products(self) -> list[dict[str, Any]]:
-        try:
-            import psycopg
-            from psycopg.rows import dict_row
-        except ImportError as exc:
-            raise RuntimeError(
-                "PostgreSQL product lookup requires psycopg. Install dependencies "
-                "from requirements.txt or use memory storage for local tests."
-            ) from exc
+        psycopg_module, row_factory = _postgres_connection_parts()
 
-        with psycopg.connect(
+        with psycopg_module.connect(
             self.database_url,
             autocommit=True,
-            row_factory=dict_row,
+            row_factory=row_factory,
         ) as conn:
             rows = conn.execute(
                 """
@@ -51,6 +55,23 @@ class PostgresProductLookupClient:
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+
+def _postgres_connection_parts() -> tuple[Any, Any]:
+    """returns concrete psycopg connection helpers before database use."""
+    if psycopg is not None and dict_row is not None:
+        return psycopg, dict_row
+    raise RuntimeError(
+        "PostgreSQL product lookup requires psycopg. Install dependencies "
+        "from requirements.txt or use memory storage for local tests."
+    ) from _psycopg_import_error()
+
+
+def _psycopg_import_error() -> Exception:
+    """returns the captured psycopg import failure as a concrete exception."""
+    if _PSYCOPG_IMPORT_ERROR is not None:
+        return _PSYCOPG_IMPORT_ERROR
+    return RuntimeError("psycopg module is unavailable.")
 
 
 def build_product_lookup_client() -> PostgresProductLookupClient | None:

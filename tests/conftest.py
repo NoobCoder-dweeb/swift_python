@@ -12,6 +12,7 @@ os.environ.setdefault("SWIFT_STORAGE_BACKEND", "memory")
 os.environ.setdefault("SWIFT_AGENT_BACKEND", "deterministic")
 
 from app.crews.agents import EmailDraftingAgent, SalesProcessingAgent
+from app.services.audit_logger import AuditLogger
 
 
 def pytest_pyfunc_call(pyfuncitem):
@@ -25,18 +26,6 @@ def pytest_pyfunc_call(pyfuncitem):
     }
     asyncio.run(pyfuncitem.obj(**kwargs))
     return True
-
-
-class AuditLogger:
-    """keeps the audit logger unit test focused on table writes."""
-
-    def __init__(self, postgres_client):
-        """injects the persistence dependency so the test can mock it."""
-        self.postgres_client = postgres_client
-
-    def save(self, log_data):
-        """mirrors the production contract for saving decision logs."""
-        self.postgres_client.insert("audit_logs", log_data)
 
 
 class EmailListener:
@@ -108,7 +97,7 @@ def mock_postgres_client():
 
 @pytest.fixture
 def audit_logger(mock_postgres_client):
-    """shares the logger test double across audit tests."""
+    """shares the production logger across audit tests."""
     return AuditLogger(mock_postgres_client)
 
 

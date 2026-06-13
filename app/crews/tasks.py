@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from importlib import import_module
 from typing import Any
 
 from app.crews.agents import _configure_crewai_storage
@@ -9,6 +10,14 @@ from app.crews.workflow_models import (
     InquiryDetails,
     ProductContext,
 )
+
+try:
+    _crewai = import_module("crewai")
+except Exception as exc:  # pragma: no cover - depends on optional runtime install
+    _crewai = None
+    _CREWAI_TASK_IMPORT_ERROR = exc
+else:
+    _CREWAI_TASK_IMPORT_ERROR = None
 
 
 def create_extract_inquiry_task(
@@ -19,9 +28,9 @@ def create_extract_inquiry_task(
 ):
     """constrains the sales agent to structured extraction instead of prose."""
     _configure_crewai_storage()
-    from crewai import Task
+    task_class = _crewai_task_class()
 
-    return Task(
+    return task_class(
         description=(
             "Analyze the customer email and return strict JSON only.\n\n"
             f"Sender: {sender}\n"
@@ -49,11 +58,11 @@ def create_draft_response_task(
 ):
     """gives the drafting agent explicit facts and boundaries for the reply."""
     _configure_crewai_storage()
-    from crewai import Task
+    task_class = _crewai_task_class()
     feedback = (reviewer_feedback or "").strip()
     prior = (previous_draft or "").strip()
 
-    return Task(
+    return task_class(
         description=(
             "Draft a customer reply for human sales review.\n\n"
             "Use only the approved inquiry and product context below. Do not invent "
@@ -93,7 +102,7 @@ def create_validation_task(
 ):
     """asks a separate agent to catch unsafe claims before human review."""
     _configure_crewai_storage()
-    from crewai import Task
+    task_class = _crewai_task_class()
 
     payload = {
         "inquiry": inquiry.model_dump(),
@@ -103,7 +112,7 @@ def create_validation_task(
         "draft": draft,
     }
 
-    return Task(
+    return task_class(
         description=(
             "Validate whether this draft is safe for human sales review. Reject or "
             "request regeneration for bracketed placeholders, generic signatures, "
@@ -121,3 +130,17 @@ def create_validation_task(
         agent=agent,
         output_pydantic=DraftValidationResult,
     )
+
+
+def _crewai_task_class() -> Any:
+    """returns the concrete CrewAI Task class or raises before construction."""
+    if _crewai is not None:
+        return _crewai.Task
+    raise RuntimeError("CrewAI Task import failed.") from _crewai_task_import_error()
+
+
+def _crewai_task_import_error() -> Exception:
+    """returns the captured CrewAI task import failure as a concrete exception."""
+    if _CREWAI_TASK_IMPORT_ERROR is not None:
+        return _CREWAI_TASK_IMPORT_ERROR
+    return RuntimeError("CrewAI module is unavailable.")

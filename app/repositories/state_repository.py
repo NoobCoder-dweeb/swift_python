@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from importlib import import_module
 from threading import RLock
 from typing import Any, Protocol
 from uuid import uuid4
 
 from app.core.config import get_app_settings
+
+try:
+    psycopg = import_module("psycopg")
+    dict_row = import_module("psycopg.rows").dict_row
+    Jsonb = import_module("psycopg.types.json").Jsonb
+except ImportError as exc:  # pragma: no cover - depends on optional runtime install
+    psycopg = None
+    dict_row = None
+    Jsonb = None
+    _PSYCOPG_IMPORT_ERROR = exc
+else:
+    _PSYCOPG_IMPORT_ERROR = None
 
 
 DraftRow = dict[str, Any]
@@ -453,24 +466,20 @@ class PostgresStateRepository:
         return dict(email)
 
     def _connect(self):
-        """lazily imports psycopg so test-memory mode has fewer dependencies."""
-        try:
-            import psycopg
-            from psycopg.rows import dict_row
-        except ImportError as exc:
-            raise RuntimeError(
-                "PostgreSQL storage requires psycopg. Install dependencies from "
-                "requirements.txt or run with SWIFT_STORAGE_BACKEND=memory for tests."
-            ) from exc
+        """opens the configured PostgreSQL connection."""
+        psycopg_module, row_factory = _postgres_connection_parts()
 
-        return psycopg.connect(self.database_url, autocommit=True, row_factory=dict_row)
+        return psycopg_module.connect(
+            self.database_url,
+            autocommit=True,
+            row_factory=row_factory,
+        )
 
     @staticmethod
     def _json(value: Any):
         """tells psycopg to encode Python dict/list values as JSONB."""
-        from psycopg.types.json import Jsonb
-
-        return Jsonb(value)
+        jsonb = _postgres_jsonb_encoder()
+        return jsonb(value)
 
     @staticmethod
     def _draft_from_row(row: dict[str, Any]) -> DraftRow:
@@ -488,6 +497,33 @@ class PostgresStateRepository:
             "ai_draft_text": row.get("ai_draft_text", ""),
             "workflow": row.get("workflow"),
         }
+
+
+def _postgres_connection_parts() -> tuple[Any, Any]:
+    """returns concrete psycopg connection helpers before database use."""
+    if psycopg is not None and dict_row is not None:
+        return psycopg, dict_row
+    raise RuntimeError(
+        "PostgreSQL storage requires psycopg. Install dependencies from "
+        "requirements.txt or run with SWIFT_STORAGE_BACKEND=memory for tests."
+    ) from _psycopg_import_error()
+
+
+def _postgres_jsonb_encoder() -> Any:
+    """returns the concrete JSONB encoder before payload serialization."""
+    if Jsonb is not None:
+        return Jsonb
+    raise RuntimeError(
+        "PostgreSQL JSONB encoding requires psycopg. Install dependencies "
+        "from requirements.txt or run with SWIFT_STORAGE_BACKEND=memory for tests."
+    ) from _psycopg_import_error()
+
+
+def _psycopg_import_error() -> Exception:
+    """returns the captured psycopg import failure as a concrete exception."""
+    if _PSYCOPG_IMPORT_ERROR is not None:
+        return _PSYCOPG_IMPORT_ERROR
+    return RuntimeError("psycopg module is unavailable.")
 
 
 _repository: StateRepository | None = None

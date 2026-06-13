@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass, field
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -12,6 +13,14 @@ from app.crews.workflow_models import (
     InquiryDetails,
     ProductContext,
 )
+
+try:
+    _crewai = import_module("crewai")
+except Exception as exc:  # pragma: no cover - depends on optional runtime install
+    _crewai = None
+    _CREWAI_AGENT_IMPORT_ERROR = exc
+else:
+    _CREWAI_AGENT_IMPORT_ERROR = None
 
 
 class ProductLookupClient(Protocol):
@@ -715,14 +724,11 @@ def _dedupe(values: list[str]) -> list[str]:
 def create_local_llm(config: LocalLLMConfig | None = None):
     """centralizes CrewAI LLM construction for every agent factory."""
     _configure_crewai_storage()
-    try:
-        from crewai import LLM
-    except Exception as exc:
-        raise RuntimeError(f"CrewAI LLM import failed: {_format_error_note(exc)}") from exc
+    llm_class = _crewai_symbol("LLM")
 
     config = config or LocalLLMConfig.from_env()
     model = _normalize_model_name(config.model, config.provider)
-    return LLM(
+    return llm_class(
         model=model,
         provider=config.provider,
         base_url=config.base_url,
@@ -741,12 +747,9 @@ def _normalize_model_name(model: str, provider: str) -> str:
 def create_sales_processing_crewai_agent(llm: Any = None, verbose: bool = False):
     """wraps sales extraction instructions in a CrewAI agent when enabled."""
     _configure_crewai_storage()
-    try:
-        from crewai import Agent
-    except Exception as exc:
-        raise RuntimeError(f"CrewAI Agent import failed: {_format_error_note(exc)}") from exc
+    agent_class = _crewai_symbol("Agent")
 
-    return Agent(
+    return agent_class(
         role="Sales Processing Agent",
         goal=(
             "Extract product inquiry details, detect unsupported requests, and "
@@ -766,12 +769,9 @@ def create_sales_processing_crewai_agent(llm: Any = None, verbose: bool = False)
 def create_supervisor_crewai_agent(llm: Any = None, verbose: bool = False):
     """adds an independent review role before drafts reach humans."""
     _configure_crewai_storage()
-    try:
-        from crewai import Agent
-    except Exception as exc:
-        raise RuntimeError(f"CrewAI Agent import failed: {_format_error_note(exc)}") from exc
+    agent_class = _crewai_symbol("Agent")
 
-    return Agent(
+    return agent_class(
         role="Sales Workflow Supervisor",
         goal=(
             "Supervise the sales inquiry workflow, verify that product facts came "
@@ -792,12 +792,9 @@ def create_supervisor_crewai_agent(llm: Any = None, verbose: bool = False):
 def create_email_drafting_crewai_agent(llm: Any = None, verbose: bool = False):
     """isolates customer-facing copy generation from extraction/supervision."""
     _configure_crewai_storage()
-    try:
-        from crewai import Agent
-    except Exception as exc:
-        raise RuntimeError(f"CrewAI Agent import failed: {_format_error_note(exc)}") from exc
+    agent_class = _crewai_symbol("Agent")
 
-    return Agent(
+    return agent_class(
         role="Email Drafting Agent",
         goal=(
             "Draft concise customer replies using only extracted inquiry details "
@@ -812,6 +809,24 @@ def create_email_drafting_crewai_agent(llm: Any = None, verbose: bool = False):
         allow_delegation=False,
         max_iter=5,
     )
+
+
+def _crewai_symbol(symbol_name: str) -> Any:
+    """returns a concrete CrewAI symbol or raises a specific optional-import error."""
+    if _crewai is not None:
+        return getattr(_crewai, symbol_name)
+    import_error = _crewai_import_error()
+    raise RuntimeError(
+        f"CrewAI {symbol_name} import failed: "
+        f"{_format_error_note(import_error)}"
+    ) from import_error
+
+
+def _crewai_import_error() -> Exception:
+    """returns the captured CrewAI import failure as a concrete exception."""
+    if _CREWAI_AGENT_IMPORT_ERROR is not None:
+        return _CREWAI_AGENT_IMPORT_ERROR
+    return RuntimeError("CrewAI module is unavailable.")
 
 
 def _configure_crewai_storage() -> None:

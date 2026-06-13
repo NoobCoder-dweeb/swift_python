@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from importlib import import_module
 import time
+from typing import Any
 from uuid import uuid4
+
+import httpx
 
 from app.crews.agents import (
     EmailDraftingAgent,
@@ -29,6 +33,14 @@ from app.core.config import get_app_settings
 from app.repositories.product_repository import build_product_lookup_client
 from app.schemas.email import IncomingEmail
 from app.services.email_preprocessor import preprocess_email
+
+try:
+    _crewai = import_module("crewai")
+except Exception as exc:  # pragma: no cover - depends on optional runtime install
+    _crewai = None
+    _CREWAI_WORKFLOW_IMPORT_ERROR = exc
+else:
+    _CREWAI_WORKFLOW_IMPORT_ERROR = None
 
 
 def run_sales_inquiry_crew(
@@ -282,12 +294,14 @@ def _run_crewai_draft(
             previous_draft=previous_draft,
         )
 
-        from crewai import Crew, Process
+        crew_class, process_class = _crewai_workflow_classes()
+        crew_agents: list[Any] = [sales_agent, drafting_agent]
+        crew_tasks: list[Any] = [extract_task, draft_task]
 
-        crew = Crew(
-            agents=[sales_agent, drafting_agent],
-            tasks=[extract_task, draft_task],
-            process=Process.sequential,
+        crew = crew_class(
+            agents=crew_agents,
+            tasks=crew_tasks,
+            process=process_class.sequential,
             verbose=verbose,
             memory=False,
             cache=False,
@@ -309,10 +323,12 @@ def _run_crewai_draft(
                 reviewer_feedback=reviewer_feedback,
                 previous_draft=previous_draft,
             )
-            supervisor_crew = Crew(
-                agents=[supervisor_agent],
-                tasks=[validation_task],
-                process=Process.sequential,
+            supervisor_agents: list[Any] = [supervisor_agent]
+            supervisor_tasks: list[Any] = [validation_task]
+            supervisor_crew = crew_class(
+                agents=supervisor_agents,
+                tasks=supervisor_tasks,
+                process=process_class.sequential,
                 verbose=verbose,
                 memory=False,
                 cache=False,
@@ -371,8 +387,6 @@ def _run_external_agent_draft(
         headers["Authorization"] = f"Bearer {settings.external_agent_api_key}"
 
     try:
-        import httpx
-
         response = httpx.post(
             settings.external_agent_url,
             json=payload,
@@ -429,6 +443,20 @@ def _format_crewai_error(exc: Exception) -> str:
     detail = str(exc).strip() or repr(exc)
     detail = " ".join(detail.split())
     return f"crewai_error:{exc.__class__.__name__}:{detail[:240]}"
+
+
+def _crewai_workflow_classes() -> tuple[Any, Any]:
+    """returns concrete CrewAI orchestration classes before they are used."""
+    if _crewai is not None:
+        return _crewai.Crew, _crewai.Process
+    raise RuntimeError("CrewAI workflow import failed.") from _crewai_workflow_import_error()
+
+
+def _crewai_workflow_import_error() -> Exception:
+    """returns the captured CrewAI workflow import failure as a concrete exception."""
+    if _CREWAI_WORKFLOW_IMPORT_ERROR is not None:
+        return _CREWAI_WORKFLOW_IMPORT_ERROR
+    return RuntimeError("CrewAI module is unavailable.")
 
 
 def _build_learning_notes(
