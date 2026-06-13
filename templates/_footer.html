@@ -9,9 +9,9 @@
         </div>
         <nav class="app-footer-links" aria-label="Footer">
             <a href="#" class="app-footer-link">Home</a>
-            <a href="#" class="app-footer-link">Dashboard</a>
-            <a href="#" class="app-footer-link">Pending Drafts</a>
-            <a href="#" class="app-footer-link">Audit Logs</a>
+            <a href="{{ url_for('dashboard') }}" class="app-footer-link">Dashboard</a>
+            <a href="{{ url_for('pending_page') }}" class="app-footer-link">Pending Drafts</a>
+            <a href="{{ url_for('audit_page') }}" class="app-footer-link">Audit Logs</a>
         </nav>
     </div>
 </footer>
