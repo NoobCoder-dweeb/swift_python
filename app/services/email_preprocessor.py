@@ -1,0 +1,272 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+
+from app.schemas.email import IncomingEmail
+
+
+@dataclass(frozen=True)
+class PreprocessedEmail:
+    """carries both cleaned text and removal evidence for audit/debugging."""
+
+    email: IncomingEmail
+    original_body: str
+    removed_lines: list[str]
+
+    @property
+    def changed(self) -> bool:
+        """flags whether preprocessing altered the customer body."""
+        return self.email.body != self.original_body.strip()
+
+
+@dataclass(frozen=True)
+class FilteredEmailLines:
+    """keeps retained content and audit evidence together."""
+
+    kept: list[str]
+    removed: list[str]
+
+
+_BOILERPLATE_PATTERNS = (
+    r"^caution:",
+    r"^external email",
+    r"^confidentiality notice",
+    r"^disclaimer:",
+    r"^this (email|message) and any attachments",
+    r"^this (email|message) is confidential",
+    r"^the information contained in this",
+    r"^if you are not the intended recipient",
+    r"^please consider the environment",
+    r"^unsubscribe\b",
+    r"^virus-free",
+)
+
+_CONTACT_PATTERNS = (
+    r"^(tel|phone|mobile|cell|fax|direct|office)\s*[:+]",
+    r"^e-?mail\s*:",
+    r"^web(site)?\s*:",
+    r"^www\.",
+    r"https?://",
+)
+
+_INQUIRY_KEYWORDS = (
+    "availability",
+    "available",
+    "bulk",
+    "catalog",
+    "cost",
+    "delivery",
+    "inventory",
+    "item",
+    "lead time",
+    "model",
+    "order",
+    "part",
+    "price",
+    "pricing",
+    "product",
+    "quantity",
+    "quote",
+    "rate",
+    "ship",
+    "shipment",
+    "sku",
+    "stock",
+    "unit",
+    "units",
+)
+
+_REQUEST_PHRASES = (
+    "can you",
+    "could you",
+    "do you",
+    "i need",
+    "i would like",
+    "looking for",
+    "please",
+    "send me",
+    "share",
+    "confirm",
+)
+
+_QUANTITY_RE = re.compile(
+    r"\b\d+(?:[,.]\d+)?\s*(?:units?|pcs?|pieces?|boxes?|cartons?|pairs?|sets?)\b",
+    re.IGNORECASE,
+)
+
+
+class EmailPreprocessor:
+    """coordinates email cleanup without owning each cleanup rule."""
+
+    def __init__(
+        self,
+        *,
+        noise_filter: "StructuralNoiseFilter | None" = None,
+        relevance_selector: "InquiryLineSelector | None" = None,
+    ) -> None:
+        """allows focused rule collaborators to be replaced in tests or extensions."""
+        self.noise_filter = noise_filter or StructuralNoiseFilter()
+        self.relevance_selector = relevance_selector or InquiryLineSelector()
+
+    def preprocess(self, email: IncomingEmail) -> PreprocessedEmail:
+        """removes non-request noise before the drafting workflow sees the email."""
+        original_body = _normalize_newlines(email.body)
+        filtered = self.noise_filter.remove(original_body)
+        selected_lines = self.relevance_selector.select(filtered.kept)
+
+        cleaned_body = _join_lines(selected_lines or filtered.kept)
+        if not cleaned_body:
+            cleaned_body = original_body.strip()
+
+        return PreprocessedEmail(
+            email=IncomingEmail(
+                sender=email.sender,
+                subject=email.subject,
+                body=cleaned_body,
+            ),
+            original_body=original_body,
+            removed_lines=filtered.removed,
+        )
+
+
+class StructuralNoiseFilter:
+    """removes greetings, signatures, quoted replies, contact blocks, and boilerplate."""
+
+    def remove(self, body: str) -> FilteredEmailLines:
+        """strips structural noise while preserving removed-line evidence."""
+        kept: list[str] = []
+        removed: list[str] = []
+
+        for raw_line in body.split("\n"):
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            if self._starts_quoted_block(line):
+                removed.append(line)
+                break
+
+            if line.startswith(">"):
+                removed.append(line)
+                continue
+
+            if self._is_greeting(line):
+                removed.append(line)
+                continue
+
+            if self._is_signature_marker(line):
+                removed.append(line)
+                break
+
+            if kept and self._is_signoff(line):
+                removed.append(line)
+                break
+
+            if self._is_boilerplate_line(line) or self._is_contact_line(line):
+                removed.append(line)
+                continue
+
+            kept.append(line)
+
+        return FilteredEmailLines(kept=kept, removed=removed)
+
+    def _starts_quoted_block(self, line: str) -> bool:
+        """stops old thread content from influencing the new response."""
+        lower = line.lower()
+        return (
+            lower.startswith("-----original message-----")
+            or lower.startswith("begin forwarded message:")
+            or lower.startswith("forwarded message")
+            or bool(re.match(r"^on .+wrote:$", lower))
+            or bool(re.match(r"^(from|sent|to|subject):\s+.+", line, re.IGNORECASE))
+        )
+
+    def _is_greeting(self, line: str) -> bool:
+        """removes salutations so drafting context starts with the actual request."""
+        return bool(
+            re.match(
+                r"^(hi|hello|dear|good morning|good afternoon|good evening)\b[\w\s,.-]*$",
+                line,
+                re.IGNORECASE,
+            )
+        )
+
+    def _is_signature_marker(self, line: str) -> bool:
+        """recognizes common signature separators that end useful content."""
+        return line in {"--", "-- "}
+
+    def _is_signoff(self, line: str) -> bool:
+        """stops parsing once the customer has likely finished the request."""
+        return bool(
+            re.match(
+                r"^(thanks|thank you|regards|best regards|kind regards|sincerely|cheers)"
+                r"[\s,!.:-]*$",
+                line,
+                re.IGNORECASE,
+            )
+        )
+
+    def _is_boilerplate_line(self, line: str) -> bool:
+        """removes legal/security footers unrelated to the inquiry."""
+        lower = line.lower()
+        return any(re.search(pattern, lower) for pattern in _BOILERPLATE_PATTERNS)
+
+    def _is_contact_line(self, line: str) -> bool:
+        """removes contact blocks to reduce irrelevant and personal data exposure."""
+        lower = line.lower()
+        return any(re.search(pattern, lower) for pattern in _CONTACT_PATTERNS)
+
+
+class InquiryLineSelector:
+    """selects lines likely to matter for pricing and stock drafting."""
+
+    def select(self, lines: list[str]) -> list[str]:
+        """reduces drafting context to lines likely about pricing or stock."""
+        scored = [(self._relevance_score(line), line) for line in lines]
+        relevant = [line for score, line in scored if score > 0]
+        if not relevant:
+            return []
+
+        return relevant
+
+    def _relevance_score(self, line: str) -> int:
+        """ranks customer lines by inquiry signals instead of position alone."""
+        lower = line.lower()
+        score = 0
+
+        if any(keyword in lower for keyword in _INQUIRY_KEYWORDS):
+            score += 3
+        if any(phrase in lower for phrase in _REQUEST_PHRASES):
+            score += 2
+        if "?" in line:
+            score += 2
+        if _QUANTITY_RE.search(line):
+            score += 2
+
+        return score
+
+
+_DEFAULT_PREPROCESSOR = EmailPreprocessor()
+
+
+def preprocess_email(email: IncomingEmail) -> PreprocessedEmail:
+    """preserves the function API while delegating to the default preprocessor."""
+    return _DEFAULT_PREPROCESSOR.preprocess(email)
+
+
+def _normalize_newlines(text: str) -> str:
+    """makes rule matching independent of email client line-ending style."""
+    return text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+def _join_lines(lines: list[str]) -> str:
+    """removes duplicate adjacent lines from messy email clients."""
+    cleaned: list[str] = []
+    previous = ""
+    for line in lines:
+        if line == previous:
+            continue
+        cleaned.append(line)
+        previous = line
+    return "\n".join(cleaned).strip()

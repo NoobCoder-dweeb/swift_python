@@ -1,76 +1,39 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="light">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Audit Log - Project Swift</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/@phosphor-icons/web"></script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}">
+{% extends '_base.html' %}
+{% from '_components.html' import sort_toggle %}
+{% set page_title = 'Audit Log' %}
+
+{% block title %}Audit Log - Project Swift{% endblock %}
+{% block extra_styles %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/audit.css') }}">
-</head>
-<body>
-    {% include '_nav.html' %}
+{% endblock %}
 
-    <div class="main-content">
-        {% if backend_note %}
-        <div class="alert alert-info mb-lg" style="margin: 1rem 2rem 0;">
-            <i class="ph ph-code"></i>
-            <div>{{ backend_note }}</div>
-        </div>
-        {% endif %}
+{% block page_body_class %} page-body-compact{% endblock %}
 
-        <header class="page-header">
-            <div class="header-left">
-                <button class="sidebar-toggle" id="sidebarToggle">
-                    <i class="ph ph-list"></i>
-                </button>
-                <h1 class="page-title">Audit Log</h1>
-            </div>
-            <div class="header-right">
-                <button class="header-icon-btn" id="notifyBtn">
-                    <i class="ph ph-bell"></i>
-                    <span class="notification-dot" id="notificationDot" style="display:none;"></span>
-                </button>
-                <button class="header-icon-btn" id="themeToggle">
-                    <i class="ph ph-moon"></i>
-                </button>
-            </div>
-        </header>
-        <main class="page-body" style="padding: 1rem 2rem;">
+{% block content %}
             {% if audits %}
                 {% set default_collapsed = audits|length >= 5 %}
-                <div class="toolbar" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-                    <div>
+                <div class="toolbar page-toolbar">
+                    <div class="toolbar-actions">
                         <button id="auditViewToggle" class="btn btn-text" data-compact="{% if default_collapsed %}true{% else %}false{% endif %}">
                             {% if default_collapsed %}Expanded View{% else %}Compact View{% endif %}
                         </button>
                     </div>
-                    <div style="display:flex;align-items:center;gap:0.5rem;">
-                        <a
-                            href="{{ url_for('audit_page', order='asc' if sort_order != 'asc' else 'desc') }}"
-                            class="header-icon-btn"
-                            aria-label="Toggle audit sort order"
-                            title="Toggle sort order"
-                            style="background:var(--surface-raised);color:var(--text-main);"
-                        >
-                            <i class="ph {% if sort_order == 'asc' %}ph-sort-ascending{% else %}ph-sort-descending{% endif %}"></i>
-                        </a>
-                        <span style="font-size:0.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">
-                            {{ 'Ascending' if sort_order == 'asc' else 'Descending' }}
-                        </span>
+                    <div class="toolbar-meta">
+                        {{ sort_toggle(url_for('audit_page', order='asc' if sort_order != 'asc' else 'desc'), sort_order, 'audit') }}
                     </div>
                 </div>
                 <div class="card">
                     {% set shown = namespace(value=false) %}
                     {% for a in audits %}
                         {% set action = (a.action|default('')|lower) %}
-                        {% if action in ['approved','rejected','accepted'] %}
+                        {% if action in ['approved','rejected','accepted','edited'] %}
                         {% set shown.value = true %}
                         {% if action == 'approved' %}
                             {% set color = "var(--success, #28a745)" %}
                         {% elif action == 'rejected' %}
                             {% set color = "var(--danger, #dc3545)" %}
+                        {% elif action == 'edited' %}
+                            {% set color = "var(--primary, #007bff)" %}
                         {% else %}
                             {% set color = "var(--text-main, #333)" %}
                         {% endif %}
@@ -134,8 +97,12 @@
                                 <strong>User review:</strong>
                                 {% if action in ['approved','accepted'] %}
                                     <span class="audit-review-status audit-review-approved">Approved</span>
-                                {% else %}
+                                {% elif action == 'rejected' %}
                                     <span class="audit-review-status audit-review-rejected">Rejected</span>
+                                {% elif action == 'edited' %}
+                                    <span class="audit-review-status">Edited</span>
+                                {% else %}
+                                    <span class="audit-review-status">Reviewed</span>
                                 {% endif %}
                                 {% if a.review_comment %}
                                     <div class="audit-comment">Comment: {{ a.review_comment }}</div>
@@ -145,7 +112,9 @@
                                 {% endif %}
                             </div>
 
+                            {% if action in ['approved','rejected','accepted'] %}
                             <div class="audit-footer">Emailed to: {{ a.emailed_to }} — Sent: {{ a.sent }}</div>
+                            {% endif %}
                             </div>
                         </div>
                         {% endif %}
@@ -157,10 +126,8 @@
             {% else %}
                 <div class="card">No audit entries yet.</div>
             {% endif %}
-        </main>
-    </div>
+{% endblock %}
 
-    <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+{% block extra_scripts %}
     <script src="{{ url_for('static', filename='js/audit.js') }}"></script>
-</body>
-</html>
+{% endblock %}

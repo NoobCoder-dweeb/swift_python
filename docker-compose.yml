@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file: docker.env
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U swift -d swift" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  app:
+    build: .
+    env_file: docker.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+
+volumes:
+  postgres_data:

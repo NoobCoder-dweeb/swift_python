@@ -13,29 +13,6 @@
             <i class="ph ph-squares-four"></i>
             <span>Dashboard</span>
         </a>
-        <!-- <a href="{{ url_for('records_list') }}" class="nav-link{% if request.endpoint == 'records_list' %} active{% endif %}">
-            <i class="ph ph-list-magnifying-glass"></i>
-            <span>Records</span>
-            <span class="nav-badge">24</span>
-        </a>
-        <a href="{{ url_for('create_record') }}" class="nav-link{% if request.endpoint == 'create_record' %} active{% endif %}">
-            <i class="ph ph-plus-circle"></i>
-            <span>Create Record</span>
-        </a>
-        <a href="{{ url_for('calendar_page') }}" class="nav-link{% if request.endpoint == 'calendar_page' %} active{% endif %}">
-            <i class="ph ph-calendar-blank"></i>
-            <span>Calendar</span>
-        </a>
-
-        <div class="nav-section-title">Management</div>
-        <a href="{{ url_for('users_page') }}" class="nav-link{% if request.endpoint == 'users_page' %} active{% endif %}">
-            <i class="ph ph-users"></i>
-            <span>Users</span>
-        </a>
-        <a href="{{ url_for('analytics_page') }}" class="nav-link{% if request.endpoint == 'analytics_page' %} active{% endif %}">
-            <i class="ph ph-chart-bar"></i>
-            <span>Analytics</span>
-        </a> -->
         <a href="{{ url_for('pending_page') }}" class="nav-link{% if request.endpoint == 'pending_page' %} active{% endif %}">
             <i class="ph ph-envelope"></i>
             <span>Pending Drafts</span>
@@ -44,10 +21,6 @@
             <i class="ph ph-file-text"></i>
             <span>Audit Log</span>
         </a>
-        <!-- <a href="{{ url_for('settings_page') }}" class="nav-link{% if request.endpoint == 'settings_page' %} active{% endif %}">
-            <i class="ph ph-gear"></i>
-            <span>Settings</span>
-        </a> -->
     </div>
     <div class="sidebar-footer">
         <div class="sidebar-user">

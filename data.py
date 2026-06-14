@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass, asdict
 from datetime import date, datetime
 from typing import Any
+from uuid import uuid4
+
+from app.core.config import get_app_settings
+from app.repositories.state_repository import get_state_repository
+from app.services.email_dispatcher import send_approved_draft
 
 
 @dataclass
 class User:
+    """keeps dashboard user sample data typed for template rendering."""
+
     initials: str
     name: str
     email: str
@@ -18,11 +27,14 @@ class User:
     accent_fg: str
 
     def to_dict(self) -> dict[str, Any]:
+        """converts dataclass rows into JSON/template-friendly dictionaries."""
         return asdict(self)
 
 
 @dataclass
 class Record:
+    """models dashboard work items with display metadata in one place."""
+
     record_id: str
     title: str
     category: str
@@ -36,9 +48,11 @@ class Record:
 
     @property
     def status_label(self) -> str:
+        """converts stored slugs into labels templates can show directly."""
         return self.status.replace('-', ' ').title()
 
     def to_dict(self) -> dict[str, Any]:
+        """includes derived labels alongside raw record fields."""
         payload = asdict(self)
         payload['status_label'] = self.status_label
         return payload
@@ -94,11 +108,13 @@ ANALYTICS: dict[str, Any] = {
 
 
 def next_record_id() -> str:
+    """keeps demo record IDs monotonic without an external sequence."""
     highest = max(int(r.record_id.split('-')[1]) for r in RECORDS)
     return f'REC-{highest + 1}'
 
 
 def add_record(payload: dict[str, str]) -> Record:
+    """normalizes partial UI form input into a complete dashboard record."""
     record = Record(
         record_id=next_record_id(),
         title=payload.get('title') or 'Untitled Record',
@@ -116,6 +132,7 @@ def add_record(payload: dict[str, str]) -> Record:
 
 
 def add_user_invite(email: str, role: str) -> dict[str, str]:
+    """lets the demo UI show invited users without a user-management service."""
     initials = ''.join(part[0] for part in email.split('@')[0].replace('.', ' ').split()[:2]).upper() or 'NU'
     user = User(initials, email.split('@')[0].replace('.', ' ').title(), email, role.title(), 'Invited', 'Pending Invite', datetime.now().strftime('%b %Y'), 'var(--primary-light)', 'var(--primary)')
     USERS.append(user)
@@ -123,6 +140,7 @@ def add_user_invite(email: str, role: str) -> dict[str, str]:
 
 
 def _resolve_assignee(code: str | None) -> str:
+    """maps compact form values to readable names for dashboard display."""
     mapping = {
         'ac': 'Alex Chen',
         'sm': 'Sarah Miller',
@@ -134,12 +152,9 @@ def _resolve_assignee(code: str | None) -> str:
     return mapping.get((code or '').lower(), 'Jane Doe')
 
 
-# Draft and audit models for email processing (in-memory)
-import json
-from pathlib import Path
-
-
+# Draft and audit models for email processing.
 def _classify_inquiry(subject: str, body: str) -> str | None:
+    """filters the workflow to pricing/availability requests it can safely handle."""
     text = f'{subject} {body}'.lower()
 
     pricing_keywords = ('price', 'pricing', 'quote', 'cost', 'rate')
@@ -214,6 +229,8 @@ INVALID_GUARDRAIL_AUDIT: dict[str, Any] = {
 
 @dataclass
 class Draft:
+    """represents the reviewable customer response independent of storage rows."""
+
     draft_id: str
     sender: str
     subject: str
@@ -223,17 +240,25 @@ class Draft:
     updated: str
     revisions: int = 0
     last_rejection_reason: str = ''
+    ai_draft_text: str = ''
+    workflow: dict[str, Any] | None = None
 
     @property
     def customer_inquiry(self) -> str:
+        """gives templates a domain name for the original email body."""
         return self.body
 
     @property
     def inquiry_category(self) -> str | None:
+        """keeps review queues limited to supported inquiry types."""
         return _classify_inquiry(self.subject, self.customer_inquiry)
 
     @property
     def ai_draft(self) -> str:
+        """supplies either persisted agent output or a deterministic fallback draft."""
+        if self.ai_draft_text.strip():
+            return self.ai_draft_text
+
         revision_note = f"\n\nRevision note: updated draft v{self.revisions}." if self.revisions else ""
         category = self.inquiry_category
         inquiry_text = f'{self.subject} {self.customer_inquiry}'.lower()
@@ -365,13 +390,16 @@ class Draft:
 
     @property
     def created_display(self) -> str:
+        """avoids date formatting logic in templates."""
         return _format_human_datetime(self.created)
 
     @property
     def updated_display(self) -> str:
+        """keeps template timestamps consistent with created_display."""
         return _format_human_datetime(self.updated)
 
     def to_dict(self):
+        """enriches stored fields with display fields expected by the UI."""
         payload = asdict(self)
         payload['customer_inquiry'] = self.customer_inquiry
         payload['ai_draft'] = self.ai_draft
@@ -379,14 +407,8 @@ class Draft:
         payload['updated_display'] = self.updated_display
         return payload
 
-DRAFTS: list[Draft] = []
-
-AUDITS: list[dict[str, Any]] = []
-
-DATA_STORE = Path(__file__).parent / 'data_store.json'
-
-
 def _format_human_datetime(value: str) -> str:
+    """makes ISO timestamps readable while tolerating legacy text values."""
     try:
         parsed = datetime.fromisoformat(value)
     except Exception:
@@ -395,70 +417,94 @@ def _format_human_datetime(value: str) -> str:
 
 
 def _draft_version_number(revisions: int) -> int:
+    """exposes human-facing versions as one-based numbers."""
     return revisions + 1
 
 
 def _draft_version_id(draft_id: str, revisions: int) -> str:
+    """creates stable audit identifiers for each reviewed draft version."""
     return f'{draft_id}-v{_draft_version_number(revisions)}'
 
 
 def save_state() -> None:
-    payload = {
-        'drafts': [d.to_dict() for d in DRAFTS],
-        'audits': AUDITS,
-    }
-    try:
-        DATA_STORE.write_text(json.dumps(payload, indent=2))
-    except Exception:
-        pass
+    """Compatibility hook retained for callers; state now lives in PostgreSQL."""
+    return None
 
 
 def load_state() -> None:
-    if not DATA_STORE.exists():
-        return
-    try:
-        raw = DATA_STORE.read_text()
-        payload = json.loads(raw)
-        drafts = payload.get('drafts', [])
-        audits = payload.get('audits', [])
-        audits = [a for a in audits if (a.get('action') or '').lower() in {'approved', 'rejected'}]
-        DRAFTS.clear()
-        for d in drafts:
-            # reconstruct Draft objects
-            DRAFTS.append(Draft(
-                draft_id=d['draft_id'],
-                sender=d['sender'],
-                subject=d['subject'],
-                body=d['body'],
-                status=d['status'],
-                created=d['created'],
-                updated=d['updated'],
-                revisions=d.get('revisions', 0),
-                last_rejection_reason=d.get('last_rejection_reason', ''),
-            ))
-        AUDITS.clear()
-        AUDITS.extend(audits)
-    except Exception:
-        # ignore corrupt file
-        return
+    """Compatibility hook retained for callers; state now lives in PostgreSQL."""
+    get_state_repository().initialize()
+
+
+def _row_to_draft(row: dict[str, Any]) -> Draft:
+    """converts repository dictionaries back into domain objects."""
+    return Draft(
+        draft_id=str(row['draft_id']),
+        sender=str(row['sender']),
+        subject=str(row['subject']),
+        body=str(row['body']),
+        status=str(row['status']),
+        created=str(row['created']),
+        updated=str(row['updated']),
+        revisions=int(row.get('revisions', 0)),
+        last_rejection_reason=str(row.get('last_rejection_reason') or ''),
+        ai_draft_text=str(row.get('ai_draft_text') or ''),
+        workflow=row.get('workflow'),
+    )
+
+
+def _draft_to_row(draft: Draft) -> dict[str, Any]:
+    """stores only serializable fields in PostgreSQL-backed repositories."""
+    return {
+        'draft_id': draft.draft_id,
+        'sender': draft.sender,
+        'subject': draft.subject,
+        'body': draft.body,
+        'status': draft.status,
+        'created': draft.created,
+        'updated': draft.updated,
+        'revisions': draft.revisions,
+        'last_rejection_reason': draft.last_rejection_reason,
+        'ai_draft_text': draft.ai_draft_text,
+        'workflow': draft.workflow,
+    }
+
+
+def _store_draft(draft: Draft) -> Draft:
+    """keeps all draft writes behind the configured repository."""
+    return _row_to_draft(get_state_repository().upsert_draft(_draft_to_row(draft)))
 
 
 def next_draft_id() -> str:
-    highest = max([int(d.draft_id.split('-')[1]) for d in DRAFTS], default=100)
+    """supports legacy numeric IDs for drafts created outside the workflow."""
+    numeric_ids: list[int] = []
+    repository = get_state_repository()
+    rows = [
+        *repository.list_drafts(),
+        *repository.list_audits(),
+    ]
+    for row in rows:
+        try:
+            numeric_ids.append(int(str(row.get('draft_id', '')).split('-')[1]))
+        except Exception:
+            continue
+    highest = max(numeric_ids, default=100)
     return f'DFT-{highest + 1}'
 
 
-def add_draft_from_email(email_payload: dict[str,str]) -> Draft | None:
+def add_draft_from_email(email_payload: dict[str, object]) -> Draft | None:
+    """turns simulated/listener emails into pending review drafts."""
     # Deduplicate by exact sender+subject+body for pending drafts
-    sender = email_payload.get('from', 'noreply@example.com')
-    subject = email_payload.get('subject','No subject')
-    body = email_payload.get('body','')
+    sender = str(email_payload.get('from', 'noreply@example.com'))
+    subject = str(email_payload.get('subject', 'No subject'))
+    body = str(email_payload.get('body', ''))
+    expand_short_body = bool(email_payload.get('expand_short_body', True))
 
     # Normalize sender display name
     sender_name = sender.split('@')[0].replace('.', ' ').title()
 
     # If the incoming body is short, expand it into a more structured email-like body
-    if len((body or '').strip()) < 80:
+    if expand_short_body and len((body or '').strip()) < 80:
         body = (
             f"Hi,\n\n{body}\n\n"
             "Could you share a few more details about your request? Specifically:\n"
@@ -471,11 +517,17 @@ def add_draft_from_email(email_payload: dict[str,str]) -> Draft | None:
     if _classify_inquiry(subject, body) is None:
         return None
 
-    existing = next((d for d in DRAFTS if d.sender == sender and d.subject == subject and d.body == body and d.status == 'pending'), None)
-    if existing:
+    existing_row = get_state_repository().find_draft(
+        sender=sender,
+        subject=subject,
+        body=body,
+        status='pending',
+    )
+    if existing_row:
+        existing = _row_to_draft(existing_row)
         # update timestamp and return existing
         existing.updated = datetime.now().isoformat()
-        save_state()
+        _store_draft(existing)
         try:
             publish_event({'type': 'draft_updated', 'payload': existing.to_dict()})
         except Exception:
@@ -493,8 +545,7 @@ def add_draft_from_email(email_payload: dict[str,str]) -> Draft | None:
         revisions = 0,
         last_rejection_reason = '',
     )
-    DRAFTS.insert(0, draft)
-    save_state()
+    _store_draft(draft)
     try:
         publish_event({'type': 'draft_created', 'payload': draft.to_dict()})
     except Exception:
@@ -502,17 +553,78 @@ def add_draft_from_email(email_payload: dict[str,str]) -> Draft | None:
     return draft
 
 
+def add_generated_draft(
+    email_payload: dict[str, object],
+    *,
+    ai_draft: str,
+    status: str = 'pending',
+    workflow: dict[str, Any] | None = None,
+    draft_id: str | None = None,
+) -> Draft | None:
+    """persists agent-generated drafts and blocks unsupported inquiries."""
+    sender = str(email_payload.get('from') or email_payload.get('sender') or 'noreply@example.com')
+    subject = str(email_payload.get('subject') or 'No subject')
+    body = str(email_payload.get('body') or '')
+    normalized_status = status if status in {'pending', 'blocked'} else 'pending'
+
+    if _classify_inquiry(subject, body) is None and normalized_status == 'pending':
+        return None
+
+    existing_row = get_state_repository().find_draft(
+        sender=sender,
+        subject=subject,
+        body=body,
+        status=normalized_status,
+    )
+    if existing_row:
+        existing = _row_to_draft(existing_row)
+        existing.ai_draft_text = ai_draft
+        existing.workflow = workflow
+        existing.updated = datetime.now().isoformat()
+        _store_draft(existing)
+        if existing.status == 'pending':
+            try:
+                publish_event({'type': 'draft_updated', 'payload': existing.to_dict()})
+            except Exception:
+                pass
+        return existing
+
+    now = datetime.now().isoformat()
+    draft = Draft(
+        draft_id=draft_id or next_draft_id(),
+        sender=sender,
+        subject=subject,
+        body=body,
+        status=normalized_status,
+        created=now,
+        updated=now,
+        revisions=0,
+        last_rejection_reason='',
+        ai_draft_text=ai_draft,
+        workflow=workflow,
+    )
+    _store_draft(draft)
+    if draft.status == 'pending':
+        try:
+            publish_event({'type': 'draft_created', 'payload': draft.to_dict()})
+        except Exception:
+            pass
+    return draft
+
+
 def get_drafts() -> list[Draft]:
+    """returns only supported pending drafts for sales review."""
     return [
-        d for d in DRAFTS
+        d for d in (_row_to_draft(row) for row in get_state_repository().list_drafts())
         if d.status == 'pending' and d.inquiry_category in {'pricing', 'availability'}
     ]
 
 
 def get_audits() -> list[dict]:
+    """enriches persisted decision rows with display timestamps for the UI."""
     enriched: list[dict] = []
-    for audit in AUDITS:
-        if (audit.get('action') or '').lower() not in {'approved', 'rejected'}:
+    for audit in get_state_repository().list_audits():
+        if (audit.get('action') or '').lower() not in {'approved', 'rejected', 'edited'}:
             continue
         entry = dict(audit)
         entry['timestamp_display'] = _format_human_datetime(audit.get('timestamp', ''))
@@ -521,22 +633,45 @@ def get_audits() -> list[dict]:
 
 
 def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -> dict | None:
-    draft = next((d for d in DRAFTS if d.draft_id == draft_id), None)
+    """records approval once and removes the draft from the active queue."""
+    draft_row = get_state_repository().get_draft(draft_id)
+    draft = _row_to_draft(draft_row) if draft_row else None
     if not draft or draft.inquiry_category not in {'pricing', 'availability'}:
         return None
     # If already approved, return existing approval audit (idempotent)
-    existing = next((a for a in AUDITS if a.get('draft_id') == draft_id and a.get('action') == 'approved'), None)
+    existing = get_state_repository().find_audit(draft_id=draft_id, action='approved')
     if existing:
-        if draft in DRAFTS:
-            DRAFTS.remove(draft)
-        save_state()
+        get_state_repository().delete_draft(draft_id)
         try:
             publish_event({'type': 'approved', 'payload': existing})
         except Exception:
             pass
         return existing
 
+    recipient = (emailed_to or draft.sender or 'simulated-user@example.com').strip()
+    dispatch = send_approved_draft(
+        recipient=recipient,
+        subject=draft.subject,
+        body=draft.ai_draft,
+    )
+    if not dispatch.sent and dispatch.error != 'smtp_not_configured':
+        return {
+            'draft_id': draft.draft_id,
+            'sender': draft.sender,
+            'subject': draft.subject,
+            'approver': approver,
+            'action': 'approval_failed',
+            'emailed_to': recipient,
+            'sent': False,
+            'dispatch_error': dispatch.error,
+            'customer_inquiry': draft.customer_inquiry,
+            'ai_draft': draft.ai_draft,
+        }
+
+    emailed = bool(dispatch.sent)
+    dispatch_skipped = dispatch.error == 'smtp_not_configured'
     audit = {
+        'audit_id': f"AUD-{uuid4().hex[:8].upper()}",
         'draft_id': draft.draft_id,
         'version_id': _draft_version_id(draft.draft_id, draft.revisions),
         'sender': draft.sender,
@@ -544,18 +679,28 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
         'approver': approver,
         'action': 'approved',
         'timestamp': datetime.now().isoformat(),
-        'emailed_to': emailed_to or 'simulated-user@example.com',
-        'sent': True,
+        'emailed_to': recipient,
+        'sent': emailed,
+        'dispatch_error': dispatch.error,
         'content': (
             f"Approved version {_draft_version_id(draft.draft_id, draft.revisions)} "
-            f"and sent it to {emailed_to or 'simulated-user@example.com'}."
+            + (
+                f"and sent it to {recipient}."
+                if emailed
+                else "without sending email because SMTP is not configured."
+            )
         ),
         'customer_inquiry': draft.customer_inquiry,
         'ai_draft': draft.ai_draft,
+        'details': {
+            'email_delivery': (
+                'sent' if emailed else 'skipped_smtp_not_configured'
+            ),
+            'requires_manual_send': dispatch_skipped,
+        },
     }
-    AUDITS.insert(0, audit)
-    DRAFTS.remove(draft)
-    save_state()
+    audit = get_state_repository().insert_audit(audit)
+    get_state_repository().delete_draft(draft.draft_id)
     try:
         publish_event({'type': 'approved', 'payload': audit})
     except Exception:
@@ -565,12 +710,12 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
 
 def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason: str = '') -> dict | None:
     """
-    Simulate asking the agent to regenerate a draft. Updates the draft body/subject and records a regeneration audit.
-    Returns the updated draft as dict or None if not found.
+    records rejection feedback and keeps the draft available for another review.
     """
-    draft = next((d for d in DRAFTS if d.draft_id == draft_id), None)
-    if not draft:
+    draft_row = get_state_repository().get_draft(draft_id)
+    if not draft_row:
         return None
+    draft = _row_to_draft(draft_row)
     reviewed_version_id = _draft_version_id(draft.draft_id, draft.revisions)
     draft.revisions = getattr(draft, 'revisions', 0) + 1
     draft.last_rejection_reason = (rejection_reason or '').strip()
@@ -581,6 +726,7 @@ def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason:
     regenerated_version_id = _draft_version_id(draft.draft_id, draft.revisions)
 
     rejection_audit = {
+        'audit_id': f"AUD-{uuid4().hex[:8].upper()}",
         'draft_id': draft.draft_id,
         'version_id': reviewed_version_id,
         'next_version_id': regenerated_version_id,
@@ -599,8 +745,8 @@ def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason:
         'customer_inquiry': draft.customer_inquiry,
         'ai_draft': draft.ai_draft,
     }
-    AUDITS.insert(0, rejection_audit)
-    save_state()
+    _store_draft(draft)
+    rejection_audit = get_state_repository().insert_audit(rejection_audit)
     try:
         publish_event({'type': 'regenerated', 'payload': {'draft': draft.to_dict(), 'audit': rejection_audit}})
     except Exception:
@@ -609,22 +755,21 @@ def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason:
 
 
 # Background email listener (simulated with hardcoded emails)
-import threading
-import time
-
 # Simple in-process event queue and condition for server-sent events
 EVENTS_QUEUE: list[dict] = []
 events_cond = threading.Condition()
 
 def publish_event(event: dict) -> None:
-    """Append an event to the queue and notify listeners (SSE)."""
+    """notifies connected browsers when review state changes."""
     with events_cond:
         EVENTS_QUEUE.append(event)
         events_cond.notify_all()
 
 
 def start_email_listener(poll_interval: int = 15):
+    """simulates background email intake for demos without mail infrastructure."""
     def run():
+        """repeatedly seeds sample inquiries so the review UI stays active."""
         idx = 0
         while True:
             payload = SAMPLE_EMAILS[idx % len(SAMPLE_EMAILS)]
@@ -637,25 +782,26 @@ def start_email_listener(poll_interval: int = 15):
 
 
 def ensure_sample_drafts() -> None:
+    """gives a fresh database enough pending data for the demo UI."""
     for payload in SAMPLE_EMAILS:
         add_draft_from_email(payload)
 
 
 def ensure_guardrail_audit_example() -> None:
-    existing = next(
-        (
-            audit for audit in AUDITS
-            if audit.get('draft_id') == INVALID_GUARDRAIL_AUDIT['draft_id']
-        ),
-        None,
+    """demonstrates rejected unsafe requests in the audit screen."""
+    existing = get_state_repository().find_audit(
+        draft_id=INVALID_GUARDRAIL_AUDIT['draft_id'],
+        action=INVALID_GUARDRAIL_AUDIT['action'],
     )
     if existing:
         return
 
-    AUDITS.insert(0, dict(INVALID_GUARDRAIL_AUDIT))
-    save_state()
+    audit = dict(INVALID_GUARDRAIL_AUDIT)
+    audit['audit_id'] = f"AUD-{uuid4().hex[:8].upper()}"
+    get_state_repository().insert_audit(audit)
 
-# load persisted state on import
+# initialize configured state backend; sample records are opt-in for deployments
 load_state()
-ensure_sample_drafts()
-ensure_guardrail_audit_example()
+if get_app_settings().seed_demo_data:
+    ensure_sample_drafts()
+    ensure_guardrail_audit_example()

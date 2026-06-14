@@ -6,7 +6,6 @@ document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     initSidebar();
     initTabs();
-    rewriteRecordDetailLinks();
     initNotifications();
 });
 
@@ -86,7 +85,7 @@ function createNotificationMenu() {
         <div class="notification-list" data-role="list"></div>
         <div class="notification-menu-footer">
             <span></span>
-            <a class="notification-show-all" href="/pending.html">Show All</a>
+            <a class="notification-show-all" href="/pending">Show All</a>
         </div>
     `;
     return menu;
@@ -107,7 +106,7 @@ function renderNotificationMenu(menu, drafts) {
     }
 
     list.innerHTML = visibleDrafts.map(draft => `
-        <a class="notification-item" href="/pending.html">
+        <a class="notification-item" href="/pending">
             <span class="notification-item-subject">${escapeHtml(draft.subject)}</span>
             <span class="notification-item-meta">${escapeHtml(draft.sender)} • ${escapeHtml(draft.created_display || draft.created || '')}</span>
             <span class="notification-item-snippet">${escapeHtml(toSnippet(draft.customer_inquiry || draft.body || ''))}</span>
@@ -217,14 +216,5 @@ function initTabs() {
                 if (pane) pane.classList.add('active');
             }
         });
-    });
-}
-
-function rewriteRecordDetailLinks() {
-    document.querySelectorAll('a[href$="record-details.html"], a.record-id').forEach(link => {
-        const id = (link.textContent || '').trim();
-        if (id.startsWith('REC-')) {
-            link.setAttribute('href', `/record-details.html?record_id=${encodeURIComponent(id)}`);
-        }
     });
 }

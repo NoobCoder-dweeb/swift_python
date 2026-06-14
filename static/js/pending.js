@@ -34,10 +34,10 @@
     return postActionWithBody(url, null);
   }
 
-  async function postActionWithBody(url, body){
+  async function postActionWithBody(url, body, method='POST'){
     try{
       const headers = {'X-Requested-With':'XMLHttpRequest','Accept':'application/json'};
-      const options = {method:'POST', headers};
+      const options = {method, headers};
       if(body){
         headers['Content-Type'] = 'application/json';
         options.body = JSON.stringify(body);
@@ -68,6 +68,9 @@
           <button class="expand-btn" type="button" aria-expanded="true"><i class="ph ph-caret-up"></i></button>
           <button class="btn btn-primary approve-btn" data-draft-id="${d.draft_id}">Approve</button>
           <button class="btn btn-secondary reject-btn" data-draft-id="${d.draft_id}">Reject</button>
+          <button class="btn btn-secondary edit-btn" type="button" data-draft-id="${d.draft_id}">Edit</button>
+          <button class="btn btn-primary save-edit-btn is-hidden" type="button" data-draft-id="${d.draft_id}">Save</button>
+          <button class="btn btn-text cancel-edit-btn is-hidden" type="button" data-draft-id="${d.draft_id}">Cancel</button>
         </div>
       </div>
       <div class="draft-body">
@@ -147,6 +150,39 @@
     error.textContent = message || '';
   }
 
+  function getDraftAiContent(card){
+    return card.querySelector('.draft-section-ai .draft-section-content');
+  }
+
+  function setDraftEditing(card, enabled){
+    if(!card) return;
+    const aiContent = getDraftAiContent(card);
+    const editBtn = card.querySelector('.edit-btn');
+    const saveBtn = card.querySelector('.save-edit-btn');
+    const cancelBtn = card.querySelector('.cancel-edit-btn');
+    if(!aiContent || !editBtn || !saveBtn || !cancelBtn) return;
+    aiContent.contentEditable = enabled ? 'true' : 'false';
+    aiContent.classList.toggle('editable', enabled);
+    aiContent.setAttribute('aria-label', enabled ? 'Editable AI draft response' : 'AI draft response');
+    if(enabled){
+      card.dataset.originalAiDraft = aiContent.innerText;
+      editBtn.classList.add('is-hidden');
+      saveBtn.classList.remove('is-hidden');
+      cancelBtn.classList.remove('is-hidden');
+      aiContent.focus();
+    } else {
+      editBtn.classList.remove('is-hidden');
+      saveBtn.classList.add('is-hidden');
+      cancelBtn.classList.add('is-hidden');
+    }
+  }
+
+  function restoreDraftText(card){
+    const aiContent = getDraftAiContent(card);
+    if(!aiContent) return;
+    aiContent.textContent = card.dataset.originalAiDraft || aiContent.textContent;
+  }
+
   function setCardExpanded(card, expanded){
     if(!card) return;
     card.classList.toggle('compact', !expanded);
@@ -173,10 +209,10 @@
         const backup = card ? card.outerHTML : null;
         if(card) card.remove();
         showToast('Approving...', 'info');
+        recentApproved.add(id);
+        setTimeout(()=>recentApproved.delete(id),5000);
         const res = await postAction(`/api/drafts/${id}/approve`);
-        if(res){
-          recentApproved.add(id);
-          setTimeout(()=>recentApproved.delete(id),5000);
+        if(res && res.success !== false){
           showToast('Draft approved', 'success');
         }else{
           showToast('Approve failed', 'error');
@@ -212,6 +248,49 @@
         }
       });
     });
+
+    root.querySelectorAll('.edit-btn').forEach(btn=>{
+      if(btn._bound) return; btn._bound = true;
+      btn.addEventListener('click', ()=>{
+        const card = document.querySelector(`.draft-card[data-draft-id='${btn.dataset.draftId}']`);
+        setDraftEditing(card, true);
+      });
+    });
+
+    root.querySelectorAll('.save-edit-btn').forEach(btn=>{
+      if(btn._bound) return; btn._bound = true;
+      btn.addEventListener('click', async ()=>{
+        const id = btn.dataset.draftId;
+        const card = document.querySelector(`.draft-card[data-draft-id='${id}']`);
+        if(!card){ return; }
+        const aiContent = getDraftAiContent(card);
+        const updatedText = aiContent ? aiContent.innerText.trim() : '';
+        if(!updatedText){
+          showToast('Draft text cannot be blank.', 'error');
+          return;
+        }
+        showToast('Saving draft...', 'info');
+        const res = await postActionWithBody(`/api/drafts/${id}`, { ai_draft: updatedText }, 'PATCH');
+        if(res){
+          if(aiContent) aiContent.textContent = updatedText;
+          setDraftEditing(card, false);
+          showToast('Draft changes saved', 'success');
+        } else {
+          showToast('Save failed', 'error');
+        }
+      });
+    });
+
+    root.querySelectorAll('.cancel-edit-btn').forEach(btn=>{
+      if(btn._bound) return; btn._bound = true;
+      btn.addEventListener('click', ()=>{
+        const card = document.querySelector(`.draft-card[data-draft-id='${btn.dataset.draftId}']`);
+        if(!card){ return; }
+        restoreDraftText(card);
+        setDraftEditing(card, false);
+      });
+    });
+
     root.querySelectorAll('.feedback-input').forEach(input=>{
       if(input._bound) return; input._bound = true;
       input.addEventListener('input', ()=>{
@@ -236,6 +315,16 @@
           attachCardHandlers(node);
           setNotification(true);
           showToast('New draft received', 'info');
+        }
+      });
+      es.addEventListener('draft_updated', e=>{
+        const data = JSON.parse(e.data);
+        const card = document.querySelector(`.draft-card[data-draft-id='${data.draft_id}']`);
+        if(card){
+          const aiContent = card.querySelector('.draft-section-ai .draft-section-content');
+          if(aiContent){ aiContent.textContent = data.ai_draft || ''; }
+          setDraftEditing(card, false);
+          showToast('Draft updated', 'info');
         }
       });
       es.addEventListener('approved', e=>{

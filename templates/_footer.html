@@ -1,0 +1,18 @@
+{% macro app_footer(text='@ Project Swift 2026') -%}
+<footer class="app-footer" role="contentinfo">
+    <div class="card app-footer-card">
+        <div class="app-footer-brand">
+            <span class="app-footer-mark" aria-hidden="true">
+                <i class="ph ph-command"></i>
+            </span>
+            <span class="app-footer-text">{{ text }}</span>
+        </div>
+        <nav class="app-footer-links" aria-label="Footer">
+            <a href="#" class="app-footer-link">Home</a>
+            <a href="{{ url_for('dashboard') }}" class="app-footer-link">Dashboard</a>
+            <a href="{{ url_for('pending_page') }}" class="app-footer-link">Pending Drafts</a>
+            <a href="{{ url_for('audit_page') }}" class="app-footer-link">Audit Logs</a>
+        </nav>
+    </div>
+</footer>
+{%- endmacro %}
