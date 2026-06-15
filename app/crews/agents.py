@@ -13,6 +13,7 @@ from app.crews.workflow_models import (
     InquiryDetails,
     ProductContext,
 )
+from app.services.inquiry_guardrails import assess_customer_inquiry
 
 try:
     _crewai = import_module("crewai")
@@ -179,28 +180,12 @@ DEFAULT_PRODUCT_CATALOG: list[ProductContext] = [
 
 _PRODUCT_ALIASES: dict[str, tuple[str, ...]] = {
     "Safety Helmet": ("safety helmet", "helmets", "helmet", "hard hat", "hard hats"),
-    "Product X": ("product x", "prod x", "product-x"),
+    "Product X": ("product x", "prod x", "product-x", "prod-x-001"),
     "Safety Gloves": ("safety gloves", "gloves", "glove"),
 }
 
-_PROMPT_INJECTION_PATTERNS = (
-    r"ignore (all )?(previous|prior|above) instructions",
-    r"reveal .*?(system prompt|developer message|confidential|customer data)",
-    r"show .*?(another customer|customer list|private data)",
-    r"bypass .*?(policy|guardrail|approval)",
-    r"act as .*?system",
-)
-
-_PERSONAL_DATA_PATTERNS = (
-    r"phone number",
-    r"billing address",
-    r"account contact",
-    r"customer list",
-    r"personal information",
-)
-
 _QUANTITY_RE = re.compile(
-    r"\b(?P<quantity>\d{1,6})(?:[,.]\d+)?\s*(?:units?|pcs?|pieces?|boxes?|cartons?|pairs?|sets?)?\b",
+    r"\b(?P<quantity>\d{1,3}(?:,\d{3})+|\d{1,6})(?:\.\d+)?\s*(?:units?|pcs?|pieces?|boxes?|cartons?|pairs?|sets?)?\b",
     re.IGNORECASE,
 )
 
@@ -224,7 +209,7 @@ class SalesProcessingAgent:
             ("stock", "availability", "available", "inventory", "in stock"),
         )
 
-        if any(flag in risk_flags for flag in ("prompt_injection", "personal_data")):
+        if risk_flags:
             inquiry_type = "unsupported"
         elif pricing and availability:
             inquiry_type = "mixed"
@@ -321,14 +306,8 @@ class SalesProcessingAgent:
         )
 
     def detect_risks(self, text: str) -> list[str]:
-        """blocks prompt injection and personal-data requests before drafting."""
-        lower = text.lower()
-        risks: list[str] = []
-        if any(re.search(pattern, lower) for pattern in _PROMPT_INJECTION_PATTERNS):
-            risks.append("prompt_injection")
-        if any(re.search(pattern, lower) for pattern in _PERSONAL_DATA_PATTERNS):
-            risks.append("personal_data")
-        return risks
+        """blocks unsafe requests before product lookup or drafting."""
+        return assess_customer_inquiry(text).flags
 
     def _detect_product(self, lower_text: str) -> str | None:
         """maps customer wording to approved product catalog names."""
@@ -422,9 +401,10 @@ class EmailDraftingAgent:
             return (
                 "Hi,\n\n"
                 "Thanks for your message. I cannot help with requests for confidential "
-                "customer information or instructions that bypass our sales workflow. "
-                "Please send a product pricing or stock availability question and I can "
-                "help route it for review.\n\n"
+                "customer information, credentials, system access, data extraction, or "
+                "instructions that bypass our sales workflow. Please send a product "
+                "pricing or stock availability question and I can help route it for "
+                "review.\n\n"
                 "Best regards,\n"
                 "Project Swift Support"
             )
@@ -652,6 +632,7 @@ def _find_unapproved_fact_claims(
 ) -> list[str]:
     """rejects regenerated drafts that drift from approved product data."""
     reasons: list[str] = []
+    lower = draft.lower()
     allowed_prices = {context.price} if context.price is not None else set()
     for note in context.notes:
         allowed_prices.update(
@@ -692,6 +673,8 @@ def _find_unapproved_fact_claims(
         claimed_stock = int(stock_match.group("stock"))
         if context.stock_availability is None or claimed_stock != context.stock_availability:
             reasons.append("contains_unapproved_stock_claim")
+    elif context.stock_availability is None and _claims_stock_availability(lower):
+        reasons.append("contains_unapproved_stock_claim")
 
     lead_time_match = re.search(
         r"(?:lead\s*time|delivery\s*timeline|timeline)\D{0,30}"
@@ -705,6 +688,19 @@ def _find_unapproved_fact_claims(
             reasons.append("contains_unapproved_lead_time")
 
     return _dedupe(reasons)
+
+
+def _claims_stock_availability(lower_draft: str) -> bool:
+    """detects qualitative stock promises when no stock fact was provided."""
+    stock_claim_patterns = (
+        r"\bwithin\s+(?:the\s+)?current(?:ly)?\s+available\s+stock\b",
+        r"\b(?:is|are|appears?|seems?)\s+(?:to\s+be\s+)?(?:currently\s+)?(?:available|in stock|not in stock|out of stock)\b",
+        r"\b(?:currently\s+)?available\s+for\s+(?:immediate\s+)?(?:shipment|delivery)\b",
+    )
+    return any(
+        re.search(pattern, lower_draft, re.IGNORECASE)
+        for pattern in stock_claim_patterns
+    )
 
 
 def _normalize_currency(currency: str) -> str:

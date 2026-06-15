@@ -55,6 +55,28 @@ async def test_ingest_json_accepts_from_alias():
     )
 
 
+async def test_ingest_json_blocks_customer_information_as_product():
+    """sensitive customer information must not become a pending draft."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/api/emails/ingest",
+            json={
+                "from": "customer@example.com",
+                "subject": "Product pricing request",
+                "body": "Can I get pricing for 40 units of customer information?",
+            },
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["ingested"] is False
+    assert payload["draft"] is None
+    assert payload["email"]["status"] == "received"
+    assert payload["email"]["draft_id"] is None
+
+
 async def test_ingest_preprocesses_irrelevant_email_content():
     """ensures noisy email threads are cleaned before draft generation."""
     raw_email = (

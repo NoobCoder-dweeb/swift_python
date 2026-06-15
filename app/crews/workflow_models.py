@@ -76,8 +76,13 @@ class StressScenario(BaseModel):
     subject: str
     body: str
     expected_type: InquiryType | None = None
+    expected_status: Literal["pending", "blocked"] | None = None
+    expected_quantity: int | None = None
     required_terms: list[str] = Field(default_factory=list)
     forbidden_terms: list[str] = Field(default_factory=list)
+    required_chokeholds: list[str] = Field(default_factory=list)
+    forbidden_chokeholds: list[str] = Field(default_factory=list)
+    required_validation_reasons: list[str] = Field(default_factory=list)
     expect_valid: bool | None = None
 
 

@@ -12,7 +12,9 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 With no environment variables, it uses in-memory storage, the deterministic
 local drafting workflow, permissive CORS for an external UI, and no demo seed
-data. External vendors can then plug in the pieces they own:
+data. The checked-in `.env.example` follows the same zero-service defaults so
+local tests and stress runs are reproducible without PostgreSQL, SMTP, Ollama,
+or any hosted agent. External vendors can then plug in the pieces they own:
 
 | External capability | Minimal configuration |
 | --- | --- |
@@ -157,9 +159,14 @@ Nemotron Mini, the sales processing/database-context agent defaults to Llama
 3.2 3B, and the response drafting agent defaults to Qwen 2.5 3B. The role model
 names must remain unique so one model is not reused across the crew.
 
-Run the stress harness:
+Run the deterministic stress harness with the same zero-service defaults:
 
 ```bash
 .venv/bin/python -m app.crews.stress_test
+```
+
+Run the CrewAI variant only after a local model endpoint is available:
+
+```bash
 .venv/bin/python -m app.crews.stress_test --crewai
 ```

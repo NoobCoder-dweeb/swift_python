@@ -7,6 +7,47 @@ from typing import Any
 
 from app.core.config import get_app_settings
 
+
+_PRODUCT_STOP_WORDS = {
+    "about",
+    "and",
+    "any",
+    "availability",
+    "available",
+    "can",
+    "confirm",
+    "cost",
+    "current",
+    "for",
+    "get",
+    "have",
+    "how",
+    "inventory",
+    "is",
+    "need",
+    "of",
+    "on",
+    "please",
+    "price",
+    "pricing",
+    "quote",
+    "rate",
+    "request",
+    "stock",
+    "the",
+    "unit",
+    "units",
+    "what",
+    "with",
+    "you",
+}
+
+_LOW_SIGNAL_SINGLE_TOKEN_MATCHES = {
+    "product",
+    "safety",
+    "safetyware",
+}
+
 try:
     psycopg = import_module("psycopg")
     dict_row = import_module("psycopg.rows").dict_row
@@ -118,25 +159,40 @@ def _missing_product_context(product: str | None) -> dict[str, Any]:
 
 def _best_match(query: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
     query_lower = query.lower()
-    query_tokens = _tokens(query)
+    query_tokens = _meaningful_product_tokens(query)
     scored: list[tuple[int, str, dict[str, Any]]] = []
 
     for row in rows:
         sku = str(row.get("sku") or "").lower()
         name = str(row.get("name") or "")
+        name_lower = name.lower()
         searchable = " ".join(
             str(row.get(field) or "")
             for field in ("sku", "name", "category", "description")
         )
-        row_tokens = _tokens(searchable)
-        score = len(query_tokens & row_tokens)
+        row_tokens = _meaningful_product_tokens(searchable)
+        name_tokens = _meaningful_product_tokens(name)
+        token_overlap = query_tokens & row_tokens
+        name_overlap = token_overlap & name_tokens
+        direct_sku_match = bool(sku and sku in query_lower)
+        direct_name_match = bool(name_lower and name_lower in query_lower)
+        score = len(token_overlap)
 
-        if sku and sku in query_lower:
+        if direct_sku_match:
             score += 6
-        if name and name.lower() in query_lower:
+        if direct_name_match:
             score += 5
 
-        if score >= 2:
+        if not _has_sufficient_match_signal(
+            direct_sku_match=direct_sku_match,
+            direct_name_match=direct_name_match,
+            query_tokens=query_tokens,
+            token_overlap=token_overlap,
+            name_overlap=name_overlap,
+        ):
+            continue
+
+        if score > 0:
             scored.append((score, name, row))
 
     if not scored:
@@ -157,9 +213,37 @@ def _tokens(value: str) -> set[str]:
     return tokens
 
 
+def _meaningful_product_tokens(value: str) -> set[str]:
+    """removes inquiry wording so catalog matching depends on product terms."""
+    return {
+        token
+        for token in _tokens(value)
+        if token not in _PRODUCT_STOP_WORDS and not token.isdigit()
+    }
+
+
+def _has_sufficient_match_signal(
+    *,
+    direct_sku_match: bool,
+    direct_name_match: bool,
+    query_tokens: set[str],
+    token_overlap: set[str],
+    name_overlap: set[str],
+) -> bool:
+    """rejects weak matches caused by quantities, stop words, or descriptions."""
+    if direct_sku_match or direct_name_match:
+        return True
+    if len(token_overlap) >= 2 and name_overlap:
+        return True
+    if len(query_tokens) == 1 and name_overlap:
+        return next(iter(name_overlap)) not in _LOW_SIGNAL_SINGLE_TOKEN_MATCHES
+    return False
+
+
 def _extract_requested_product(query: str) -> str | None:
     lowered = query.lower()
     patterns = (
+        r"\b\d{1,6}(?:\.\d+)?\s*(?:units?|pcs?|pieces?|boxes?|cartons?|pairs?|sets?)\s+of\s+(?P<product>[a-z0-9][a-z0-9\s-]{2,80}?)(?:\?|\.|,| and | with | available| stock| price| pricing| quote| cost|$)",
         r"(?:for|about|of)\s+(?P<product>[a-z0-9][a-z0-9\s-]{2,80}?)(?:\?|\.|,| and | with | available| stock| price| pricing| quote| cost|$)",
         r"(?:do you (?:sell|have|carry)|is)\s+(?P<product>[a-z0-9][a-z0-9\s-]{2,80}?)(?:\?|\.|,| available| in stock|$)",
     )
@@ -173,6 +257,12 @@ def _extract_requested_product(query: str) -> str | None:
 
 def _clean_requested_product(value: str) -> str:
     product = " ".join(value.split()).strip(" -")
+    product = re.sub(
+        r"^\d{1,6}(?:\.\d+)?\s*(?:units?|pcs?|pieces?|boxes?|cartons?|pairs?|sets?)?\s*(?:of\s+)?",
+        "",
+        product,
+        flags=re.IGNORECASE,
+    )
     product = re.sub(
         r"\b(?:in stock|stock|available|availability|price|pricing|quote|cost)\b.*$",
         "",

@@ -97,7 +97,11 @@ def run_sales_inquiry_workflow(
         inquiry.product_name,
         f"{cleaned_email.subject}\n{cleaned_email.body}",
     )
-    if product_context.product and inquiry.product_name != product_context.product:
+    if (
+        product_context.confidence >= 0.5
+        and product_context.product
+        and inquiry.product_name != product_context.product
+    ):
         inquiry = inquiry.model_copy(
             update={
                 "product_name": product_context.product,
@@ -377,7 +381,11 @@ def _run_external_agent_draft(
                 "invented prices",
                 "invented stock",
                 "invented lead times",
+                "credential disclosure",
                 "customer personal data",
+                "customer data extraction",
+                "unauthorized access guidance",
+                "security bypass guidance",
                 "subject line in response body",
             ],
         },
