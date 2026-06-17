@@ -52,8 +52,9 @@ Google app password rather than your normal account password.
 
 Audits, drafts, and received emails are stored in PostgreSQL when the app runs
 with `SWIFT_STORAGE_BACKEND=postgres` and `DATABASE_URL` set. The web container
-does not persist those objects to local files. The bundled Compose file enables
-demo seed data for local UI review.
+does not persist those objects to local files. The bundled Compose file leaves
+demo seed data disabled, so pending drafts come from real intake or explicit
+API calls rather than startup sample data.
 
 Start the app and database together:
 
@@ -148,7 +149,8 @@ format, requires Basic Auth, creates a pending draft for human review, and sends
 the approved reply through the configured Gmail SMTP account when a reviewer
 clicks Accept.
 
-Set local credentials in `.env`:
+Set local credentials in `.env`. For Docker Compose, set the same values in
+`docker.env`, because the containers read that file:
 
 ```bash
 SWIFT_CLOUDMAILIN_BASIC_USERNAME=choose-a-user
@@ -175,6 +177,16 @@ brew install node
 npm install -g localtunnel
 .venv/bin/python scripts/run_cloudmailin_localtunnel.py --port 8025 --localtunnel-bin lt
 ```
+
+With Docker Compose, the `localtunnel` service starts automatically beside the
+app and forwards CloudMailin traffic to the `app:8000` container:
+
+```bash
+docker compose up --build
+docker compose logs -f localtunnel
+```
+
+Use the CloudMailin target URL printed in the `localtunnel` logs.
 
 The script prints the URL to paste into CloudMailin, shaped like:
 

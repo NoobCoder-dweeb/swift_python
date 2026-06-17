@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from email import policy
 from email.message import Message
@@ -43,7 +44,14 @@ def incoming_email_from_mapping(payload: Mapping[str, Any]) -> IncomingEmail:
     """supports webhook/form aliases without separate route code paths."""
     sender = payload.get("sender") or payload.get("from") or payload.get("mail_from")
     subject = payload.get("subject") or "No subject"
-    body = payload.get("body") or payload.get("text") or payload.get("message")
+    body = (
+        payload.get("body")
+        or payload.get("reply_plain")
+        or payload.get("plain")
+        or payload.get("text")
+        or payload.get("message")
+        or _html_to_text(_first_text(payload.get("html")))
+    )
 
     if isinstance(body, list):
         body = "\n".join(str(item) for item in body)
@@ -59,13 +67,26 @@ def incoming_email_from_mapping(payload: Mapping[str, Any]) -> IncomingEmail:
 
 def incoming_email_from_cloudmailin(payload: Mapping[str, Any]) -> IncomingEmail:
     """normalizes CloudMailin JSON Normalized webhooks into the intake schema."""
-    headers = _mapping_value(payload.get("headers"))
-    envelope = _mapping_value(payload.get("envelope"))
+    headers = {
+        **_mapping_value(payload.get("headers")),
+        **_bracket_mapping_value(payload, "headers"),
+    }
+    envelope = {
+        **_mapping_value(payload.get("envelope")),
+        **_bracket_mapping_value(payload, "envelope"),
+    }
 
     header_sender = _first_text(headers.get("from"))
     envelope_sender = _first_text(envelope.get("from"))
     _, parsed_header_sender = parseaddr(header_sender)
-    sender = parsed_header_sender or envelope_sender or header_sender
+    sender = (
+        parsed_header_sender
+        or envelope_sender
+        or _first_text(payload.get("from"))
+        or _first_text(payload.get("sender"))
+        or _first_text(payload.get("mail_from"))
+        or header_sender
+    )
 
     subject = _first_text(headers.get("subject")) or _first_text(payload.get("subject"))
     body = (
@@ -112,7 +133,38 @@ def _validate_incoming_email(email: IncomingEmail) -> None:
 
 def _mapping_value(value: Any) -> Mapping[str, Any]:
     """treats missing or malformed nested webhook objects as empty mappings."""
-    return value if isinstance(value, Mapping) else {}
+    if isinstance(value, Mapping):
+        return value
+    if isinstance(value, list):
+        for item in value:
+            parsed = _mapping_value(item)
+            if parsed:
+                return parsed
+        return {}
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, Mapping) else {}
+    return {}
+
+
+def _bracket_mapping_value(
+    payload: Mapping[str, Any], prefix: str
+) -> Mapping[str, Any]:
+    """converts multipart keys like headers[from] into nested mappings."""
+    values: dict[str, Any] = {}
+    prefix_text = f"{prefix}["
+    for key, value in payload.items():
+        if not isinstance(key, str):
+            continue
+        if not key.startswith(prefix_text) or not key.endswith("]"):
+            continue
+        nested_key = key[len(prefix_text) : -1].split("][", 1)[0]
+        if nested_key:
+            values[nested_key] = value
+    return values
 
 
 def _first_text(value: Any) -> str:

@@ -2,6 +2,7 @@ import base64
 import binascii
 import hmac
 import json
+import logging
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, HTTPException, Request
@@ -19,6 +20,7 @@ from app.services.email_service import EmailService
 router = APIRouter()
 
 email_service = EmailService()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/receive")
@@ -48,23 +50,17 @@ async def ingest_email(request: Request):
 @router.post("/cloudmailin")
 async def receive_cloudmailin_email(request: Request):
     """
-    receives CloudMailin JSON Normalized webhooks through a public tunnel.
+    receives CloudMailin webhooks through a public tunnel.
     """
     _verify_cloudmailin_basic_auth(request)
     try:
-        payload = await request.json()
-    except json.JSONDecodeError as exc:
-        raise HTTPException(
-            status_code=400, detail="CloudMailin JSON is invalid."
-        ) from exc
-    if not isinstance(payload, dict):
-        raise HTTPException(
-            status_code=400, detail="CloudMailin JSON must be an object."
-        )
-
-    try:
-        email = incoming_email_from_cloudmailin(payload)
+        email = await _cloudmailin_email_from_request(request)
     except EmailParseError as exc:
+        logger.warning(
+            "CloudMailin webhook rejected: %s; content_type=%s",
+            exc,
+            request.headers.get("content-type"),
+        )
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return await email_service.ingest_email(email)
@@ -108,11 +104,53 @@ async def _email_from_request(request: Request) -> IncomingEmail:
             ).items()
         }
         if any(
-            key in form_payload for key in ("sender", "from", "body", "message", "text")
+            key in form_payload
+            for key in (
+                "sender",
+                "from",
+                "body",
+                "reply_plain",
+                "plain",
+                "message",
+                "text",
+                "html",
+            )
         ):
             return incoming_email_from_mapping(form_payload)
 
     return parse_rfc822_email(raw_body)
+
+
+async def _cloudmailin_email_from_request(request: Request) -> IncomingEmail:
+    """normalizes CloudMailin JSON Normalized or form webhook payloads."""
+    content_type = (request.headers.get("content-type") or "").split(";")[0].lower()
+    if content_type == "application/json":
+        try:
+            payload = await request.json()
+        except json.JSONDecodeError as exc:
+            raise EmailParseError("CloudMailin JSON is invalid.") from exc
+        if not isinstance(payload, dict):
+            raise EmailParseError("CloudMailin JSON must be an object.")
+        return incoming_email_from_cloudmailin(payload)
+
+    if content_type == "multipart/form-data":
+        form = await request.form()
+        payload = dict(form)
+        logger.info("CloudMailin multipart fields received: %s", sorted(payload.keys()))
+        return incoming_email_from_cloudmailin(payload)
+
+    if content_type == "application/x-www-form-urlencoded":
+        raw_body = await request.body()
+        payload = {
+            key: values[-1]
+            for key, values in parse_qs(
+                raw_body.decode("utf-8", errors="replace")
+            ).items()
+        }
+        logger.info("CloudMailin form fields received: %s", sorted(payload.keys()))
+        return incoming_email_from_cloudmailin(payload)
+
+    return await _email_from_request(request)
 
 
 def _verify_cloudmailin_basic_auth(request: Request) -> None:

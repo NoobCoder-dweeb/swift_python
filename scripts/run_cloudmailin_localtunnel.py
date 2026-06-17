@@ -29,6 +29,11 @@ def main() -> int:
     parser.add_argument("--host", default="0.0.0.0", help="Host interface for FastAPI.")
     parser.add_argument("--port", default=8025, type=int, help="Local FastAPI port.")
     parser.add_argument(
+        "--local-host",
+        default="127.0.0.1",
+        help="Host Localtunnel should forward to.",
+    )
+    parser.add_argument(
         "--endpoint",
         default="/api/emails/cloudmailin",
         help="Webhook path to print for CloudMailin.",
@@ -44,6 +49,11 @@ def main() -> int:
         help="Reload FastAPI when application files change.",
     )
     parser.add_argument(
+        "--skip-app",
+        action="store_true",
+        help="Do not start FastAPI; tunnel to an already-running app.",
+    )
+    parser.add_argument(
         "--localtunnel-bin",
         default="npx",
         help="Localtunnel launcher. Use npx by default, or lt if installed globally.",
@@ -57,29 +67,38 @@ def main() -> int:
 
     try:
         _ensure_localtunnel_launcher(args.localtunnel_bin)
-        app_process = _start_process(
-            [
-                sys.executable,
-                "-m",
-                "app.dummy_email_server",
-                "--host",
-                args.host,
-                "--port",
-                str(args.port),
-                *(["--reload"] if args.reload else []),
-            ],
-            "fastapi",
-            output_queue,
-        )
-        _wait_for_port("127.0.0.1", args.port)
+        if args.skip_app:
+            _wait_for_port(args.local_host, args.port)
+        else:
+            app_process = _start_process(
+                [
+                    sys.executable,
+                    "-m",
+                    "app.dummy_email_server",
+                    "--host",
+                    args.host,
+                    "--port",
+                    str(args.port),
+                    *(["--reload"] if args.reload else []),
+                ],
+                "fastapi",
+                output_queue,
+            )
+            _wait_for_port("127.0.0.1", args.port)
 
         tunnel_process = _start_process(
-            _localtunnel_command(args.localtunnel_bin, args.port, args.subdomain),
+            _localtunnel_command(
+                args.localtunnel_bin,
+                args.port,
+                args.subdomain,
+                args.local_host,
+            ),
             "localtunnel",
             output_queue,
         )
 
         tunnel_url = _wait_for_tunnel_url(output_queue)
+        _verify_requested_subdomain(tunnel_url, args.subdomain)
         _print_cloudmailin_target(tunnel_url, args.endpoint)
         _forward_output(output_queue)
         return 0
@@ -142,15 +161,18 @@ def _localtunnel_command(
     localtunnel_bin: str,
     port: int,
     subdomain: str,
+    local_host: str,
 ) -> list[str]:
     """builds a Localtunnel command for npx or a globally installed lt binary."""
     binary_name = Path(localtunnel_bin).name
     if binary_name == "npx":
-        command = [localtunnel_bin, "localtunnel", "--port", str(port)]
+        command = [localtunnel_bin, "--yes", "localtunnel", "--port", str(port)]
     else:
         command = [localtunnel_bin, "--port", str(port)]
     if subdomain:
         command.extend(["--subdomain", subdomain])
+    if local_host:
+        command.extend(["--local-host", local_host])
     return command
 
 
@@ -219,6 +241,20 @@ def _print_cloudmailin_target(tunnel_url: str, endpoint: str) -> None:
             flush=True,
         )
     print("\nPress Ctrl+C to stop FastAPI and Localtunnel.\n", flush=True)
+
+
+def _verify_requested_subdomain(tunnel_url: str, subdomain: str) -> None:
+    """fails clearly when Localtunnel falls back to a random hostname."""
+    if not subdomain:
+        return
+    expected = f"https://{subdomain}.loca.lt"
+    if tunnel_url != expected:
+        raise RuntimeError(
+            "Localtunnel did not assign the requested subdomain. "
+            f"Requested {expected}, but got {tunnel_url}. "
+            "Pick a more unique --subdomain value or update CloudMailin to "
+            "the URL shown in the Localtunnel logs."
+        )
 
 
 def _forward_output(output_queue: queue.Queue[tuple[str, str]]) -> None:
