@@ -1,6 +1,7 @@
 import httpx
 
 from app.api.v1.routes.emails import email_service
+from app.core.config import reset_app_settings
 from app.main import app
 
 
@@ -15,7 +16,9 @@ async def test_ingest_raw_email_creates_pending_draft():
     )
 
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
         response = await client.post(
             "/api/emails/ingest",
             content=raw_email,
@@ -34,7 +37,9 @@ async def test_ingest_raw_email_creates_pending_draft():
 async def test_ingest_json_accepts_from_alias():
     """supports webhook payloads that use from instead of sender."""
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
         response = await client.post(
             "/api/emails/ingest",
             json={
@@ -55,10 +60,82 @@ async def test_ingest_json_accepts_from_alias():
     )
 
 
+async def test_cloudmailin_json_webhook_creates_pending_draft(monkeypatch):
+    """CloudMailin JSON Normalized webhooks enter the review workflow."""
+    monkeypatch.setenv("SWIFT_CLOUDMAILIN_BASIC_USERNAME", "cloudmailin")
+    monkeypatch.setenv("SWIFT_CLOUDMAILIN_BASIC_PASSWORD", "secret")
+    reset_app_settings()
+
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+            auth=("cloudmailin", "secret"),
+        ) as client:
+            response = await client.post(
+                "/api/emails/cloudmailin",
+                json={
+                    "headers": {
+                        "from": "Personal Gmail <personal.gmail@example.com>",
+                        "subject": "Product X pricing from Gmail",
+                    },
+                    "envelope": {
+                        "from": "personal.gmail@example.com",
+                        "to": "swift@example.cloudmailin.net",
+                    },
+                    "plain": "Older quoted content",
+                    "reply_plain": "Can I get pricing for 40 units of Product X?",
+                    "attachments": [],
+                },
+            )
+    finally:
+        reset_app_settings()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    assert payload["ingested"] is True
+    assert payload["email"]["sender"] == "personal.gmail@example.com"
+    assert payload["email"]["subject"] == "Product X pricing from Gmail"
+    assert payload["email"]["body"] == "Can I get pricing for 40 units of Product X?"
+    assert payload["draft"]["status"] == "pending"
+
+
+async def test_cloudmailin_webhook_requires_basic_auth(monkeypatch):
+    """public tunnel webhook rejects requests without configured credentials."""
+    monkeypatch.setenv("SWIFT_CLOUDMAILIN_BASIC_USERNAME", "cloudmailin")
+    monkeypatch.setenv("SWIFT_CLOUDMAILIN_BASIC_PASSWORD", "secret")
+    reset_app_settings()
+
+    try:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            response = await client.post(
+                "/api/emails/cloudmailin",
+                json={
+                    "headers": {
+                        "from": "Personal Gmail <personal.gmail@example.com>",
+                        "subject": "Product X pricing from Gmail",
+                    },
+                    "plain": "Can I get pricing for 40 units of Product X?",
+                },
+            )
+    finally:
+        reset_app_settings()
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == 'Basic realm="cloudmailin"'
+
+
 async def test_ingest_json_blocks_customer_information_as_product():
     """sensitive customer information must not become a pending draft."""
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
         response = await client.post(
             "/api/emails/ingest",
             json={
@@ -100,7 +177,9 @@ async def test_ingest_preprocesses_irrelevant_email_content():
     )
 
     transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
         response = await client.post(
             "/api/emails/ingest",
             content=raw_email,

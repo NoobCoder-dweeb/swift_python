@@ -57,6 +57,34 @@ def incoming_email_from_mapping(payload: Mapping[str, Any]) -> IncomingEmail:
     return email
 
 
+def incoming_email_from_cloudmailin(payload: Mapping[str, Any]) -> IncomingEmail:
+    """normalizes CloudMailin JSON Normalized webhooks into the intake schema."""
+    headers = _mapping_value(payload.get("headers"))
+    envelope = _mapping_value(payload.get("envelope"))
+
+    header_sender = _first_text(headers.get("from"))
+    envelope_sender = _first_text(envelope.get("from"))
+    _, parsed_header_sender = parseaddr(header_sender)
+    sender = parsed_header_sender or envelope_sender or header_sender
+
+    subject = _first_text(headers.get("subject")) or _first_text(payload.get("subject"))
+    body = (
+        _first_text(payload.get("reply_plain"))
+        or _first_text(payload.get("plain"))
+        or _first_text(payload.get("body"))
+        or _first_text(payload.get("text"))
+        or _html_to_text(_first_text(payload.get("html")))
+    )
+
+    email = IncomingEmail(
+        sender=sender.strip(),
+        subject=subject.strip() or "No subject",
+        body=body.strip(),
+    )
+    _validate_incoming_email(email)
+    return email
+
+
 def parse_rfc822_email(raw: bytes) -> IncomingEmail:
     """lets curl or mail listeners submit real RFC822-style messages."""
     if not raw.strip():
@@ -80,6 +108,33 @@ def _validate_incoming_email(email: IncomingEmail) -> None:
         raise EmailParseError("Email payload is missing a sender/from value.")
     if not email.body.strip():
         raise EmailParseError("Email payload is missing a body.")
+
+
+def _mapping_value(value: Any) -> Mapping[str, Any]:
+    """treats missing or malformed nested webhook objects as empty mappings."""
+    return value if isinstance(value, Mapping) else {}
+
+
+def _first_text(value: Any) -> str:
+    """extracts stable text from scalar or repeated webhook fields."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        for item in value:
+            text = _first_text(item)
+            if text:
+                return text
+        return ""
+    return str(value).strip()
+
+
+def _html_to_text(html: str) -> str:
+    """uses the same lightweight HTML extraction path as RFC822 parsing."""
+    if not html:
+        return ""
+    parser = _HTMLTextExtractor()
+    parser.feed(html)
+    return parser.get_text()
 
 
 def _extract_body(message: Message) -> str:

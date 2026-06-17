@@ -140,6 +140,53 @@ greetings, signatures, quoted replies, disclaimers, contact footers, and other
 boilerplate, then keeps the lines most relevant to the customer's pricing or
 stock availability query.
 
+## CloudMailin and Localtunnel
+
+For a real Gmail-to-local workflow, CloudMailin should send the incoming message
+to the tunnel-facing webhook. The webhook accepts CloudMailin's JSON Normalized
+format, requires Basic Auth, creates a pending draft for human review, and sends
+the approved reply through the configured Gmail SMTP account when a reviewer
+clicks Accept.
+
+Set local credentials in `.env`:
+
+```bash
+SWIFT_CLOUDMAILIN_BASIC_USERNAME=choose-a-user
+SWIFT_CLOUDMAILIN_BASIC_PASSWORD=choose-a-long-password
+SWIFT_SMTP_HOST=smtp.gmail.com
+SWIFT_SMTP_PORT=587
+SWIFT_SMTP_USERNAME=your-sender@gmail.com
+SWIFT_SMTP_PASSWORD=your-gmail-app-password
+SWIFT_SMTP_FROM_EMAIL=your-sender@gmail.com
+```
+
+Start FastAPI and Localtunnel together:
+
+```bash
+.venv/bin/python scripts/run_cloudmailin_localtunnel.py --port 8025
+```
+
+Localtunnel runs on Node.js. If `npx` is not available yet, install Node.js
+first, or install Localtunnel globally and pass `--localtunnel-bin lt`:
+
+```bash
+brew install node
+# or, after Node.js is installed:
+npm install -g localtunnel
+.venv/bin/python scripts/run_cloudmailin_localtunnel.py --port 8025 --localtunnel-bin lt
+```
+
+The script prints the URL to paste into CloudMailin, shaped like:
+
+```text
+https://user:password@your-tunnel.loca.lt/api/emails/cloudmailin
+```
+
+In CloudMailin, configure the address target to use the JSON Normalized POST
+format. Send a real email from Gmail to the CloudMailin address, then open the
+local Project Swift UI, review the pending draft, and click Accept to send the
+reply through Gmail SMTP.
+
 ## Sales processing workflow
 
 The real sales workflow lives under `app/crews`, not in `data.py`. The default
