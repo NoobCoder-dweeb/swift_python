@@ -120,6 +120,7 @@ async def test_approval_sends_response_to_original_gmail_sender(monkeypatch):
     monkeypatch.setenv("SWIFT_SMTP_USERNAME", "sales@example.com")
     monkeypatch.setenv("SWIFT_SMTP_PASSWORD", "app-password")
     monkeypatch.setenv("SWIFT_SMTP_FROM_EMAIL", "sales@example.com")
+    monkeypatch.setenv("SWIFT_SMTP_REPLY_TO_EMAIL", "inbound@cloudmailin.net")
     monkeypatch.setattr("smtplib.SMTP", FakeSMTP)
     reset_app_settings()
 
@@ -154,6 +155,7 @@ async def test_approval_sends_response_to_original_gmail_sender(monkeypatch):
     assert "sent it to shaukoay.dev@gmail.com" in audit["content"]
     assert len(sent_messages) == 1
     assert sent_messages[0]["To"] == "shaukoay.dev@gmail.com"
+    assert sent_messages[0]["Reply-To"] == "inbound@cloudmailin.net"
     assert sent_messages[0].get_content().strip() == draft.ai_draft
 
 
@@ -164,6 +166,7 @@ async def test_approval_succeeds_without_smtp_and_records_manual_send(monkeypatc
         "SWIFT_SMTP_USERNAME",
         "SWIFT_SMTP_PASSWORD",
         "SWIFT_SMTP_FROM_EMAIL",
+        "SWIFT_SMTP_REPLY_TO_EMAIL",
     ):
         monkeypatch.setenv(name, "")
     reset_app_settings()

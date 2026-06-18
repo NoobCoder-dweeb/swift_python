@@ -66,11 +66,13 @@ class AppSettings:
     smtp_username: str
     smtp_password: str
     smtp_from_email: str
+    smtp_reply_to_email: str
     smtp_from_name: str
     smtp_use_tls: bool
     smtp_timeout: float
     cloudmailin_basic_username: str
     cloudmailin_basic_password: str
+    product_reference_base_url: str = "https://safetyware.com/?post_type=product&s="
 
     @property
     def storage_mode(self) -> str:
@@ -137,11 +139,16 @@ def get_app_settings() -> AppSettings:
         smtp_username=_env_text("SWIFT_SMTP_USERNAME"),
         smtp_password=_env_text("SWIFT_SMTP_PASSWORD"),
         smtp_from_email=_env_text("SWIFT_SMTP_FROM_EMAIL"),
+        smtp_reply_to_email=_env_text("SWIFT_SMTP_REPLY_TO_EMAIL"),
         smtp_from_name=_env_text("SWIFT_SMTP_FROM_NAME", "Project Swift Support"),
         smtp_use_tls=_env_bool("SWIFT_SMTP_USE_TLS", True),
         smtp_timeout=_env_float("SWIFT_SMTP_TIMEOUT", 20.0),
         cloudmailin_basic_username=_env_text("SWIFT_CLOUDMAILIN_BASIC_USERNAME"),
         cloudmailin_basic_password=_env_text("SWIFT_CLOUDMAILIN_BASIC_PASSWORD"),
+        product_reference_base_url=_env_text(
+            "SWIFT_PRODUCT_REFERENCE_BASE_URL",
+            "https://safetyware.com/?post_type=product&s=",
+        ),
     )
 
 

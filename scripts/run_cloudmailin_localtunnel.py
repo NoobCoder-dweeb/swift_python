@@ -98,7 +98,7 @@ def main() -> int:
         )
 
         tunnel_url = _wait_for_tunnel_url(output_queue)
-        _verify_requested_subdomain(tunnel_url, args.subdomain)
+        _warn_requested_subdomain(tunnel_url, args.subdomain)
         _print_cloudmailin_target(tunnel_url, args.endpoint)
         _forward_output(output_queue)
         return 0
@@ -141,8 +141,24 @@ def _read_process_output(
     """streams child process output without blocking startup orchestration."""
     if process.stdout is None:
         return
-    for line in process.stdout:
-        output_queue.put((name, line.rstrip()))
+    buffer = ""
+    while True:
+        char = process.stdout.read(1)
+        if not char:
+            break
+        if char in {"\n", "\r"}:
+            if buffer.strip():
+                output_queue.put((name, buffer.strip()))
+            buffer = ""
+            continue
+
+        buffer += char
+        if LOCALTUNNEL_URL_PATTERN.search(buffer):
+            output_queue.put((name, buffer.strip()))
+            buffer = ""
+
+    if buffer.strip():
+        output_queue.put((name, buffer.strip()))
 
 
 def _wait_for_port(host: str, port: int, timeout: float = 20.0) -> None:
@@ -243,17 +259,19 @@ def _print_cloudmailin_target(tunnel_url: str, endpoint: str) -> None:
     print("\nPress Ctrl+C to stop FastAPI and Localtunnel.\n", flush=True)
 
 
-def _verify_requested_subdomain(tunnel_url: str, subdomain: str) -> None:
-    """fails clearly when Localtunnel falls back to a random hostname."""
+def _warn_requested_subdomain(tunnel_url: str, subdomain: str) -> None:
+    """warns clearly when Localtunnel falls back to a random hostname."""
     if not subdomain:
         return
     expected = f"https://{subdomain}.loca.lt"
     if tunnel_url != expected:
-        raise RuntimeError(
+        print(
             "Localtunnel did not assign the requested subdomain. "
             f"Requested {expected}, but got {tunnel_url}. "
-            "Pick a more unique --subdomain value or update CloudMailin to "
-            "the URL shown in the Localtunnel logs."
+            "Update CloudMailin to the URL shown below, or pick a more unique "
+            "--subdomain value.",
+            file=sys.stderr,
+            flush=True,
         )
 
 

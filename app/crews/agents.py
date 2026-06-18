@@ -206,7 +206,18 @@ class SalesProcessingAgent:
         pricing = _contains_any(lower, ("price", "pricing", "quote", "cost", "rate"))
         availability = _contains_any(
             lower,
-            ("stock", "availability", "available", "inventory", "in stock"),
+            (
+                "stock",
+                "availability",
+                "available",
+                "inventory",
+                "in stock",
+                "delivery",
+                "courier",
+                "ship",
+                "shipment",
+                "order",
+            ),
         )
 
         if risk_flags:
@@ -337,6 +348,7 @@ class SalesProcessingAgent:
             "immediate",
             "asap",
             "june shipment",
+            "courier",
         ):
             if phrase in lowered:
                 return phrase
@@ -491,10 +503,23 @@ class EmailDraftingAgent:
         )
 
         if should_include_price:
-            lines.append(
-                f"The approved reference price is {context.currency} "
-                f"{context.price:.2f} per unit."
-            )
+            if inquiry and inquiry.quantity and requested_type == "pricing":
+                total_price = inquiry.quantity * context.price
+                lines.append(
+                    f"The total price for {inquiry.quantity} units is "
+                    f"{context.currency} {total_price:.2f}."
+                )
+                lines.append(
+                    f"This is calculated because the approved reference price is "
+                    f"{context.currency} {context.price:.2f} per unit, so "
+                    f"{inquiry.quantity} x {context.currency} {context.price:.2f} = "
+                    f"{context.currency} {total_price:.2f}."
+                )
+            else:
+                lines.append(
+                    f"The approved reference price is {context.currency} "
+                    f"{context.price:.2f} per unit."
+                )
         elif wants_price:
             lines.append(
                 "I do not have an approved price in the product context, so sales "
@@ -522,7 +547,9 @@ class EmailDraftingAgent:
 
         if inquiry:
             if inquiry.quantity and context.stock_availability is not None:
-                if context.stock_availability == 0:
+                if requested_type not in {"availability", "mixed"}:
+                    pass
+                elif context.stock_availability == 0:
                     lines.append(
                         "Because this product is not in stock, sales review should "
                         "confirm restock timing before committing availability."
@@ -634,6 +661,11 @@ def _find_unapproved_fact_claims(
     reasons: list[str] = []
     lower = draft.lower()
     allowed_prices = {context.price} if context.price is not None else set()
+    if context.price is not None:
+        for quantity_match in re.finditer(r"\b(?P<quantity>\d{1,6})\s+units?\b", draft):
+            quantity = int(quantity_match.group("quantity"))
+            if quantity > 0:
+                allowed_prices.add(quantity * context.price)
     for note in context.notes:
         allowed_prices.update(
             float(group)

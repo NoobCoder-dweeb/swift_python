@@ -36,7 +36,9 @@ services:
         "--local-host",
         "app",
         "--port",
-        "8000"
+        "8000",
+        "--subdomain",
+        "project-swift-exiler-1"
       ]
 
 volumes:

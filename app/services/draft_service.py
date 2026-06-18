@@ -23,19 +23,23 @@ class DraftService:
 
     async def generate_draft(self, email: EmailPayload) -> DraftResponse:
         """runs the heavier sales workflow off the event loop for API responsiveness."""
+        workflow_body = _body_with_conversation_context(
+            email.body,
+            email.conversation_context,
+        )
         workflow = await asyncio.to_thread(
             run_sales_inquiry_workflow,
             IncomingEmail(
                 sender=email.sender,
                 subject=email.subject,
-                body=email.body,
+                body=workflow_body,
             ),
         )
         stored_draft = add_generated_draft(
             {
                 "from": email.sender,
                 "subject": email.subject,
-                "body": workflow.customer_inquiry,
+                "body": email.body,
             },
             draft_id=workflow.draft_id,
             ai_draft=workflow.ai_draft,
@@ -48,7 +52,7 @@ class DraftService:
             draft_id=draft_id,
             sender=email.sender,
             subject=email.subject,
-            customer_inquiry=workflow.customer_inquiry,
+            customer_inquiry=email.body,
             ai_draft=workflow.ai_draft,
             status=workflow.status,
         )
@@ -104,8 +108,13 @@ class DraftService:
         }
         self.repository.insert_audit(audit)
 
+        updated_payload = self.get_draft(draft_id) or {
+            **row,
+            "customer_inquiry": row.get("body"),
+            "ai_draft": ai_draft,
+        }
         try:
-            publish_event({"type": "draft_updated", "payload": {**row, "ai_draft": ai_draft}})
+            publish_event({"type": "draft_updated", "payload": updated_payload})
         except Exception:
             pass
 
@@ -226,7 +235,7 @@ class DraftService:
         }
         audit = self.repository.insert_audit(audit)
 
-        regenerated = {
+        regenerated = self.get_draft(draft_id) or {
             **row,
             "customer_inquiry": workflow.customer_inquiry,
             "ai_draft": workflow.ai_draft,
@@ -256,3 +265,15 @@ def _draft_version_id(draft_id: str, revisions: int) -> str:
 def _base_subject(subject: str) -> str:
     """keeps repeated regenerations from appending labels to the customer subject."""
     return subject.split(" (Regenerated")[0]
+
+
+def _body_with_conversation_context(body: str, conversation_context: str) -> str:
+    """adds thread history for inference while keeping the current reply explicit."""
+    context = (conversation_context or "").strip()
+    current = (body or "").strip()
+    if not context:
+        return current
+    return (
+        f"{context}\n\n"
+        f"Current customer reply to answer now: {current}"
+    )

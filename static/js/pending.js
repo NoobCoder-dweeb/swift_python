@@ -74,14 +74,8 @@
         </div>
       </div>
       <div class="draft-body">
-        <div class="draft-section">
-          <div class="draft-section-label">Customer Email</div>
-          <div class="email-meta">
-            <div><strong>From:</strong> ${escapeHtml(d.sender)}</div>
-            <div><strong>Subject:</strong> ${escapeHtml(d.subject)}</div>
-          </div>
-          <div class="draft-section-content">${formatMultiline(d.customer_inquiry || d.body)}</div>
-        </div>
+        ${renderThreadHistory(d)}
+        ${renderCustomerEmail(d)}
         <div class="draft-section draft-section-ai">
           <div class="draft-section-label">AI Response Draft</div>
           <div class="email-meta">
@@ -90,6 +84,7 @@
           </div>
           <div class="draft-section-content">${formatMultiline(d.ai_draft)}</div>
         </div>
+        ${renderProductReference(d)}
         <div class="draft-section draft-feedback${d.last_rejection_reason ? '' : ' is-hidden'}">
           <div class="draft-section-label">Reviewer Feedback For Regeneration</div>
           <label class="feedback-label" for="feedback-${d.draft_id}">Reason for rejection</label>
@@ -109,8 +104,17 @@
     return div;
   }
 
+  function ensureDraftList(){
+    let list = document.getElementById('draftList');
+    if(list) return list;
+    if(!draftContainer) return null;
+
+    draftContainer.innerHTML = '<div id="draftList"></div>';
+    return document.getElementById('draftList');
+  }
+
   function insertDraftCard(node){
-    const list = document.getElementById('draftList');
+    const list = ensureDraftList();
     if(!list || !node) return;
     if(sortOrder === 'asc'){
       list.insertAdjacentElement('beforeend', node);
@@ -121,6 +125,112 @@
 
   function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
   function formatMultiline(s){ return escapeHtml(s).replace(/\n/g, '<br>'); }
+
+  function renderCustomerEmail(d){
+    const history = Array.isArray(d.thread_history) ? d.thread_history : [];
+    if(history.length) return '';
+    return `
+        <div class="draft-section draft-section-customer">
+          <div class="draft-section-label">Customer Email</div>
+          <div class="email-meta">
+            <div><strong>From:</strong> ${escapeHtml(d.sender)}</div>
+            <div><strong>Subject:</strong> ${escapeHtml(d.subject)}</div>
+          </div>
+          <div class="draft-section-content">${formatMultiline(d.customer_inquiry || d.body)}</div>
+        </div>
+    `;
+  }
+
+  function renderThreadHistory(d){
+    const history = Array.isArray(d.thread_history) ? d.thread_history : [];
+    if(!history.length) return '';
+    const countLabel = `${history.length} conversation message${history.length === 1 ? '' : 's'}`;
+    const items = history.map(item => {
+      const expanded = Boolean(item.is_current);
+      return `
+      <article class="thread-item thread-item-${escapeHtml(item.kind || 'message')}${expanded ? ' expanded' : ''}">
+        <button class="thread-item-toggle" type="button" aria-expanded="${expanded ? 'true' : 'false'}">
+          <span class="thread-item-title">${escapeHtml(item.title || titleCase(item.kind || 'message'))}</span>
+          <span class="thread-item-meta">${escapeHtml(threadMeta(item))}</span>
+        </button>
+        <div class="thread-item-body">
+          <div class="email-meta">
+            <div><strong>From:</strong> ${escapeHtml(item.sender || item.meta || '')}</div>
+            <div><strong>Subject:</strong> ${escapeHtml(item.subject || d.subject)}</div>
+          </div>
+          ${item.review_comment ? `<div class="thread-note">${formatMultiline(item.review_comment)}</div>` : ''}
+          <div class="draft-section-content">${formatMultiline(item.body || item.ai_draft || item.customer_inquiry || '')}</div>
+        </div>
+      </article>
+    `;
+    }).join('');
+    return `
+      <div class="draft-section draft-thread">
+        <div class="draft-thread-heading">
+          <div>
+            <div class="draft-section-label">Email Thread</div>
+            <div class="thread-summary">${countLabel}</div>
+          </div>
+          <button class="thread-toggle" type="button" aria-expanded="true">Compact</button>
+        </div>
+        <div class="thread-list">${items}</div>
+      </div>
+    `;
+  }
+
+  function renderProductReference(d){
+    const ref = d.product_reference;
+    if(!ref || !ref.url) return '';
+    const meta = [
+      ref.sku ? `SKU ${ref.sku}` : '',
+      ref.price || '',
+      ref.stock_availability !== undefined && ref.stock_availability !== null ? `${ref.stock_availability} in stock` : ''
+    ].filter(Boolean).map(item => `<span>${escapeHtml(String(item))}</span>`).join('');
+    return `
+      <a class="draft-section product-reference-card" href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer">
+        <div>
+          <div class="draft-section-label">Product Reference</div>
+          <div class="product-reference-title">${escapeHtml(ref.product || 'Product reference')}</div>
+          <div class="product-reference-meta">${meta}</div>
+        </div>
+        <span class="product-reference-action">View product</span>
+      </a>
+    `;
+  }
+
+  function threadMeta(item){
+    const parts = [];
+    if(item.meta) parts.push(item.meta);
+    if(item.timestamp_display || item.timestamp) parts.push(item.timestamp_display || item.timestamp);
+    return parts.join(' • ');
+  }
+
+  function titleCase(value){
+    return (value || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function updateThreadSection(card, draft){
+    if(!card) return;
+    const existing = card.querySelector('.draft-thread');
+    const html = renderThreadHistory(draft);
+    const customerSection = card.querySelector('.draft-section-customer');
+    if(existing){
+      existing.remove();
+    }
+    if(customerSection){
+      customerSection.classList.toggle('is-hidden', Boolean(html));
+    }
+    if(!html) return;
+    const productRef = card.querySelector('.product-reference-card');
+    const anchor = productRef || card.querySelector('.draft-body');
+    if(anchor && productRef){
+      productRef.insertAdjacentHTML('beforebegin', html);
+      attachCardHandlers(card);
+    } else if(anchor) {
+      anchor.insertAdjacentHTML('afterbegin', html);
+      attachCardHandlers(card);
+    }
+  }
 
   function getRejectionReason(id){
     const input = document.querySelector(`[data-feedback-for='${id}']`);
@@ -300,6 +410,29 @@
         }
       });
     });
+
+    root.querySelectorAll('.thread-toggle').forEach(btn=>{
+      if(btn._bound) return; btn._bound = true;
+      btn.addEventListener('click', ()=>{
+        const section = btn.closest('.draft-thread');
+        const list = section ? section.querySelector('.thread-list') : null;
+        if(!list) return;
+        const expanded = list.classList.contains('is-collapsed');
+        list.classList.toggle('is-collapsed', !expanded);
+        btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        btn.textContent = expanded ? 'Compact' : 'Expand';
+      });
+    });
+
+    root.querySelectorAll('.thread-item-toggle').forEach(btn=>{
+      if(btn._bound) return; btn._bound = true;
+      btn.addEventListener('click', ()=>{
+        const item = btn.closest('.thread-item');
+        if(!item) return;
+        const expanded = item.classList.toggle('expanded');
+        btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      });
+    });
   }
 
   // SSE connection
@@ -308,7 +441,7 @@
       const es = new EventSource('/stream');
       es.addEventListener('draft_created', e=>{
         const data = JSON.parse(e.data);
-        const list = document.getElementById('draftList');
+        const list = ensureDraftList();
         if(list){
           const node = createCardFromDraft(data);
           insertDraftCard(node);
@@ -323,6 +456,7 @@
         if(card){
           const aiContent = card.querySelector('.draft-section-ai .draft-section-content');
           if(aiContent){ aiContent.textContent = data.ai_draft || ''; }
+          updateThreadSection(card, data);
           setDraftEditing(card, false);
           showToast('Draft updated', 'info');
         }
@@ -337,7 +471,7 @@
       es.addEventListener('regenerated', e=>{
         const data = JSON.parse(e.data);
         const draft = data.draft || data.payload || data;
-        const list = document.getElementById('draftList');
+        const list = ensureDraftList();
         if(list && draft){
           const node = createCardFromDraft(draft);
           insertDraftCard(node);

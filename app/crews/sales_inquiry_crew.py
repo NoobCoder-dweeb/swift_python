@@ -112,6 +112,28 @@ def run_sales_inquiry_workflow(
                 ],
             }
         )
+    current_reply = _current_reply_segment(cleaned_email.body)
+    if current_reply != cleaned_email.body:
+        current_inquiry_type = _current_reply_inquiry_type(current_reply)
+        current_quantity = processor._detect_quantity(current_reply.lower())
+        current_delivery = processor._detect_delivery(current_reply)
+        if current_inquiry_type or current_quantity or current_delivery:
+            inquiry_type = current_inquiry_type or inquiry.inquiry_type
+            quantity = current_quantity or inquiry.quantity
+            requested_delivery = current_delivery or inquiry.requested_delivery
+            inquiry = inquiry.model_copy(
+                update={
+                    "inquiry_type": inquiry_type,
+                    "quantity": quantity,
+                    "requested_delivery": requested_delivery,
+                    "missing_information": processor._missing_information(
+                        inquiry_type=inquiry_type,
+                        product_name=inquiry.product_name,
+                        quantity=quantity,
+                        requested_delivery=requested_delivery,
+                    ),
+                }
+            )
 
     execution_mode: WorkflowMode = "deterministic"
     agent_backend = _resolve_agent_backend(use_crewai)
@@ -451,6 +473,42 @@ def _format_crewai_error(exc: Exception) -> str:
     detail = str(exc).strip() or repr(exc)
     detail = " ".join(detail.split())
     return f"crewai_error:{exc.__class__.__name__}:{detail[:240]}"
+
+
+def _current_reply_segment(body: str) -> str:
+    """returns the explicit current-reply section when thread context is prepended."""
+    marker = "Current customer reply to answer now:"
+    if marker not in body:
+        return body
+    return body.rsplit(marker, 1)[-1].strip() or body
+
+
+def _current_reply_inquiry_type(body: str) -> str | None:
+    """lets the newest reply decide whether the answer is price, stock, or both."""
+    lower = body.lower()
+    pricing = any(token in lower for token in ("price", "pricing", "quote", "cost", "rate"))
+    availability = any(
+        token in lower
+        for token in (
+            "stock",
+            "availability",
+            "available",
+            "inventory",
+            "in stock",
+            "delivery",
+            "courier",
+            "ship",
+            "shipment",
+            "order",
+        )
+    )
+    if pricing and availability:
+        return "mixed"
+    if pricing:
+        return "pricing"
+    if availability:
+        return "availability"
+    return None
 
 
 def _crewai_workflow_classes() -> tuple[Any, Any]:
