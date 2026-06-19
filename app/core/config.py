@@ -72,6 +72,7 @@ class AppSettings:
     smtp_timeout: float
     cloudmailin_basic_username: str
     cloudmailin_basic_password: str
+    session_secret_key: str
     product_reference_base_url: str = "https://safetyware.com/?post_type=product&s="
 
     @property
@@ -145,6 +146,10 @@ def get_app_settings() -> AppSettings:
         smtp_timeout=_env_float("SWIFT_SMTP_TIMEOUT", 20.0),
         cloudmailin_basic_username=_env_text("SWIFT_CLOUDMAILIN_BASIC_USERNAME"),
         cloudmailin_basic_password=_env_text("SWIFT_CLOUDMAILIN_BASIC_PASSWORD"),
+        session_secret_key=_env_text(
+            "SWIFT_SESSION_SECRET_KEY",
+            "project-swift-local-session-secret",
+        ),
         product_reference_base_url=_env_text(
             "SWIFT_PRODUCT_REFERENCE_BASE_URL",
             "https://safetyware.com/?post_type=product&s=",

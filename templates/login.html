@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - Project Swift</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/admin.css') }}?v=login-ui-20260619">
+</head>
+<body class="login-body">
+    <main class="login-shell">
+        <section class="card login-card" aria-labelledby="login-title">
+            <div class="login-brand">
+                <div class="login-logo"><i class="ph ph-command"></i></div>
+                <div>
+                    <div class="login-product">Project <span class="gradient-text">Swift</span></div>
+                </div>
+            </div>
+
+            <form class="login-form" method="post" action="{{ url_for('login') }}">
+                <input type="hidden" name="next" value="{{ next_path }}">
+                <div>
+                    <h1 id="login-title">Login</h1>
+                </div>
+
+                {% if error %}
+                <div class="alert alert-danger" role="alert">
+                    <i class="ph ph-warning-circle"></i>
+                    <div>{{ error }}</div>
+                </div>
+                {% endif %}
+
+                <label class="login-field">
+                    <span>Username</span>
+                    <input
+                        name="username"
+                        autocomplete="username"
+                        value="{{ attempted_username or '' }}"
+                        required
+                    >
+                </label>
+
+                <label class="login-field">
+                    <span>Password</span>
+                    <input
+                        name="password"
+                        type="password"
+                        autocomplete="current-password"
+                        required
+                    >
+                </label>
+
+                <button class="btn btn-primary login-submit" type="submit">
+                    <i class="ph ph-sign-in"></i>
+                    Sign in
+                </button>
+            </form>
+        </section>
+    </main>
+</body>
+</html>

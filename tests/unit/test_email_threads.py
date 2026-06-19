@@ -67,6 +67,8 @@ def test_follow_up_draft_includes_prior_approved_thread_response():
     assert payload["thread_history"][1]["body"] == (
         "We have 40 helmets available for next week."
     )
+    assert payload["thread_history"][1]["meta"] == "Aisha Sales"
+    assert payload["thread_history"][1]["sender"] == "Aisha Sales"
     assert payload["thread_history"][2]["body"] == (
         "Can you also confirm stock for 80 helmets?"
     )
@@ -118,7 +120,7 @@ async def test_pending_page_renders_email_thread_panel():
             "version_id": "DFT-THREAD-PAGE-PRIOR-v1",
             "sender": sender,
             "subject": subject,
-            "approver": "Sales Officer",
+            "approver": "John Doe",
             "action": "approved",
             "timestamp": now,
             "emailed_to": sender,
@@ -158,11 +160,16 @@ async def test_pending_page_renders_email_thread_panel():
         transport=transport,
         base_url="http://testserver",
     ) as client:
+        await client.post(
+            "/login",
+            data={"username": "john", "password": "swift123", "next": "/pending"},
+        )
         response = await client.get("/pending")
 
     assert response.status_code == 200
     assert "Email Thread" in response.text
     assert "3 conversation messages" in response.text
+    assert "John Doe" in response.text
     assert "Is this available?" in response.text
     assert "The original approved response is visible here." in response.text
     assert "Can I increase the quantity to 120 units?" in response.text

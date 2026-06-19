@@ -35,6 +35,10 @@ async def test_pending_page_shows_workflow_reviewable_draft_without_legacy_keywo
         transport=transport,
         base_url="http://testserver",
     ) as client:
+        await client.post(
+            "/login",
+            data={"username": "john", "password": "swift123", "next": "/pending"},
+        )
         response = await client.get("/pending")
 
     assert response.status_code == 200

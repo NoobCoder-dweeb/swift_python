@@ -69,6 +69,7 @@ def test_approved_email_sets_reply_to_for_cloudmailin(monkeypatch):
         smtp_timeout=20.0,
         cloudmailin_basic_username="user",
         cloudmailin_basic_password="password",
+        session_secret_key="test-session-secret",
     )
 
     result = send_approved_draft(
@@ -106,6 +107,7 @@ def test_approved_email_requires_reply_to_for_cloudmailin():
         smtp_timeout=20.0,
         cloudmailin_basic_username="user",
         cloudmailin_basic_password="password",
+        session_secret_key="test-session-secret",
     )
 
     result = send_approved_draft(

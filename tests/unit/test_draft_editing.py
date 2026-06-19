@@ -24,6 +24,10 @@ async def test_update_pending_draft_records_edited_audit():
 
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        await client.post(
+            "/login",
+            data={"username": "john", "password": "swift123", "next": "/pending"},
+        )
         response = await client.patch(
             f"/api/drafts/{draft.draft_id}",
             json={"ai_draft": new_text},
@@ -35,10 +39,12 @@ async def test_update_pending_draft_records_edited_audit():
     assert payload["draft_id"] == draft.draft_id
     assert payload["ai_draft"] == new_text
 
-    assert any(
-        item.get("draft_id") == draft.draft_id and item.get("action") == "edited"
+    audit = next(
+        item
         for item in audits
+        if item.get("draft_id") == draft.draft_id and item.get("action") == "edited"
     )
+    assert audit["approver"] == "John Doe"
 
 
 async def test_reject_regenerates_from_stored_data_with_reviewer_feedback():
@@ -59,6 +65,7 @@ async def test_reject_regenerates_from_stored_data_with_reviewer_feedback():
     result = DraftService().reject_draft(
         draft.draft_id,
         reason="Please make it brief and include stock availability.",
+        approver="Aisha Sales",
     )
 
     assert result["success"] is True
@@ -82,6 +89,7 @@ async def test_reject_regenerates_from_stored_data_with_reviewer_feedback():
         if item.get("draft_id") == draft.draft_id and item.get("action") == "rejected"
     )
     assert audit["review_comment"] == "Please make it brief and include stock availability."
+    assert audit["approver"] == "Aisha Sales"
     assert audit["details"]["product_context"]["stock_availability"] == 500
     assert any("Reviewer feedback applied" in note for note in audit["details"]["learning_notes"])
 
@@ -141,6 +149,10 @@ async def test_approval_sends_response_to_original_gmail_sender(monkeypatch):
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver"
         ) as client:
+            await client.post(
+                "/login",
+                data={"username": "mira", "password": "swift123", "next": "/pending"},
+            )
             response = await client.post(f"/api/drafts/{draft.draft_id}/approve")
     finally:
         reset_app_settings()
@@ -151,6 +163,7 @@ async def test_approval_sends_response_to_original_gmail_sender(monkeypatch):
     assert payload["success"] is True
     assert audit["sent"] is True
     assert audit["sender"] == "shaukoay.dev@gmail.com"
+    assert audit["approver"] == "Mira Tan"
     assert audit["emailed_to"] == "shaukoay.dev@gmail.com"
     assert "sent it to shaukoay.dev@gmail.com" in audit["content"]
     assert len(sent_messages) == 1
@@ -188,6 +201,10 @@ async def test_approval_succeeds_without_smtp_and_records_manual_send(monkeypatc
         async with httpx.AsyncClient(
             transport=transport, base_url="http://testserver"
         ) as client:
+            await client.post(
+                "/login",
+                data={"username": "john", "password": "swift123", "next": "/pending"},
+            )
             response = await client.post(f"/api/drafts/{draft.draft_id}/approve")
     finally:
         reset_app_settings()
@@ -199,6 +216,7 @@ async def test_approval_succeeds_without_smtp_and_records_manual_send(monkeypatc
     assert payload["status"] == "approved"
     assert "SMTP is not configured" in payload["message"]
     assert audit["action"] == "approved"
+    assert audit["approver"] == "John Doe"
     assert audit["sent"] is False
     assert audit["dispatch_error"] == "smtp_not_configured"
     assert audit["details"]["requires_manual_send"] is True

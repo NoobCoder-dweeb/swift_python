@@ -77,7 +77,13 @@ class DraftService:
             )
         return None
 
-    def update_draft(self, draft_id: str, ai_draft: str):
+    def update_draft(
+        self,
+        draft_id: str,
+        ai_draft: str,
+        *,
+        approver: str = "Sales Officer",
+    ):
         """persists manual draft edits and records the change in an audit log."""
         row = self.repository.get_draft(draft_id)
         if not row or row.get("status") != "pending":
@@ -94,7 +100,7 @@ class DraftService:
             "version_id": f"{draft_id}-v{row.get('revisions', 0)}",
             "sender": row.get("sender"),
             "subject": row.get("subject"),
-            "approver": "Sales Officer",
+            "approver": approver,
             "action": "edited",
             "timestamp": datetime.now().isoformat(),
             "emailed_to": None,
@@ -127,9 +133,9 @@ class DraftService:
             status=row["status"],
         )
 
-    def approve_draft(self, draft_id: str):
+    def approve_draft(self, draft_id: str, *, approver: str = "Sales Officer"):
         """turns a pending draft into an immutable approval audit."""
-        audit = approve_pending_draft(draft_id, approver="Sales Officer")
+        audit = approve_pending_draft(draft_id, approver=approver)
         if not audit:
             return {
                 "success": False,
@@ -162,7 +168,13 @@ class DraftService:
             ),
         }
 
-    def reject_draft(self, draft_id: str, reason: str = ""):
+    def reject_draft(
+        self,
+        draft_id: str,
+        reason: str = "",
+        *,
+        approver: str = "Sales Officer",
+    ):
         """reruns the sales workflow with reviewer feedback before requeueing."""
         row = self.repository.get_draft(draft_id)
         if not row or row.get("status") != "pending":
@@ -207,7 +219,7 @@ class DraftService:
             "next_version_id": regenerated_version_id,
             "sender": row.get("sender"),
             "subject": row.get("subject"),
-            "approver": "Sales Officer",
+            "approver": approver,
             "action": "rejected",
             "timestamp": now,
             "emailed_to": None,
