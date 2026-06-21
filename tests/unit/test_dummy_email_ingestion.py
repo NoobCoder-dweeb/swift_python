@@ -4,6 +4,7 @@ import json
 from app.api.v1.routes.emails import email_service
 from app.core.config import reset_app_settings
 from app.main import app
+from app.services.email_dispatcher import EmailDispatchResult
 
 
 async def test_ingest_raw_email_creates_pending_draft():
@@ -257,8 +258,18 @@ async def test_cloudmailin_webhook_requires_basic_auth(monkeypatch):
     assert response.headers["www-authenticate"] == 'Basic realm="cloudmailin"'
 
 
-async def test_ingest_json_blocks_customer_information_as_product():
+async def test_ingest_json_blocks_customer_information_as_product(monkeypatch):
     """sensitive customer information must not become a pending draft."""
+
+    def sent_bad_attempt_response(*, recipient: str, subject: str):
+        return EmailDispatchResult(sent=True, recipient=recipient)
+
+    monkeypatch.setattr(
+        email_service,
+        "bad_attempt_responder",
+        sent_bad_attempt_response,
+    )
+
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(
         transport=transport, base_url="http://testserver"
@@ -277,8 +288,9 @@ async def test_ingest_json_blocks_customer_information_as_product():
     assert payload["success"] is True
     assert payload["ingested"] is False
     assert payload["draft"] is None
-    assert payload["email"]["status"] == "received"
-    assert payload["email"]["draft_id"] is None
+    assert payload["email"]["status"] == "auto_replied"
+    assert payload["email"]["draft_id"] is not None
+    assert payload["auto_response"]["sent"] is True
 
 
 async def test_ingest_preprocesses_irrelevant_email_content():
