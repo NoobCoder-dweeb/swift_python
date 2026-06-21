@@ -204,7 +204,7 @@ DEFAULT_STRESS_SCENARIOS: list[StressScenario] = [
         expected_type="pricing",
         expected_status="pending",
         expected_quantity=10,
-        required_terms=["product does not exist"],
+        required_terms=["don't have this product listed"],
         forbidden_terms=["RM 0", "USD 0", "invented"],
         required_chokeholds=[
             "product_entity_missing_or_ambiguous",
@@ -220,7 +220,7 @@ DEFAULT_STRESS_SCENARIOS: list[StressScenario] = [
         expected_type="pricing",
         expected_status="pending",
         expected_quantity=30,
-        required_terms=["product does not exist"],
+        required_terms=["don't have this product listed"],
         forbidden_terms=["RM 0", "USD 0", "invented"],
         required_chokeholds=[
             "product_entity_missing_or_ambiguous",

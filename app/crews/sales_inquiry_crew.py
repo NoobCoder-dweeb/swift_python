@@ -93,10 +93,14 @@ def run_sales_inquiry_workflow(
         subject=cleaned_email.subject,
         body=cleaned_email.body,
     )
-    product_context = processor.lookup_product_context(
-        inquiry.product_name,
-        f"{cleaned_email.subject}\n{cleaned_email.body}",
-    )
+    product_query = f"{cleaned_email.subject}\n{cleaned_email.body}"
+    if inquiry.inquiry_type == "listing":
+        product_context = processor.lookup_product_list_context(product_query)
+    else:
+        product_context = processor.lookup_product_context(
+            inquiry.product_name,
+            product_query,
+        )
     if (
         product_context.confidence >= 0.5
         and product_context.product
@@ -401,8 +405,10 @@ def _run_external_agent_draft(
             "requires_human_review": True,
             "forbidden": [
                 "invented prices",
+                "invented product suggestions",
                 "invented stock",
                 "invented lead times",
+                "unpersisted catalog rows",
                 "credential disclosure",
                 "customer personal data",
                 "customer data extraction",
@@ -486,6 +492,16 @@ def _current_reply_segment(body: str) -> str:
 def _current_reply_inquiry_type(body: str) -> str | None:
     """lets the newest reply decide whether the answer is price, stock, or both."""
     lower = body.lower()
+    listing = any(
+        token in lower
+        for token in (
+            "list products",
+            "show products",
+            "which products",
+            "what products",
+            "browse products",
+        )
+    )
     pricing = any(token in lower for token in ("price", "pricing", "quote", "cost", "rate"))
     availability = any(
         token in lower
@@ -502,6 +518,8 @@ def _current_reply_inquiry_type(body: str) -> str | None:
             "order",
         )
     )
+    if listing:
+        return "listing"
     if pricing and availability:
         return "mixed"
     if pricing:

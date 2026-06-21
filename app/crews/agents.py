@@ -12,6 +12,7 @@ from app.crews.workflow_models import (
     DraftValidationResult,
     InquiryDetails,
     ProductContext,
+    ProductOption,
 )
 from app.services.inquiry_guardrails import assess_customer_inquiry
 
@@ -203,6 +204,7 @@ class SalesProcessingAgent:
         lower = text.lower()
         risk_flags = self.detect_risks(text)
 
+        listing = _is_product_listing_request(lower)
         pricing = _contains_any(lower, ("price", "pricing", "quote", "cost", "rate"))
         availability = _contains_any(
             lower,
@@ -222,6 +224,8 @@ class SalesProcessingAgent:
 
         if risk_flags:
             inquiry_type = "unsupported"
+        elif listing:
+            inquiry_type = "listing"
         elif pricing and availability:
             inquiry_type = "mixed"
         elif pricing:
@@ -314,6 +318,44 @@ class SalesProcessingAgent:
             source="local_catalog",
             confidence=0.0,
             notes=["No approved product record matched the inquiry."],
+            suggested_products=_local_product_suggestions(query or target or "", limit=3),
+        )
+
+    def lookup_product_list_context(self, query: str) -> ProductContext:
+        """returns approved catalog rows for list-style customer requests."""
+        if self.product_client and hasattr(self.product_client, "search_products"):
+            try:
+                search_products = getattr(self.product_client, "search_products")
+                products = [
+                    ProductOption.model_validate(item)
+                    for item in search_products(query, limit=5)
+                ]
+                return ProductContext(
+                    product=None,
+                    source="product_client",
+                    confidence=0.9 if products else 0.0,
+                    notes=["Catalog list request grounded in persisted products."],
+                    listed_products=products,
+                )
+            except Exception as exc:
+                return ProductContext(
+                    source="product_client",
+                    confidence=0.0,
+                    notes=[
+                        "Product list lookup failed; draft should ask for confirmation.",
+                        _format_error_note(exc),
+                    ],
+                )
+
+        products = _local_product_suggestions(query, limit=5)
+        if not products and _is_product_listing_request(query.lower()):
+            products = _local_product_options(limit=5)
+        return ProductContext(
+            product=None,
+            source="local_catalog",
+            confidence=0.9 if products else 0.0,
+            notes=["Catalog list request grounded in local approved products."],
+            listed_products=products,
         )
 
     def detect_risks(self, text: str) -> list[str]:
@@ -431,6 +473,19 @@ class EmailDraftingAgent:
             )
 
         product = context.product or (inquiry.product_name if inquiry else None)
+        if context.listed_products:
+            lines = [
+                "Hi,",
+                "",
+                "Thanks for your inquiry. The following approved products match your request:",
+            ]
+            lines.extend(_format_product_option_line(item) for item in context.listed_products)
+            lines.append(
+                "Please confirm the product name or SKU you would like us to quote."
+            )
+            lines.extend(["", "Best regards,", "Project Swift Support"])
+            return "\n".join(lines)
+
         product_missing = (
             context.confidence == 0.0
             and any(
@@ -440,14 +495,25 @@ class EmailDraftingAgent:
         )
         if product_missing:
             product_phrase = f" for {product}" if product else ""
-            return (
-                "Hi,\n\n"
-                f"Thanks for your inquiry{product_phrase}. The product does not "
-                "exist in our approved product database, so I cannot quote price "
-                "or stock availability for it.\n\n"
-                "Best regards,\n"
-                "Project Swift Support"
+            lines = [
+                "Hi,",
+                "",
+                f"Thanks for your inquiry{product_phrase}. We don't have this product "
+                "listed in our approved product database, so I cannot quote price "
+                "or stock availability for it.",
+            ]
+            if context.suggested_products:
+                lines.append("Do you mean one of the following:")
+                lines.extend(
+                    _format_product_option_line(item)
+                    for item in context.suggested_products[:3]
+                )
+            lines.append(
+                "Please confirm the product name, SKU, category, or description "
+                "keywords so we can match it to the correct database record."
             )
+            lines.extend(["", "Best regards,", "Project Swift Support"])
+            return "\n".join(lines)
         if not product:
             return (
                 "Hi,\n\n"
@@ -489,7 +555,7 @@ class EmailDraftingAgent:
 
         requested_type = inquiry.inquiry_type if inquiry else "mixed"
         should_include_price = (
-            (requested_type in {"pricing", "mixed"} or wants_price)
+            (requested_type in {"pricing", "availability", "mixed"} or wants_price)
             and not avoid_price
             and context.price is not None
         )
@@ -503,11 +569,20 @@ class EmailDraftingAgent:
         )
 
         if should_include_price:
-            if inquiry and inquiry.quantity and requested_type == "pricing":
+            if inquiry and inquiry.quantity and requested_type in {"pricing", "mixed"}:
                 total_price = inquiry.quantity * context.price
                 lines.append(
                     f"The total price for {inquiry.quantity} units is "
                     f"{context.currency} {total_price:.2f}."
+                )
+                lines.extend(
+                    [
+                        "Quote summary:",
+                        f"- Product: {product}",
+                        f"- Units requested: {inquiry.quantity}",
+                        f"- Price per unit: {context.currency} {context.price:.2f}",
+                        f"- Total: {context.currency} {total_price:.2f}",
+                    ]
                 )
                 lines.append(
                     f"This is calculated because the approved reference price is "
@@ -649,8 +724,24 @@ def _condense_response_lines(lines: list[str]) -> list[str]:
     return [
         "Hi,",
         "",
-        " ".join(content[:4]),
+        " ".join(content[:9]),
     ]
+
+
+def _format_product_option_line(item: ProductOption) -> str:
+    price = (
+        f"{item.currency} {item.price:.2f}"
+        if item.price is not None
+        else "pricing to be confirmed"
+    )
+    stock = (
+        f"{item.stock_availability} {item.unit_of_measure or 'units'} available"
+        if item.stock_availability is not None
+        else "stock to be confirmed"
+    )
+    sku = f" ({item.sku})" if item.sku else ""
+    category = f", Category: {item.category}" if item.category else ""
+    return f"- {item.product}{sku}: {price} per {item.unit_of_measure or 'unit'}, {stock}{category}."
 
 
 def _find_unapproved_fact_claims(
@@ -660,12 +751,35 @@ def _find_unapproved_fact_claims(
     """rejects regenerated drafts that drift from approved product data."""
     reasons: list[str] = []
     lower = draft.lower()
+    catalog_options = _catalog_options(context)
     allowed_prices = {context.price} if context.price is not None else set()
     if context.price is not None:
-        for quantity_match in re.finditer(r"\b(?P<quantity>\d{1,6})\s+units?\b", draft):
-            quantity = int(quantity_match.group("quantity"))
+        for quantity_match in re.finditer(
+            r"\b(?P<quantity>\d{1,6})\s+units?\b|"
+            r"\bunits\s+requested:\s*(?P<requested>\d{1,6})\b",
+            draft,
+            re.IGNORECASE,
+        ):
+            quantity = int(
+                quantity_match.group("quantity") or quantity_match.group("requested")
+            )
             if quantity > 0:
                 allowed_prices.add(quantity * context.price)
+    for option in catalog_options:
+        if option.price is not None:
+            allowed_prices.add(option.price)
+            for quantity_match in re.finditer(
+                r"\b(?P<quantity>\d{1,6})\s+units?\b|"
+                r"\bunits\s+requested:\s*(?P<requested>\d{1,6})\b",
+                draft,
+                re.IGNORECASE,
+            ):
+                quantity = int(
+                    quantity_match.group("quantity")
+                    or quantity_match.group("requested")
+                )
+                if quantity > 0:
+                    allowed_prices.add(quantity * option.price)
     for note in context.notes:
         allowed_prices.update(
             float(group)
@@ -708,6 +822,41 @@ def _find_unapproved_fact_claims(
     elif context.stock_availability is None and _claims_stock_availability(lower):
         reasons.append("contains_unapproved_stock_claim")
 
+    allowed_stock_values = {
+        item.stock_availability
+        for item in catalog_options
+        if item.stock_availability is not None
+    }
+    if context.stock_availability is not None:
+        allowed_stock_values.add(context.stock_availability)
+    for match in re.finditer(
+        r"\b(?P<stock>\d{1,6})\s+"
+        r"(?:units?|pcs?|pieces?|pairs?|sets?)\s+available\b",
+        draft,
+        re.IGNORECASE,
+    ):
+        claimed_stock = int(match.group("stock"))
+        if claimed_stock not in allowed_stock_values:
+            reasons.append("contains_unapproved_stock_claim")
+
+    allowed_products = {
+        item.product.lower()
+        for item in catalog_options
+        if item.product
+    }
+    if context.product:
+        allowed_products.add(context.product.lower())
+    for line in draft.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("- "):
+            continue
+        label = stripped[2:].split(":", 1)[0]
+        label = re.sub(r"\s*\([^)]*\)\s*$", "", label).strip().lower()
+        if label in {"product", "units requested", "price per unit", "total"}:
+            continue
+        if label and allowed_products and label not in allowed_products:
+            reasons.append("contains_unapproved_product_reference")
+
     lead_time_match = re.search(
         r"(?:lead\s*time|delivery\s*timeline|timeline)\D{0,30}"
         r"(?P<days>\d{1,3})\s+business\s+days?",
@@ -720,6 +869,11 @@ def _find_unapproved_fact_claims(
             reasons.append("contains_unapproved_lead_time")
 
     return _dedupe(reasons)
+
+
+def _catalog_options(context: ProductContext) -> list[ProductOption]:
+    """returns every persisted row approved for list or suggestion drafting."""
+    return [*context.listed_products, *context.suggested_products]
 
 
 def _claims_stock_availability(lower_draft: str) -> bool:
@@ -883,6 +1037,109 @@ def _configure_crewai_storage() -> None:
 def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
     """keeps keyword checks readable at classification call sites."""
     return any(needle in text for needle in needles)
+
+
+def _is_product_listing_request(lower_text: str) -> bool:
+    """detects customer requests to browse or list catalog products."""
+    return any(
+        phrase in lower_text
+        for phrase in (
+            "list products",
+            "show products",
+            "which products",
+            "what products",
+            "browse products",
+            "products that",
+            "products with",
+            "products in",
+            "available products",
+        )
+    )
+
+
+def _local_product_suggestions(query: str, *, limit: int) -> list[ProductOption]:
+    """ranks the built-in catalog without using unapproved product facts."""
+    query_tokens = _simple_product_tokens(query)
+    scored: list[tuple[int, str, ProductContext]] = []
+    for item in DEFAULT_PRODUCT_CATALOG:
+        searchable = " ".join(
+            [
+                item.product or "",
+                item.sku or "",
+                " ".join(item.notes),
+            ]
+        )
+        overlap = query_tokens & _simple_product_tokens(searchable)
+        score = len(overlap)
+        if item.product and item.product.lower() in query.lower():
+            score += 5
+        if not score and query_tokens:
+            continue
+        scored.append((score, item.product or "", item))
+
+    scored.sort(key=lambda value: (-value[0], value[1]))
+    return [
+        _local_product_option(item, confidence=0.62 if score else 0.5)
+        for score, _, item in scored[:limit]
+        if item.product
+    ]
+
+
+def _local_product_options(*, limit: int) -> list[ProductOption]:
+    """returns broad approved local catalog rows for generic list requests."""
+    return [
+        _local_product_option(item, confidence=0.86)
+        for item in DEFAULT_PRODUCT_CATALOG[:limit]
+        if item.product
+    ]
+
+
+def _local_product_option(item: ProductContext, *, confidence: float) -> ProductOption:
+    return ProductOption(
+        product=item.product or "",
+        sku=item.sku,
+        stock_availability=item.stock_availability,
+        price=item.price,
+        currency=item.currency,
+        unit_of_measure="unit",
+        source=item.source,
+        confidence=confidence,
+    )
+
+
+def _simple_product_tokens(value: str) -> set[str]:
+    stop_words = {
+        "and",
+        "any",
+        "available",
+        "availability",
+        "browse",
+        "can",
+        "for",
+        "in",
+        "list",
+        "price",
+        "pricing",
+        "product",
+        "products",
+        "quote",
+        "show",
+        "stock",
+        "the",
+        "unit",
+        "units",
+        "what",
+        "which",
+        "with",
+    }
+    tokens = set()
+    for token in re.findall(r"[a-z0-9]+", value.lower()):
+        if len(token) < 2 or token.isdigit() or token in stop_words:
+            continue
+        tokens.add(token)
+        if token.endswith("s") and len(token) > 3:
+            tokens.add(token[:-1])
+    return tokens
 
 
 def _env_text(name: str, default: str) -> str:

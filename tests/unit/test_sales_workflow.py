@@ -5,7 +5,7 @@ import httpx
 
 from app.crews.sales_inquiry_crew import run_sales_inquiry_workflow
 from app.crews.agents import EmailDraftingAgent, LocalLLMConfig, SalesProcessingAgent
-from app.crews.workflow_models import ProductContext
+from app.crews.workflow_models import ProductContext, ProductOption
 from app.core.config import reset_app_settings
 from app.main import app
 from app.repositories.product_repository import PostgresProductLookupClient
@@ -32,6 +32,11 @@ def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
     assert result.inquiry.quantity == 250
     assert result.product_context.stock_availability == 500
     assert "RM 120.00" in result.ai_draft
+    assert "Quote summary:" in result.ai_draft
+    assert "- Product: Product X" in result.ai_draft
+    assert "- Units requested: 250" in result.ai_draft
+    assert "- Price per unit: RM 120.00" in result.ai_draft
+    assert "- Total: RM 30000.00" in result.ai_draft
     assert "500 units" in result.ai_draft
     assert result.validation.valid is True
 
@@ -144,15 +149,28 @@ def test_sales_workflow_rejects_irrelevant_query():
 
 
 def test_sales_workflow_reports_missing_postgres_product(monkeypatch):
-    """unknown database products should get a direct non-existence response."""
+    """unknown database products should ask for database fields and suggest matches."""
 
     class MissingProductClient:
         def get_product(self, query):
             return {
-                "product": "Safety Harness",
+                "product": "Carbon Fiber Shield",
                 "source": "postgres",
                 "confidence": 0.0,
                 "notes": ["No approved product record matched the inquiry."],
+                "suggested_products": [
+                    {
+                        "product": "Face Shield",
+                        "sku": "SAFE-FACE-SHIELD",
+                        "category": "Eye And Face Protection",
+                        "stock_availability": 30,
+                        "price": 12.5,
+                        "currency": "RM",
+                        "unit_of_measure": "unit",
+                        "source": "postgres",
+                        "confidence": 0.62,
+                    },
+                ],
             }
 
     monkeypatch.setattr(
@@ -163,15 +181,17 @@ def test_sales_workflow_reports_missing_postgres_product(monkeypatch):
     result = run_sales_inquiry_workflow(
         IncomingEmail(
             sender="buyer@example.com",
-            subject="Safety harness stock",
-            body="Do you have safety harness in stock?",
+            subject="Carbon fiber shield stock",
+            body="Do you have carbon fiber shield in stock?",
         ),
         use_crewai=False,
     )
 
     assert result.status == "pending"
-    assert "product does not exist" in result.ai_draft.lower()
-    assert "quote price or stock availability" in result.ai_draft
+    assert "don't have this product listed" in result.ai_draft.lower()
+    assert "Face Shield" in result.ai_draft
+    assert "product name, SKU, category, or description keywords" in result.ai_draft
+    assert "Current available stock is 30 units" not in result.ai_draft
 
 
 def test_sales_workflow_does_not_quote_unmatched_database_product(monkeypatch):
@@ -213,9 +233,83 @@ def test_sales_workflow_does_not_quote_unmatched_database_product(monkeypatch):
 
     assert result.product_context.confidence == 0.0
     assert result.product_context.product == "Strawberries"
-    assert "product does not exist" in result.ai_draft.lower()
+    assert "don't have this product listed" in result.ai_draft.lower()
+    assert "product name, SKU, category, or description keywords" in result.ai_draft
     assert "CATU 40 Cal Arc Flash Kit" not in result.ai_draft
     assert "RM 2062.25" not in result.ai_draft
+
+
+def test_sales_workflow_lists_products_matching_criteria(monkeypatch):
+    """catalog list requests should return persisted rows in the draft."""
+
+    class ListingProductClient:
+        def search_products(self, query, limit=5):
+            return [
+                {
+                    "product": "Face Shield",
+                    "sku": "SAFE-FACE-SHIELD",
+                    "category": "Eye And Face Protection",
+                    "stock_availability": 30,
+                    "price": 12.5,
+                    "currency": "RM",
+                    "unit_of_measure": "unit",
+                    "source": "postgres",
+                    "confidence": 0.86,
+                },
+                {
+                    "product": "Safety Glasses",
+                    "sku": "SAFE-GLASSES",
+                    "category": "Eye And Face Protection",
+                    "stock_availability": 70,
+                    "price": 9.0,
+                    "currency": "RM",
+                    "unit_of_measure": "unit",
+                    "source": "postgres",
+                    "confidence": 0.86,
+                },
+            ][:limit]
+
+        def get_product(self, query):
+            raise AssertionError("listing requests should not use single-product lookup")
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: ListingProductClient(),
+    )
+
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="List eye protection products",
+            body="Please list products in eye and face protection.",
+        ),
+        use_crewai=False,
+    )
+
+    assert result.inquiry.inquiry_type == "listing"
+    assert "Face Shield" in result.ai_draft
+    assert "SAFE-FACE-SHIELD" in result.ai_draft
+    assert "RM 12.50" in result.ai_draft
+    assert "Safety Glasses" in result.ai_draft
+    assert result.validation.valid is True
+
+
+def test_sales_workflow_lists_broad_available_products_from_local_catalog():
+    """generic list requests should not ask for a specific product."""
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Product list",
+            body="Please list available products.",
+        ),
+        use_crewai=False,
+    )
+
+    assert result.inquiry.inquiry_type == "listing"
+    assert "The following approved products match your request" in result.ai_draft
+    assert "Safety Helmet" in result.ai_draft
+    assert "Product X" in result.ai_draft
+    assert "Could you please confirm the product name" not in result.ai_draft
 
 
 def test_sales_workflow_zero_postgres_stock_says_not_in_stock(monkeypatch):
@@ -251,7 +345,7 @@ def test_sales_workflow_zero_postgres_stock_says_not_in_stock(monkeypatch):
     assert result.product_context.source == "postgres"
     assert "RM 12.50" in result.ai_draft
     assert "not in stock" in result.ai_draft.lower()
-    assert "0 units" not in result.ai_draft
+    assert "Current available stock is 0 units" not in result.ai_draft
 
 
 def test_sales_workflow_uses_postgres_product_facts_only(monkeypatch):
@@ -417,6 +511,83 @@ def test_draft_validation_rejects_stock_claim_without_database_stock():
 
     assert result.valid is False
     assert "contains_unapproved_stock_claim" in result.reasons
+
+
+def test_draft_validation_rejects_unpersisted_suggestion_product():
+    """suggestion lines must map to approved persisted catalog rows."""
+    draft = (
+        "Hi,\n\n"
+        "Thanks for your inquiry for Carbon Fiber Shield. We don't have this "
+        "product listed in our approved product database, so I cannot quote price "
+        "or stock availability for it.\n"
+        "Do you mean one of the following:\n"
+        "- Imaginary Harness (FAKE-001): RM 99.00 per unit, 10 units available, "
+        "category: Fall Protection.\n"
+        "Please confirm the product name, SKU, category, or description keywords.\n\n"
+        "Best regards,\n"
+        "Project Swift Support"
+    )
+
+    result = EmailDraftingAgent().validate_draft(
+        draft,
+        ProductContext(
+            product="Carbon Fiber Shield",
+            confidence=0.0,
+            notes=["No approved product record matched the inquiry."],
+            suggested_products=[
+                ProductOption(
+                    product="Face Shield",
+                    sku="SAFE-FACE-SHIELD",
+                    category="Eye And Face Protection",
+                    price=12.5,
+                    stock_availability=30,
+                    unit_of_measure="unit",
+                )
+            ],
+        ),
+    )
+
+    assert result.valid is False
+    assert "contains_unapproved_product_reference" in result.reasons
+    assert "contains_unapproved_price" in result.reasons
+    assert "contains_unapproved_stock_claim" in result.reasons
+
+
+def test_draft_validation_accepts_persisted_suggestion_product():
+    """approved suggestion rows are valid even when the requested product missed."""
+    draft = (
+        "Hi,\n\n"
+        "Thanks for your inquiry for Carbon Fiber Shield. We don't have this "
+        "product listed in our approved product database, so I cannot quote price "
+        "or stock availability for it.\n"
+        "Do you mean one of the following:\n"
+        "- Face Shield (SAFE-FACE-SHIELD): RM 12.50 per unit, 30 units available, "
+        "category: Eye And Face Protection.\n"
+        "Please confirm the product name, SKU, category, or description keywords.\n\n"
+        "Best regards,\n"
+        "Project Swift Support"
+    )
+
+    result = EmailDraftingAgent().validate_draft(
+        draft,
+        ProductContext(
+            product="Carbon Fiber Shield",
+            confidence=0.0,
+            notes=["No approved product record matched the inquiry."],
+            suggested_products=[
+                ProductOption(
+                    product="Face Shield",
+                    sku="SAFE-FACE-SHIELD",
+                    category="Eye And Face Protection",
+                    price=12.5,
+                    stock_availability=30,
+                    unit_of_measure="unit",
+                )
+            ],
+        ),
+    )
+
+    assert result.valid is True
 
 
 def test_stress_suite_identifies_chokeholds():
