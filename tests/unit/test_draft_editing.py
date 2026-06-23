@@ -140,6 +140,17 @@ async def test_approval_sends_response_to_original_gmail_sender(monkeypatch):
         },
         ai_draft="Hi,\n\nProduct X is RM 120.00 per unit.\n\nBest regards,\nProject Swift Support",
         status="pending",
+        workflow={
+            "inquiry": {"inquiry_type": "pricing"},
+            "product_context": {
+                "product": "Product X",
+                "sku": "PROD-X-001",
+                "price": 120.0,
+                "currency": "RM",
+                "stock_availability": 500,
+                "source": "local_catalog",
+            },
+        },
     )
 
     assert draft is not None
@@ -170,6 +181,8 @@ async def test_approval_sends_response_to_original_gmail_sender(monkeypatch):
     assert sent_messages[0]["To"] == "shaukoay.dev@gmail.com"
     assert sent_messages[0]["Reply-To"] == "inbound@cloudmailin.net"
     assert sent_messages[0].get_content().strip() == draft.ai_draft
+    assert "References:" in sent_messages[0].get_content()
+    assert "1. https://safetyware.com/?post_type=product&s=PROD-X-001" in sent_messages[0].get_content()
 
 
 async def test_approval_succeeds_without_smtp_and_records_manual_send(monkeypatch):

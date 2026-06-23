@@ -173,8 +173,10 @@ async def test_pending_page_renders_email_thread_panel():
     assert "Is this available?" in response.text
     assert "The original approved response is visible here." in response.text
     assert "Can I increase the quantity to 120 units?" in response.text
-    assert "Product Reference" in response.text
-    assert "View product" in response.text
+    assert "References:" in response.text
+    assert "1. https://safetyware.com/?post_type=product&amp;s=SAFE-HELMET-001" in response.text
+    assert "Product Reference" not in response.text
+    assert "View product" not in response.text
     assert "SAFE-HELMET-001" in response.text
 
 

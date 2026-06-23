@@ -84,7 +84,6 @@
           </div>
           <div class="draft-section-content">${formatMultiline(d.ai_draft)}</div>
         </div>
-        ${renderProductReference(d)}
         <div class="draft-section draft-feedback${d.last_rejection_reason ? '' : ' is-hidden'}">
           <div class="draft-section-label">Reviewer Feedback For Regeneration</div>
           <label class="feedback-label" for="feedback-${d.draft_id}">Reason for rejection</label>
@@ -178,26 +177,6 @@
     `;
   }
 
-  function renderProductReference(d){
-    const ref = d.product_reference;
-    if(!ref || !ref.url) return '';
-    const meta = [
-      ref.sku ? `SKU ${ref.sku}` : '',
-      ref.price || '',
-      ref.stock_availability !== undefined && ref.stock_availability !== null ? `${ref.stock_availability} in stock` : ''
-    ].filter(Boolean).map(item => `<span>${escapeHtml(String(item))}</span>`).join('');
-    return `
-      <a class="draft-section product-reference-card" href="${escapeHtml(ref.url)}" target="_blank" rel="noopener noreferrer">
-        <div>
-          <div class="draft-section-label">Product Reference</div>
-          <div class="product-reference-title">${escapeHtml(ref.product || 'Product reference')}</div>
-          <div class="product-reference-meta">${meta}</div>
-        </div>
-        <span class="product-reference-action">View product</span>
-      </a>
-    `;
-  }
-
   function threadMeta(item){
     const parts = [];
     if(item.meta) parts.push(item.meta);
@@ -221,12 +200,8 @@
       customerSection.classList.toggle('is-hidden', Boolean(html));
     }
     if(!html) return;
-    const productRef = card.querySelector('.product-reference-card');
-    const anchor = productRef || card.querySelector('.draft-body');
-    if(anchor && productRef){
-      productRef.insertAdjacentHTML('beforebegin', html);
-      attachCardHandlers(card);
-    } else if(anchor) {
+    const anchor = card.querySelector('.draft-body');
+    if(anchor) {
       anchor.insertAdjacentHTML('afterbegin', html);
       attachCardHandlers(card);
     }

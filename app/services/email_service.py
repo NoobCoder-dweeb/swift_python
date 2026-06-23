@@ -11,6 +11,7 @@ from app.services.email_dispatcher import (
 )
 from app.services.draft_service import DraftService
 from app.services.email_preprocessor import preprocess_email
+from app.services.spam_filter import HybridSpamFilter, SpamFilter
 from data import build_email_thread_context
 
 
@@ -44,15 +45,22 @@ class EmailService:
         repository: StateRepository | None = None,
         draft_service: DraftGenerator | None = None,
         bad_attempt_responder: BadAttemptResponder | None = None,
+        spam_filter: SpamFilter | None = None,
     ) -> None:
         """keeps dependencies injectable while preserving default app wiring."""
         self.repository = repository or get_state_repository()
         self.draft_service = draft_service or DraftService()
         self.bad_attempt_responder = bad_attempt_responder or send_bad_attempt_response
+        self.spam_filter = spam_filter or HybridSpamFilter()
 
     async def process_email(self, email: IncomingEmail):
         """supports structured email intake from trusted listeners."""
-        email_record, draft = await self._create_record_and_draft(email)
+        email_record = self._create_email_record(email)
+        spam_response = self._complete_if_spam(email_record)
+        if spam_response:
+            return spam_response
+
+        draft = await self._generate_draft_from_record(email_record)
         self._complete_email_record(
             email_record,
             status="processed",
@@ -67,7 +75,16 @@ class EmailService:
 
     async def ingest_email(self, email: IncomingEmail):
         """supports local/manual ingestion while preserving the same persisted flow."""
-        email_record, draft = await self._create_record_and_draft(email)
+        email_record = self._create_email_record(email)
+        spam_response = self._complete_if_spam(email_record)
+        if spam_response:
+            return {
+                **spam_response,
+                "ingested": False,
+                "auto_response": None,
+            }
+
+        draft = await self._generate_draft_from_record(email_record)
         ingested = draft.status == "pending"
         bad_attempt_response = (
             self._send_bad_attempt_response(email_record)
@@ -105,6 +122,36 @@ class EmailService:
             ),
         }
 
+    def _complete_if_spam(self, email_record: dict) -> dict | None:
+        """persists spam decisions before any draft generation happens."""
+        spam_assessment = self.spam_filter.assess(
+            IncomingEmail(
+                sender=email_record["sender"],
+                subject=email_record["subject"],
+                body=email_record["body"],
+            )
+        )
+        email_record["spam_assessment"] = _spam_assessment_dict(spam_assessment)
+        if spam_assessment.action not in {"block", "review"}:
+            return None
+
+        status = "spam" if spam_assessment.action == "block" else "suspected_spam"
+        self._complete_email_record(
+            email_record,
+            status=status,
+            draft_id=None,
+        )
+        return {
+            "success": True,
+            "email": email_record,
+            "draft": None,
+            "message": (
+                "Email flagged as spam and no draft was created."
+                if status == "spam"
+                else "Email flagged as suspected spam for review and no draft was created."
+            ),
+        }
+
     def get_queue(self):
         """exposes stored email intake history without relying on process memory."""
         return self.repository.list_emails()
@@ -138,6 +185,12 @@ class EmailService:
         email: IncomingEmail,
     ) -> tuple[dict, DraftResponse]:
         """preprocesses, persists, then generates a draft for a new email."""
+        email_record = self._create_email_record(email)
+        draft = await self._generate_draft_from_record(email_record)
+        return email_record, draft
+
+    def _create_email_record(self, email: IncomingEmail) -> dict:
+        """preprocesses and persists the initial received email record."""
         preprocessed = preprocess_email(email)
         email_record = {
             "email_id": _new_id("EML"),
@@ -151,9 +204,7 @@ class EmailService:
             "created_at": _timestamp(),
         }
         self.repository.upsert_email(email_record)
-
-        draft = await self._generate_draft_from_record(email_record)
-        return email_record, draft
+        return email_record
 
     async def _generate_draft_from_record(self, email_record: dict) -> DraftResponse:
         """adapts persisted email rows to the draft-generation contract."""
@@ -214,4 +265,15 @@ def _dispatch_result_dict(result: EmailDispatchResult | None) -> dict | None:
         "recipient": result.recipient,
         "error": result.error,
         "reply_to": result.reply_to,
+    }
+
+
+def _spam_assessment_dict(result) -> dict:
+    """serializes spam-filter evidence into the email payload."""
+    return {
+        "is_spam": result.is_spam,
+        "score": result.score,
+        "action": result.action,
+        "reasons": result.reasons,
+        "classifier_score": result.classifier_score,
     }

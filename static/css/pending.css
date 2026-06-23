@@ -131,43 +131,6 @@
   color:var(--text-muted);
   white-space:pre-wrap;
 }
-.product-reference-card{
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  gap:1rem;
-  color:inherit;
-  text-decoration:none;
-  border-color:var(--primary);
-}
-.product-reference-card:hover{
-  border-color:var(--primary);
-  background:var(--surface-hover);
-}
-.product-reference-title{
-  font-weight:700;
-  color:var(--text-main);
-}
-.product-reference-meta{
-  display:flex;
-  flex-wrap:wrap;
-  gap:0.45rem;
-  margin-top:0.35rem;
-  color:var(--text-muted);
-  font-size:0.86rem;
-}
-.product-reference-meta span{
-  padding:0.16rem 0.45rem;
-  border:1px solid var(--border);
-  border-radius:9999px;
-  background:var(--card-bg);
-}
-.product-reference-action{
-  flex:0 0 auto;
-  color:var(--primary);
-  font-weight:700;
-  white-space:nowrap;
-}
 .is-hidden{display:none !important;}
 .draft-edit-controls{display:flex;gap:0.5rem;margin-top:0.75rem}
 .draft-feedback{background:var(--surface, #fff)}
@@ -257,10 +220,6 @@
     white-space:normal;
   }
 
-  .product-reference-card{
-    align-items:flex-start;
-    flex-direction:column;
-  }
 }
 
 /* Toasts */

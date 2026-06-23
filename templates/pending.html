@@ -94,20 +94,6 @@
                                 </div>
                                 <div class="draft-section-content">{{ d.ai_draft }}</div>
                             </div>
-                            {% if d.product_reference %}
-                            <a class="draft-section product-reference-card" href="{{ d.product_reference.url }}" target="_blank" rel="noopener noreferrer">
-                                <div>
-                                    <div class="draft-section-label">Product Reference</div>
-                                    <div class="product-reference-title">{{ d.product_reference.product }}</div>
-                                    <div class="product-reference-meta">
-                                        {% if d.product_reference.sku %}<span>SKU {{ d.product_reference.sku }}</span>{% endif %}
-                                        {% if d.product_reference.price %}<span>{{ d.product_reference.price }}</span>{% endif %}
-                                        {% if d.product_reference.stock_availability is not none %}<span>{{ d.product_reference.stock_availability }} in stock</span>{% endif %}
-                                    </div>
-                                </div>
-                                <span class="product-reference-action">View product</span>
-                            </a>
-                            {% endif %}
                             <div class="draft-section draft-feedback{% if not d.last_rejection_reason %} is-hidden{% endif %}">
                                 <div class="draft-section-label">Reviewer Feedback For Regeneration</div>
                                 <label class="feedback-label" for="feedback-{{ d.draft_id }}">Reason for rejection</label>

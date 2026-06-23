@@ -8,6 +8,7 @@ from app.schemas.draft import EmailPayload, DraftResponse
 from app.schemas.email import IncomingEmail
 from data import (
     add_generated_draft,
+    append_product_references,
     approve_draft as approve_pending_draft,
     get_drafts,
     publish_event,
@@ -47,13 +48,18 @@ class DraftService:
             workflow=workflow.model_dump(),
         )
         draft_id = stored_draft.draft_id if stored_draft else workflow.draft_id
+        ai_draft = (
+            stored_draft.ai_draft
+            if stored_draft
+            else append_product_references(workflow.ai_draft, workflow.model_dump())
+        )
 
         draft = DraftResponse(
             draft_id=draft_id,
             sender=email.sender,
             subject=email.subject,
             customer_inquiry=email.body,
-            ai_draft=workflow.ai_draft,
+            ai_draft=ai_draft,
             status=workflow.status,
         )
 
@@ -90,6 +96,7 @@ class DraftService:
             return None
 
         previous_ai = row.get("ai_draft_text", "")
+        ai_draft = append_product_references(ai_draft, row.get("workflow"))
         row["ai_draft_text"] = ai_draft
         row["updated"] = datetime.now().isoformat()
         self.repository.upsert_draft(row)
@@ -207,8 +214,10 @@ class DraftService:
         row["status"] = workflow.status
         row["revisions"] = next_revisions
         row["last_rejection_reason"] = reviewer_feedback
-        row["ai_draft_text"] = workflow.ai_draft
-        row["workflow"] = workflow.model_dump()
+        workflow_payload = workflow.model_dump()
+        ai_draft = append_product_references(workflow.ai_draft, workflow_payload)
+        row["ai_draft_text"] = ai_draft
+        row["workflow"] = workflow_payload
         row["updated"] = now
         self.repository.upsert_draft(row)
 
@@ -230,10 +239,10 @@ class DraftService:
             ),
             "review_comment": reviewer_feedback or None,
             "customer_inquiry": workflow.customer_inquiry,
-            "ai_draft": workflow.ai_draft,
+            "ai_draft": ai_draft,
             "details": {
                 "previous_ai_draft": previous_ai,
-                "regenerated_ai_draft": workflow.ai_draft,
+                "regenerated_ai_draft": ai_draft,
                 "product_context": workflow.product_context.model_dump(),
                 "validation": workflow.validation.model_dump(),
                 "supervisor_review": (
@@ -250,7 +259,7 @@ class DraftService:
         regenerated = self.get_draft(draft_id) or {
             **row,
             "customer_inquiry": workflow.customer_inquiry,
-            "ai_draft": workflow.ai_draft,
+            "ai_draft": ai_draft,
         }
         try:
             publish_event(

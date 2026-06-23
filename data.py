@@ -260,7 +260,7 @@ class Draft:
     def ai_draft(self) -> str:
         """supplies either persisted agent output or a deterministic fallback draft."""
         if self.ai_draft_text.strip():
-            return self.ai_draft_text
+            return append_product_references(self.ai_draft_text, self.workflow)
 
         revision_note = f"\n\nRevision note: updated draft v{self.revisions}." if self.revisions else ""
         category = self.inquiry_category
@@ -273,50 +273,54 @@ class Draft:
 
         if category == 'pricing':
             if any(keyword in lower_reason for keyword in ('short', 'brief', 'concise')):
-                return (
+                return append_product_references(
                     "Hi,\n\n"
                     "Thanks for your pricing inquiry for Product X. Our standard pricing is $120 per unit for orders below 100 units "
                     "and $95 per unit for orders of 100 units or more.\n\n"
                     "If you share your expected quantity and delivery target, we can confirm the final quote."
                     f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
-                    "Swift Support"
+                    "Swift Support",
+                    self.workflow,
                 )
 
             if any(keyword in lower_reason for keyword in ('lead time', 'timeline', 'delivery')):
-                return (
+                return append_product_references(
                     "Hi,\n\n"
                     "Thanks for your pricing inquiry for Product X. Our standard pricing is $120 per unit for orders below 100 units "
                     "and $95 per unit for orders of 100 units or more, with a typical delivery timeline of 7 to 10 business days from order confirmation.\n\n"
                     "If you share your target quantity and delivery date, we can confirm the exact quote and schedule."
                     f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
-                    "Swift Support"
+                    "Swift Support",
+                    self.workflow,
                 )
 
             if any(keyword in inquiry_text for keyword in ('250', 'bulk', 'volume')):
-                return (
+                return append_product_references(
                     "Hi,\n\n"
                     "Thanks for your bulk pricing inquiry for Product X. For an order size around 250 units, "
                     "our indicative rate is $92 per unit, subject to final confirmation on delivery terms and order timing.\n\n"
                     "If you confirm the target ship date and delivery address, we can prepare the final bulk quote for you."
                     f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
-                    "Swift Support"
+                    "Swift Support",
+                    self.workflow,
                 )
 
             if any(keyword in inquiry_text for keyword in ('distributor', 'reseller', 'monthly reorder')):
-                return (
+                return append_product_references(
                     "Hi,\n\n"
                     "Yes, we can discuss distributor pricing for Product X. For repeat monthly orders, we usually review "
                     "forecasted volume, order frequency, and territory before confirming the commercial rate.\n\n"
                     "Please send your estimated monthly demand and target market, and we will share the appropriate pricing structure."
                     f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
-                    "Swift Support"
+                    "Swift Support",
+                    self.workflow,
                 )
 
-            return (
+            return append_product_references(
                 "Hi,\n\n"
                 "Yes, we can share pricing for Product X. The current standard pricing is "
                 "$120 per unit for orders under 100 units, and $95 per unit for orders of 100 units or more. "
@@ -324,53 +328,58 @@ class Draft:
                 "If you send over your expected quantity and target delivery date, we can confirm the exact quote."
                 f"{feedback_note}{revision_note}\n\n"
                 "Best regards,\n"
-                "Swift Support"
+                "Swift Support",
+                self.workflow,
             )
 
         if category == 'availability':
             if any(keyword in lower_reason for keyword in ('warehouse', 'location', 'ship from')):
-                return (
+                return append_product_references(
                     "Hi,\n\n"
                     "Thanks for checking stock availability for Product X. We can confirm inventory against the nearest warehouse once we have your requested quantity and delivery location.\n\n"
                     "Please send the delivery address and quantity needed, and we will confirm stock allocation and dispatch timing."
                     f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
-                    "Swift Support"
+                    "Swift Support",
+                    self.workflow,
                 )
 
             if any(keyword in lower_reason for keyword in ('specific', 'exact quantity', 'confirm quantity')):
-                return (
+                return append_product_references(
                     "Hi,\n\n"
                     "Thanks for checking availability for Product X. We can confirm whether the exact quantity you need is available once you share the required units and requested ship date.\n\n"
                     "Please reply with the quantity and delivery schedule, and we will confirm stock status right away."
                     f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
-                    "Swift Support"
+                    "Swift Support",
+                    self.workflow,
                 )
 
             if any(keyword in inquiry_text for keyword in ('urgent', 'immediate', 'asap')):
-                return (
+                return append_product_references(
                     "Hi,\n\n"
                     "We can support an urgent stock check for Product X. Based on current inventory, we should be able "
                     "to review availability for immediate shipment once we confirm the exact quantity and delivery destination.\n\n"
                     "Please reply with your shipping address and required delivery date, and we will confirm the fastest available dispatch option."
                     f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
-                    "Swift Support"
+                    "Swift Support",
+                    self.workflow,
                 )
 
             if any(keyword in inquiry_text for keyword in ('kuala lumpur', 'singapore', 'warehouse', 'location')):
-                return (
+                return append_product_references(
                     "Hi,\n\n"
                     "Thanks for checking regional stock availability for Product X. We can verify inventory against the nearest warehouse "
                     "and confirm whether we can fulfill your requested quantity within your delivery window.\n\n"
                     "If you send the delivery address and required quantity, we will confirm stock allocation and lead time."
                     f"{feedback_note}{revision_note}\n\n"
                     "Best regards,\n"
-                    "Swift Support"
+                    "Swift Support",
+                    self.workflow,
                 )
 
-            return (
+            return append_product_references(
                 "Hi,\n\n"
                 "Thanks for checking on stock availability for Product X. We currently have inventory available "
                 "and can usually reserve stock once we receive your required quantity and requested ship date.\n\n"
@@ -378,17 +387,19 @@ class Draft:
                 "hold timing for your order."
                 f"{feedback_note}{revision_note}\n\n"
                 "Best regards,\n"
-                "Swift Support"
+                "Swift Support",
+                self.workflow,
             )
 
-        return (
+        return append_product_references(
             "Hi,\n\n"
             "Thanks for your message. At the moment, this workflow only supports customer inquiries about "
             "product stock availability and pricing. Please resend your request with the product name and either "
             "the quantity needed, availability question, or pricing details you want confirmed."
             f"{feedback_note}{revision_note}\n\n"
             "Best regards,\n"
-            "Swift Support"
+            "Swift Support",
+            self.workflow,
         )
 
     @property
@@ -544,20 +555,71 @@ def build_email_thread_context(
 
 
 def build_product_reference(draft: Draft) -> dict[str, Any] | None:
-    """builds a clickable product reference card from persisted workflow facts."""
-    product_context = _workflow_product_context(draft.workflow)
-    if not product_context:
-        return None
+    """returns the first product reference for legacy consumers."""
+    references = build_product_references(draft.workflow)
+    return references[0] if references else None
 
+
+def build_product_references(workflow: dict[str, Any] | None) -> list[dict[str, Any]]:
+    """builds customer-visible source links from persisted workflow facts."""
+    product_context = _workflow_product_context(workflow)
+    if not product_context:
+        return []
+
+    references: list[dict[str, Any]] = []
+    _add_product_reference(references, product_context)
+    for key in ("listed_products", "suggested_products"):
+        items = product_context.get(key)
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            if isinstance(item, dict):
+                _add_product_reference(references, item)
+
+    seen_urls: set[str] = set()
+    unique: list[dict[str, Any]] = []
+    for reference in references:
+        url = reference.get("url")
+        if not url or url in seen_urls:
+            continue
+        seen_urls.add(url)
+        unique.append(reference)
+    return unique
+
+
+def append_product_references(ai_draft: str, workflow: dict[str, Any] | None) -> str:
+    """adds product source links to the response body that will be sent."""
+    draft_text = (ai_draft or "").rstrip()
+    if not draft_text:
+        return draft_text
+    if any(line.strip().lower() == "references:" for line in draft_text.splitlines()):
+        return draft_text
+
+    references = build_product_references(workflow)
+    if not references:
+        return draft_text
+
+    lines = ["", "", "References:"]
+    lines.extend(
+        f"{index}. {reference['url']}"
+        for index, reference in enumerate(references, start=1)
+    )
+    return f"{draft_text}{chr(10).join(lines)}"
+
+
+def _add_product_reference(
+    references: list[dict[str, Any]],
+    product_context: dict[str, Any],
+) -> None:
     product = str(product_context.get('product') or '').strip()
     sku = str(product_context.get('sku') or '').strip()
     if not product and not sku:
-        return None
+        return
 
     query = sku or product
     base_url = get_app_settings().product_reference_base_url.strip()
     if not base_url:
-        return None
+        return
 
     if '{query}' in base_url:
         url = base_url.replace('{query}', quote_plus(query))
@@ -569,14 +631,16 @@ def build_product_reference(draft: Draft) -> dict[str, Any] | None:
 
     price = product_context.get('price')
     currency = product_context.get('currency') or 'RM'
-    return {
-        'product': product or sku,
-        'sku': sku,
-        'url': url,
-        'price': f'{currency} {float(price):.2f}' if isinstance(price, int | float) else '',
-        'stock_availability': product_context.get('stock_availability'),
-        'source': product_context.get('source') or '',
-    }
+    references.append(
+        {
+            'product': product or sku,
+            'sku': sku,
+            'url': url,
+            'price': f'{currency} {float(price):.2f}' if isinstance(price, int | float) else '',
+            'stock_availability': product_context.get('stock_availability'),
+            'source': product_context.get('source') or '',
+        }
+    )
 
 
 def _audit_belongs_to_thread(draft: Draft, audit: dict[str, Any]) -> bool:
@@ -837,6 +901,7 @@ def add_generated_draft(
         body=body,
         status=normalized_status,
     )
+    ai_draft = append_product_references(ai_draft, workflow)
     if existing_row:
         existing = _row_to_draft(existing_row)
         existing.ai_draft_text = ai_draft
