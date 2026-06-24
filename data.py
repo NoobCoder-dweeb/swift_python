@@ -417,6 +417,7 @@ class Draft:
         payload = asdict(self)
         payload['customer_inquiry'] = self.customer_inquiry
         payload['ai_draft'] = self.ai_draft
+        payload['reply_subject'] = _reply_subject(self.subject)
         payload['created_display'] = self.created_display
         payload['updated_display'] = self.updated_display
         payload['thread_history'] = self.thread_history or build_thread_history(self)
@@ -431,6 +432,12 @@ def _format_human_datetime(value: str) -> str:
     except Exception:
         return value
     return parsed.strftime('%b %d, %Y, %I:%M %p').replace(' 0', ' ')
+
+
+def _reply_subject(subject: str) -> str:
+    """formats reply subjects without producing Re: Re: in the review UI."""
+    cleaned = ' '.join((subject or 'Inquiry').split()) or 'Inquiry'
+    return cleaned if cleaned.lower().startswith('re:') else f'Re: {cleaned}'
 
 
 def _draft_version_number(revisions: int) -> int:
@@ -613,21 +620,25 @@ def _add_product_reference(
 ) -> None:
     product = str(product_context.get('product') or '').strip()
     sku = str(product_context.get('sku') or '').strip()
+    source_url = str(product_context.get('source_url') or '').strip()
     if not product and not sku:
         return
 
-    query = sku or product
-    base_url = get_app_settings().product_reference_base_url.strip()
-    if not base_url:
-        return
-
-    if '{query}' in base_url:
-        url = base_url.replace('{query}', quote_plus(query))
+    if source_url:
+        url = source_url
     else:
-        separator = '' if base_url.endswith(('=', '/', '?', '&')) else (
-            '&' if '?' in base_url else '?q='
-        )
-        url = f'{base_url}{separator}{quote_plus(query)}'
+        query = sku or product
+        base_url = get_app_settings().product_reference_base_url.strip()
+        if not base_url:
+            return
+
+        if '{query}' in base_url:
+            url = base_url.replace('{query}', quote_plus(query))
+        else:
+            separator = '' if base_url.endswith(('=', '/', '?', '&')) else (
+                '&' if '?' in base_url else '?q='
+            )
+            url = f'{base_url}{separator}{quote_plus(query)}'
 
     price = product_context.get('price')
     currency = product_context.get('currency') or 'RM'
@@ -887,7 +898,7 @@ def add_generated_draft(
     normalized_status = status if status in {'pending', 'blocked'} else 'pending'
 
     workflow_type = _workflow_inquiry_type(workflow)
-    workflow_supported = workflow_type in {'pricing', 'availability', 'mixed'}
+    workflow_supported = workflow_type in {'pricing', 'availability', 'mixed', 'listing'}
     if (
         _classify_inquiry(subject, body) is None
         and normalized_status == 'pending'
@@ -1045,7 +1056,7 @@ def _is_reviewable_draft(draft: Draft) -> bool:
 
     workflow_type = _workflow_inquiry_type(draft.workflow)
     if workflow_type:
-        return workflow_type in {'pricing', 'availability', 'mixed'}
+        return workflow_type in {'pricing', 'availability', 'mixed', 'listing'}
 
     return draft.inquiry_category in {'pricing', 'availability'}
 
