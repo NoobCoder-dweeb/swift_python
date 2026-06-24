@@ -12,6 +12,7 @@ def test_zero_config_resolves_to_memory_storage(monkeypatch):
     monkeypatch.delenv("SWIFT_EXTERNAL_AGENT_URL", raising=False)
     monkeypatch.delenv("SWIFT_AGENT_BACKEND", raising=False)
     monkeypatch.delenv("SWIFT_CREWAI_ENABLED", raising=False)
+    monkeypatch.delenv("SWIFT_SEED_DEMO_DATA", raising=False)
     reset_app_settings()
 
     settings = get_app_settings()
@@ -20,8 +21,20 @@ def test_zero_config_resolves_to_memory_storage(monkeypatch):
     assert settings.ui_enabled is True
     assert settings.resolved_agent_backend == "deterministic"
     assert settings.cors_origins == ["*"]
+    assert settings.seed_demo_data is False
 
     reset_app_settings()
+
+
+def test_demo_seed_data_is_explicitly_opt_in(monkeypatch):
+    """pending drafts should not be populated from sample data unless requested."""
+    monkeypatch.setenv("SWIFT_SEED_DEMO_DATA", "1")
+    reset_app_settings()
+
+    try:
+        assert get_app_settings().seed_demo_data is True
+    finally:
+        reset_app_settings()
 
 
 def test_external_agent_backend_accepts_valid_vendor_draft(monkeypatch):

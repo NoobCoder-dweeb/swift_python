@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from importlib import import_module
+import re
 import time
 from typing import Any
+from urllib.parse import quote_plus, urlparse
 from uuid import uuid4
 
 import httpx
@@ -93,11 +95,88 @@ def run_sales_inquiry_workflow(
         subject=cleaned_email.subject,
         body=cleaned_email.body,
     )
-    product_context = processor.lookup_product_context(
-        inquiry.product_name,
-        f"{cleaned_email.subject}\n{cleaned_email.body}",
+    product_query = f"{cleaned_email.subject}\n{cleaned_email.body}"
+    product_context = _lookup_product_context_for_inquiry(
+        processor,
+        inquiry,
+        product_query,
     )
-    if product_context.product and inquiry.product_name != product_context.product:
+    inquiry = _promote_product_only_inquiry(processor, inquiry, product_context)
+    if (
+        product_context.confidence >= 0.5
+        and product_context.product
+        and inquiry.product_name != product_context.product
+    ):
+        inquiry = inquiry.model_copy(
+            update={
+                "product_name": product_context.product,
+                "missing_information": [
+                    item
+                    for item in inquiry.missing_information
+                    if item != "product_name"
+                ],
+            }
+        )
+    current_reply = _current_reply_segment(cleaned_email.body)
+    if current_reply != cleaned_email.body:
+        current_inquiry_type = _current_reply_inquiry_type(current_reply)
+        current_quantity = processor._detect_quantity(current_reply.lower())
+        current_delivery = processor._detect_delivery(current_reply)
+        if current_inquiry_type or current_quantity or current_delivery:
+            inquiry_type = current_inquiry_type or inquiry.inquiry_type
+            quantity = (
+                current_quantity
+                if current_inquiry_type or current_quantity is not None
+                else inquiry.quantity
+            )
+            requested_delivery = (
+                current_delivery
+                if current_inquiry_type or current_delivery is not None
+                else inquiry.requested_delivery
+            )
+            inquiry = inquiry.model_copy(
+                update={
+                    "inquiry_type": inquiry_type,
+                    "quantity": quantity,
+                    "requested_delivery": requested_delivery,
+                    "missing_information": processor._missing_information(
+                        inquiry_type=inquiry_type,
+                        product_name=inquiry.product_name,
+                        quantity=quantity,
+                        requested_delivery=requested_delivery,
+                    ),
+                }
+            )
+
+    feedback_inquiry_type = _current_reply_inquiry_type(reviewer_feedback or "")
+    feedback_quantity = _feedback_quantity_override(reviewer_feedback or "")
+    if feedback_inquiry_type or feedback_quantity:
+        inquiry_type = feedback_inquiry_type or inquiry.inquiry_type
+        quantity = feedback_quantity or inquiry.quantity
+        inquiry = inquiry.model_copy(
+            update={
+                "inquiry_type": inquiry_type,
+                "quantity": quantity,
+                "missing_information": processor._missing_information(
+                    inquiry_type=inquiry_type,
+                    product_name=inquiry.product_name,
+                    quantity=quantity,
+                    requested_delivery=inquiry.requested_delivery,
+                ),
+            }
+        )
+
+    product_context = _lookup_product_context_for_inquiry(
+        processor,
+        inquiry,
+        product_query,
+    )
+    inquiry = _promote_product_only_inquiry(processor, inquiry, product_context)
+    if (
+        product_context.confidence >= 0.5
+        and product_context.product
+        and inquiry.product_name != product_context.product
+    ):
         inquiry = inquiry.model_copy(
             update={
                 "product_name": product_context.product,
@@ -207,6 +286,8 @@ def run_sales_inquiry_workflow(
         validation = drafter.validate_draft(ai_draft, product_context)
         if not validation.valid:
             chokeholds.extend(validation.reasons)
+
+    ai_draft = _append_product_references(ai_draft, product_context)
 
     elapsed_ms = (time.perf_counter() - start) * 1000
     return SalesWorkflowResult(
@@ -375,9 +456,15 @@ def _run_external_agent_draft(
             "requires_human_review": True,
             "forbidden": [
                 "invented prices",
+                "invented product suggestions",
                 "invented stock",
                 "invented lead times",
+                "unpersisted catalog rows",
+                "credential disclosure",
                 "customer personal data",
+                "customer data extraction",
+                "unauthorized access guidance",
+                "security bypass guidance",
                 "subject line in response body",
             ],
         },
@@ -443,6 +530,194 @@ def _format_crewai_error(exc: Exception) -> str:
     detail = str(exc).strip() or repr(exc)
     detail = " ".join(detail.split())
     return f"crewai_error:{exc.__class__.__name__}:{detail[:240]}"
+
+
+def _lookup_product_context_for_inquiry(
+    processor: SalesProcessingAgent,
+    inquiry: InquiryDetails,
+    product_query: str,
+) -> ProductContext:
+    if inquiry.inquiry_type == "listing":
+        return processor.lookup_product_list_context(product_query)
+    return processor.lookup_product_context(inquiry.product_name, product_query)
+
+
+def _promote_product_only_inquiry(
+    processor: SalesProcessingAgent,
+    inquiry: InquiryDetails,
+    product_context: ProductContext,
+) -> InquiryDetails:
+    """lets approved product-only emails enter review instead of auto-rejecting."""
+    if (
+        inquiry.inquiry_type != "unknown"
+        or product_context.confidence < 0.5
+        or not product_context.product
+    ):
+        return inquiry
+
+    inquiry_type = "mixed"
+    return inquiry.model_copy(
+        update={
+            "inquiry_type": inquiry_type,
+            "product_name": product_context.product,
+            "missing_information": processor._missing_information(
+                inquiry_type=inquiry_type,
+                product_name=product_context.product,
+                quantity=inquiry.quantity,
+                requested_delivery=inquiry.requested_delivery,
+            ),
+            "confidence": max(inquiry.confidence, 0.7),
+        }
+    )
+
+
+def _append_product_references(ai_draft: str, product_context: ProductContext) -> str:
+    """ensures workflow/model output includes customer-visible product links."""
+    draft_text = (ai_draft or "").rstrip()
+    if not draft_text:
+        return draft_text
+    if any(line.strip().lower() == "references:" for line in draft_text.splitlines()):
+        return draft_text
+
+    references = _product_reference_urls(product_context)
+    if not references:
+        return draft_text
+
+    lines = ["", "", "References:"]
+    lines.extend(f"{index}. {url}" for index, url in enumerate(references, start=1))
+    return f"{draft_text}{chr(10).join(lines)}"
+
+
+def _product_reference_urls(product_context: ProductContext) -> list[str]:
+    references: list[str] = []
+    _add_product_reference_url(references, product_context)
+    for item in [*product_context.listed_products, *product_context.suggested_products]:
+        _add_product_reference_url(references, item)
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for url in references:
+        if url and url not in seen:
+            seen.add(url)
+            unique.append(url)
+    return unique
+
+
+def _add_product_reference_url(references: list[str], product_context: Any) -> None:
+    product = str(getattr(product_context, "product", "") or "").strip()
+    sku = str(getattr(product_context, "sku", "") or "").strip()
+    source_url = str(getattr(product_context, "source_url", "") or "").strip()
+    if not product and not sku:
+        return
+    references.append(source_url or _fallback_product_reference_url(sku or product))
+
+
+def _fallback_product_reference_url(query: str) -> str:
+    base_url = get_app_settings().product_reference_base_url.strip()
+    if not base_url:
+        return ""
+    if "{query}" in base_url:
+        return base_url.replace("{query}", quote_plus(query))
+
+    parsed = urlparse(base_url)
+    if parsed.netloc == "safetyware.com" and parsed.path.rstrip("/") == "/products":
+        return base_url
+
+    separator = "" if base_url.endswith(("=", "?", "&")) else (
+        "&" if "?" in base_url else "?q="
+    )
+    return f"{base_url}{separator}{quote_plus(query)}"
+
+
+def _current_reply_segment(body: str) -> str:
+    """returns the explicit current-reply section when thread context is prepended."""
+    marker = "Current customer reply to answer now:"
+    if marker not in body:
+        return body
+    current = body.rsplit(marker, 1)[-1].strip()
+    for context_marker in (
+        "\nConversation history",
+        "\nUse this only",
+        "\nCustomer ",
+        "\nCompany ",
+    ):
+        if context_marker in current:
+            current = current.split(context_marker, 1)[0].strip()
+    return current or body
+
+
+def _current_reply_inquiry_type(body: str) -> str | None:
+    """lets the newest reply decide whether the answer is price, stock, or both."""
+    lower = body.lower()
+    listing = any(
+        token in lower
+        for token in (
+            "list products",
+            "show products",
+            "which products",
+            "what products",
+            "browse products",
+        )
+    )
+    pricing = any(
+        token in lower
+        for token in (
+            "price",
+            "pricing",
+            "quote",
+            "cost",
+            "rate",
+            "how much",
+            "total",
+            "buy",
+            "purchase",
+            "harga",
+            "berapa",
+        )
+    )
+    availability = any(
+        token in lower
+        for token in (
+            "stock",
+            "availability",
+            "available",
+            "inventory",
+            "in stock",
+            "carry",
+            "supply",
+            "delivery",
+            "courier",
+            "ship",
+            "shipment",
+            "order",
+        )
+    )
+    if listing:
+        return "listing"
+    if pricing and availability:
+        return "mixed"
+    if pricing:
+        return "pricing"
+    if availability:
+        return "availability"
+    return None
+
+
+def _feedback_quantity_override(feedback: str) -> int | None:
+    """uses the corrected quantity from reviewer feedback when one is explicit."""
+    lower = feedback.lower()
+    if not any(token in lower for token in ("want", "compute", "total", "price", "pricing")):
+        return None
+    matches = [
+        int(match.group("quantity").replace(",", ""))
+        for match in re.finditer(
+            r"\b(?P<quantity>\d{1,3}(?:,\d{3})+|\d{1,6})(?:\.\d+)?\s*"
+            r"(?:units?|pcs?|pieces?|boxes?|cartons?|pairs?|sets?)\b",
+            lower,
+        )
+        if int(match.group("quantity").replace(",", "")) > 0
+    ]
+    return matches[-1] if matches else None
 
 
 def _crewai_workflow_classes() -> tuple[Any, Any]:

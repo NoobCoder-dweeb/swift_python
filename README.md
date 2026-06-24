@@ -12,7 +12,9 @@ uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 With no environment variables, it uses in-memory storage, the deterministic
 local drafting workflow, permissive CORS for an external UI, and no demo seed
-data. External vendors can then plug in the pieces they own:
+data. The checked-in `.env.example` follows the same zero-service defaults so
+local tests and stress runs are reproducible without PostgreSQL, SMTP, Ollama,
+or any hosted agent. External vendors can then plug in the pieces they own:
 
 | External capability | Minimal configuration |
 | --- | --- |
@@ -50,8 +52,9 @@ Google app password rather than your normal account password.
 
 Audits, drafts, and received emails are stored in PostgreSQL when the app runs
 with `SWIFT_STORAGE_BACKEND=postgres` and `DATABASE_URL` set. The web container
-does not persist those objects to local files. The bundled Compose file enables
-demo seed data for local UI review.
+does not persist those objects to local files. The bundled Compose file leaves
+demo seed data disabled, so pending drafts come from real intake or explicit
+API calls rather than startup sample data.
 
 Start the app and database together:
 
@@ -138,6 +141,71 @@ greetings, signatures, quoted replies, disclaimers, contact footers, and other
 boilerplate, then keeps the lines most relevant to the customer's pricing or
 stock availability query.
 
+## CloudMailin and Localtunnel
+
+For a real Gmail-to-local workflow, CloudMailin should send the incoming message
+to the tunnel-facing webhook. The webhook accepts CloudMailin's JSON Normalized
+format, requires Basic Auth, creates a pending draft for human review, and sends
+the approved reply through the configured Gmail SMTP account when a reviewer
+clicks Accept.
+
+Set local credentials in `.env`. For Docker Compose, set the same values in
+`docker.env`, because the containers read that file:
+
+```bash
+SWIFT_CLOUDMAILIN_BASIC_USERNAME=choose-a-user
+SWIFT_CLOUDMAILIN_BASIC_PASSWORD=choose-a-long-password
+SWIFT_SMTP_HOST=smtp.gmail.com
+SWIFT_SMTP_PORT=587
+SWIFT_SMTP_USERNAME=your-sender@gmail.com
+SWIFT_SMTP_PASSWORD=your-gmail-app-password
+SWIFT_SMTP_FROM_EMAIL=your-sender@gmail.com
+SWIFT_SMTP_REPLY_TO_EMAIL=your-cloudmailin-address@cloudmailin.net
+SWIFT_PRODUCT_REFERENCE_BASE_URL=https://safetyware.com/products/
+```
+
+`SWIFT_SMTP_REPLY_TO_EMAIL` is what makes the real reply loop work: Gmail SMTP
+can send the approved response from your Gmail account, while the customer's
+Gmail reply is addressed back to CloudMailin and posted into the webhook as a
+new inbound email.
+
+Start FastAPI and Localtunnel together:
+
+```bash
+.venv/bin/python scripts/run_cloudmailin_localtunnel.py --port 8025
+```
+
+Localtunnel runs on Node.js. If `npx` is not available yet, install Node.js
+first, or install Localtunnel globally and pass `--localtunnel-bin lt`:
+
+```bash
+brew install node
+# or, after Node.js is installed:
+npm install -g localtunnel
+.venv/bin/python scripts/run_cloudmailin_localtunnel.py --port 8025 --localtunnel-bin lt
+```
+
+With Docker Compose, the `localtunnel` service starts automatically beside the
+app and forwards CloudMailin traffic to the `app:8000` container:
+
+```bash
+docker compose up --build
+docker compose logs -f localtunnel
+```
+
+Use the CloudMailin target URL printed in the `localtunnel` logs.
+
+The script prints the URL to paste into CloudMailin, shaped like:
+
+```text
+https://user:password@your-tunnel.loca.lt/api/emails/cloudmailin
+```
+
+In CloudMailin, configure the address target to use the JSON Normalized POST
+format. Send a real email from Gmail to the CloudMailin address, then open the
+local Project Swift UI, review the pending draft, and click Accept to send the
+reply through Gmail SMTP.
+
 ## Sales processing workflow
 
 The real sales workflow lives under `app/crews`, not in `data.py`. The default
@@ -157,9 +225,14 @@ Nemotron Mini, the sales processing/database-context agent defaults to Llama
 3.2 3B, and the response drafting agent defaults to Qwen 2.5 3B. The role model
 names must remain unique so one model is not reused across the crew.
 
-Run the stress harness:
+Run the deterministic stress harness with the same zero-service defaults:
 
 ```bash
 .venv/bin/python -m app.crews.stress_test
+```
+
+Run the CrewAI variant only after a local model endpoint is available:
+
+```bash
 .venv/bin/python -m app.crews.stress_test --crewai
 ```

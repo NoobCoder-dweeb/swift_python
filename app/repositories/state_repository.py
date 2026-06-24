@@ -260,6 +260,7 @@ class PostgresStateRepository:
                     product_id TEXT PRIMARY KEY,
                     sku TEXT NOT NULL UNIQUE,
                     name TEXT NOT NULL,
+                    source_url TEXT NOT NULL DEFAULT 'https://safetyware.com/products/',
                     category TEXT NOT NULL,
                     description TEXT NOT NULL DEFAULT '',
                     currency TEXT NOT NULL DEFAULT 'RM',
@@ -270,6 +271,13 @@ class PostgresStateRepository:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
                 )
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_products
+                    ADD COLUMN IF NOT EXISTS source_url TEXT
+                    NOT NULL DEFAULT 'https://safetyware.com/products/'
                 """
             )
             conn.execute(

@@ -45,7 +45,39 @@
                             </div>
                         </div>
                         <div class="draft-body">
-                            <div class="draft-section">
+                            {% if d.thread_history %}
+                            <div class="draft-section draft-thread">
+                                <div class="draft-thread-heading">
+                                    <div>
+                                        <div class="draft-section-label">Email Thread</div>
+                                        <div class="thread-summary">{{ d.thread_history|length }} conversation message{% if d.thread_history|length != 1 %}s{% endif %}</div>
+                                    </div>
+                                    <button class="thread-toggle" type="button" aria-expanded="true">Compact</button>
+                                </div>
+                                <div class="thread-list">
+                                    {% for item in d.thread_history %}
+                                    <article class="thread-item thread-item-{{ item.kind }}{% if item.is_current %} expanded{% endif %}">
+                                        <button class="thread-item-toggle" type="button" aria-expanded="{{ 'true' if item.is_current else 'false' }}">
+                                            <span class="thread-item-title">{{ item.title }}</span>
+                                            <span class="thread-item-meta">{{ item.meta }}{% if item.timestamp_display %} • {{ item.timestamp_display }}{% endif %}</span>
+                                        </button>
+                                        <div class="thread-item-body">
+                                            <div class="email-meta">
+                                                <div><strong>From:</strong> {{ item.sender }}</div>
+                                                <div><strong>Subject:</strong> {{ item.subject }}</div>
+                                            </div>
+                                            {% if item.review_comment %}
+                                            <div class="thread-note">{{ item.review_comment }}</div>
+                                            {% endif %}
+                                            <div class="draft-section-content">{{ item.body }}</div>
+                                        </div>
+                                    </article>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+                            {% if not d.thread_history %}
+                            <div class="draft-section draft-section-customer">
                                 <div class="draft-section-label">Customer Email</div>
                                 <div class="email-meta">
                                     <div><strong>From:</strong> {{ d.sender }}</div>
@@ -53,11 +85,12 @@
                                 </div>
                                 <div class="draft-section-content">{{ d.customer_inquiry }}</div>
                             </div>
+                            {% endif %}
                             <div class="draft-section draft-section-ai">
                                 <div class="draft-section-label">AI Response Draft</div>
                                 <div class="email-meta">
                                     <div><strong>To:</strong> {{ d.sender }}</div>
-                                    <div><strong>Subject:</strong> Re: {{ d.subject }}</div>
+                                    <div><strong>Subject:</strong> {{ d.reply_subject }}</div>
                                 </div>
                                 <div class="draft-section-content">{{ d.ai_draft }}</div>
                             </div>

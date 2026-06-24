@@ -5,7 +5,14 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-InquiryType = Literal["pricing", "availability", "mixed", "unsupported", "unknown"]
+InquiryType = Literal[
+    "pricing",
+    "availability",
+    "mixed",
+    "listing",
+    "unsupported",
+    "unknown",
+]
 WorkflowMode = Literal["deterministic", "crewai", "external"]
 
 
@@ -24,11 +31,28 @@ class InquiryDetails(BaseModel):
     confidence: float = 0.0
 
 
+class ProductOption(BaseModel):
+    """represents a persisted catalog row safe to mention in a draft."""
+
+    product: str
+    sku: str | None = None
+    source_url: str | None = None
+    category: str | None = None
+    description: str | None = None
+    stock_availability: int | None = None
+    price: float | None = None
+    currency: str = "RM"
+    unit_of_measure: str | None = None
+    source: str = "catalog"
+    confidence: float = 0.0
+
+
 class ProductContext(BaseModel):
     """constrains draft generation to approved product data."""
 
     product: str | None = None
     sku: str | None = None
+    source_url: str | None = None
     stock_availability: int | None = None
     price: float | None = None
     currency: str = "RM"
@@ -36,6 +60,8 @@ class ProductContext(BaseModel):
     source: str = "local_catalog"
     confidence: float = 0.0
     notes: list[str] = Field(default_factory=list)
+    suggested_products: list[ProductOption] = Field(default_factory=list)
+    listed_products: list[ProductOption] = Field(default_factory=list)
 
 
 class DraftValidationResult(BaseModel):
@@ -76,8 +102,13 @@ class StressScenario(BaseModel):
     subject: str
     body: str
     expected_type: InquiryType | None = None
+    expected_status: Literal["pending", "blocked"] | None = None
+    expected_quantity: int | None = None
     required_terms: list[str] = Field(default_factory=list)
     forbidden_terms: list[str] = Field(default_factory=list)
+    required_chokeholds: list[str] = Field(default_factory=list)
+    forbidden_chokeholds: list[str] = Field(default_factory=list)
+    required_validation_reasons: list[str] = Field(default_factory=list)
     expect_valid: bool | None = None
 
 

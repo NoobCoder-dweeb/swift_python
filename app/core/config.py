@@ -66,9 +66,14 @@ class AppSettings:
     smtp_username: str
     smtp_password: str
     smtp_from_email: str
+    smtp_reply_to_email: str
     smtp_from_name: str
     smtp_use_tls: bool
     smtp_timeout: float
+    cloudmailin_basic_username: str
+    cloudmailin_basic_password: str
+    session_secret_key: str
+    product_reference_base_url: str = "https://safetyware.com/products/"
 
     @property
     def storage_mode(self) -> str:
@@ -87,6 +92,7 @@ class AppSettings:
             "agent_backend": self.resolved_agent_backend,
             "external_agent_configured": bool(self.external_agent_url),
             "smtp_configured": self.smtp_configured,
+            "cloudmailin_auth_configured": self.cloudmailin_auth_configured,
         }
 
     @property
@@ -110,6 +116,11 @@ class AppSettings:
         """uses an explicit sender address or falls back to the SMTP username."""
         return self.smtp_from_email or self.smtp_username
 
+    @property
+    def cloudmailin_auth_configured(self) -> bool:
+        """reports whether the public CloudMailin webhook is protected."""
+        return bool(self.cloudmailin_basic_username and self.cloudmailin_basic_password)
+
 
 @lru_cache(maxsize=1)
 def get_app_settings() -> AppSettings:
@@ -129,9 +140,20 @@ def get_app_settings() -> AppSettings:
         smtp_username=_env_text("SWIFT_SMTP_USERNAME"),
         smtp_password=_env_text("SWIFT_SMTP_PASSWORD"),
         smtp_from_email=_env_text("SWIFT_SMTP_FROM_EMAIL"),
+        smtp_reply_to_email=_env_text("SWIFT_SMTP_REPLY_TO_EMAIL"),
         smtp_from_name=_env_text("SWIFT_SMTP_FROM_NAME", "Project Swift Support"),
         smtp_use_tls=_env_bool("SWIFT_SMTP_USE_TLS", True),
         smtp_timeout=_env_float("SWIFT_SMTP_TIMEOUT", 20.0),
+        cloudmailin_basic_username=_env_text("SWIFT_CLOUDMAILIN_BASIC_USERNAME"),
+        cloudmailin_basic_password=_env_text("SWIFT_CLOUDMAILIN_BASIC_PASSWORD"),
+        session_secret_key=_env_text(
+            "SWIFT_SESSION_SECRET_KEY",
+            "project-swift-local-session-secret",
+        ),
+        product_reference_base_url=_env_text(
+            "SWIFT_PRODUCT_REFERENCE_BASE_URL",
+            "https://safetyware.com/products/",
+        ),
     )
 
 

@@ -24,11 +24,18 @@
     </div>
     <div class="sidebar-footer">
         <div class="sidebar-user">
-            <div class="sidebar-avatar">JD</div>
+            <div class="sidebar-avatar">{{ current_user.initials if current_user else 'SO' }}</div>
             <div class="sidebar-user-info">
-                <div class="sidebar-user-name">Jane Doe</div>
-                <div class="sidebar-user-role">Administrator</div>
+                <div class="sidebar-user-name">{{ current_user.name if current_user else 'Signed out' }}</div>
+                <div class="sidebar-user-role">{{ current_user.role if current_user else 'Sales Officer' }}</div>
             </div>
+            {% if current_user %}
+            <form class="sidebar-logout" method="post" action="{{ url_for('logout') }}">
+                <button type="submit" aria-label="Sign out">
+                    <i class="ph ph-sign-out"></i>
+                </button>
+            </form>
+            {% endif %}
         </div>
     </div>
 </nav>

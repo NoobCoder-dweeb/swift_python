@@ -7,6 +7,7 @@ class EmailPayload(BaseModel):
     sender: str
     subject: str
     body: str
+    conversation_context: str = ""
 
 
 class DraftResponse(BaseModel):

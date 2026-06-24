@@ -9,17 +9,43 @@ services:
       retries: 10
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init.db:/docker-entrypoint-initdb.d/001-init.sql:ro
     ports:
       - "5432:5432"
 
   app:
     build: .
+    image: project-swift-app
     env_file: docker.env
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      - ./app:/app/app
+      - ./templates:/app/templates
+      - ./static:/app/static
+      - ./data.py:/app/data.py
     ports:
       - "8000:8000"
+
+  localtunnel:
+    image: project-swift-app
+    env_file: docker.env
+    depends_on:
+      app:
+        condition: service_started
+    command:
+      [
+        "python",
+        "scripts/run_cloudmailin_localtunnel.py",
+        "--skip-app",
+        "--local-host",
+        "app",
+        "--port",
+        "8000",
+        "--subdomain",
+        "project-swift-exiler-1"
+      ]
 
 volumes:
   postgres_data:

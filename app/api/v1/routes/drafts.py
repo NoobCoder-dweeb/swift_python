@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request
 from app.schemas.draft import DraftResponse, DraftUpdatePayload, EmailPayload
+from app.services.auth_service import require_sales_officer
 from app.services.draft_service import DraftService
 
 router = APIRouter()
@@ -35,15 +36,21 @@ async def get_draft(draft_id: str):
 
 
 @router.post("/{draft_id}/approve")
-async def approve_draft(draft_id: str):
+async def approve_draft(draft_id: str, request: Request):
     """records the sales officer decision and removes the draft from pending."""
-    return draft_service.approve_draft(draft_id)
+    officer = require_sales_officer(request)
+    return draft_service.approve_draft(draft_id, approver=officer.name)
 
 
 @router.patch("/{draft_id}", response_model=DraftResponse)
-async def update_draft(draft_id: str, payload: DraftUpdatePayload):
+async def update_draft(draft_id: str, payload: DraftUpdatePayload, request: Request):
     """saves reviewer edits to a draft without leaving the pending page."""
-    updated = draft_service.update_draft(draft_id, payload.ai_draft)
+    officer = require_sales_officer(request)
+    updated = draft_service.update_draft(
+        draft_id,
+        payload.ai_draft,
+        approver=officer.name,
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Draft not found")
     return updated
@@ -52,6 +59,7 @@ async def update_draft(draft_id: str, payload: DraftUpdatePayload):
 @router.post("/{draft_id}/reject")
 async def reject_draft(draft_id: str, request: Request, reason: str = ""):
     """captures reviewer feedback so the regenerated draft can improve."""
+    officer = require_sales_officer(request)
     rejection_reason = reason
     content_type = (request.headers.get("content-type") or "").split(";")[0].lower()
     if content_type == "application/json":
@@ -62,4 +70,8 @@ async def reject_draft(draft_id: str, request: Request, reason: str = ""):
                 or payload.get("reason")
                 or rejection_reason
             )
-    return draft_service.reject_draft(draft_id, rejection_reason)
+    return draft_service.reject_draft(
+        draft_id,
+        rejection_reason,
+        approver=officer.name,
+    )

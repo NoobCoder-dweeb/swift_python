@@ -8,7 +8,9 @@ from app.schemas.draft import EmailPayload, DraftResponse
 from app.schemas.email import IncomingEmail
 from data import (
     add_generated_draft,
+    append_product_references,
     approve_draft as approve_pending_draft,
+    build_email_thread_context,
     get_drafts,
     publish_event,
 )
@@ -23,19 +25,23 @@ class DraftService:
 
     async def generate_draft(self, email: EmailPayload) -> DraftResponse:
         """runs the heavier sales workflow off the event loop for API responsiveness."""
+        workflow_body = _body_with_conversation_context(
+            email.body,
+            email.conversation_context,
+        )
         workflow = await asyncio.to_thread(
             run_sales_inquiry_workflow,
             IncomingEmail(
                 sender=email.sender,
                 subject=email.subject,
-                body=email.body,
+                body=workflow_body,
             ),
         )
         stored_draft = add_generated_draft(
             {
                 "from": email.sender,
                 "subject": email.subject,
-                "body": workflow.customer_inquiry,
+                "body": email.body,
             },
             draft_id=workflow.draft_id,
             ai_draft=workflow.ai_draft,
@@ -43,13 +49,18 @@ class DraftService:
             workflow=workflow.model_dump(),
         )
         draft_id = stored_draft.draft_id if stored_draft else workflow.draft_id
+        ai_draft = (
+            stored_draft.ai_draft
+            if stored_draft
+            else append_product_references(workflow.ai_draft, workflow.model_dump())
+        )
 
         draft = DraftResponse(
             draft_id=draft_id,
             sender=email.sender,
             subject=email.subject,
-            customer_inquiry=workflow.customer_inquiry,
-            ai_draft=workflow.ai_draft,
+            customer_inquiry=email.body,
+            ai_draft=ai_draft,
             status=workflow.status,
         )
 
@@ -73,13 +84,20 @@ class DraftService:
             )
         return None
 
-    def update_draft(self, draft_id: str, ai_draft: str):
+    def update_draft(
+        self,
+        draft_id: str,
+        ai_draft: str,
+        *,
+        approver: str = "Sales Officer",
+    ):
         """persists manual draft edits and records the change in an audit log."""
         row = self.repository.get_draft(draft_id)
         if not row or row.get("status") != "pending":
             return None
 
         previous_ai = row.get("ai_draft_text", "")
+        ai_draft = append_product_references(ai_draft, row.get("workflow"))
         row["ai_draft_text"] = ai_draft
         row["updated"] = datetime.now().isoformat()
         self.repository.upsert_draft(row)
@@ -90,7 +108,7 @@ class DraftService:
             "version_id": f"{draft_id}-v{row.get('revisions', 0)}",
             "sender": row.get("sender"),
             "subject": row.get("subject"),
-            "approver": "Sales Officer",
+            "approver": approver,
             "action": "edited",
             "timestamp": datetime.now().isoformat(),
             "emailed_to": None,
@@ -104,8 +122,13 @@ class DraftService:
         }
         self.repository.insert_audit(audit)
 
+        updated_payload = self.get_draft(draft_id) or {
+            **row,
+            "customer_inquiry": row.get("body"),
+            "ai_draft": ai_draft,
+        }
         try:
-            publish_event({"type": "draft_updated", "payload": {**row, "ai_draft": ai_draft}})
+            publish_event({"type": "draft_updated", "payload": updated_payload})
         except Exception:
             pass
 
@@ -118,9 +141,9 @@ class DraftService:
             status=row["status"],
         )
 
-    def approve_draft(self, draft_id: str):
+    def approve_draft(self, draft_id: str, *, approver: str = "Sales Officer"):
         """turns a pending draft into an immutable approval audit."""
-        audit = approve_pending_draft(draft_id, approver="Sales Officer")
+        audit = approve_pending_draft(draft_id, approver=approver)
         if not audit:
             return {
                 "success": False,
@@ -153,7 +176,13 @@ class DraftService:
             ),
         }
 
-    def reject_draft(self, draft_id: str, reason: str = ""):
+    def reject_draft(
+        self,
+        draft_id: str,
+        reason: str = "",
+        *,
+        approver: str = "Sales Officer",
+    ):
         """reruns the sales workflow with reviewer feedback before requeueing."""
         row = self.repository.get_draft(draft_id)
         if not row or row.get("status") != "pending":
@@ -163,17 +192,27 @@ class DraftService:
             }
 
         reviewer_feedback = (reason or "").strip()
+        customer_body = _customer_reply_body(row["body"])
         previous_ai = row.get("ai_draft_text", "")
         reviewed_revisions = int(row.get("revisions", 0))
         reviewed_version_id = _draft_version_id(draft_id, reviewed_revisions)
         next_revisions = reviewed_revisions + 1
         regenerated_version_id = _draft_version_id(draft_id, next_revisions)
 
+        workflow_body = _body_with_conversation_context(
+            customer_body,
+            build_email_thread_context(
+                sender=row["sender"],
+                subject=row["subject"],
+                body=customer_body,
+                created=row.get("created"),
+            ),
+        )
         workflow = run_sales_inquiry_workflow(
             IncomingEmail(
                 sender=row["sender"],
                 subject=_base_subject(row["subject"]),
-                body=row["body"],
+                body=workflow_body,
             ),
             reviewer_feedback=reviewer_feedback,
             previous_draft=previous_ai,
@@ -182,12 +221,17 @@ class DraftService:
 
         now = datetime.now().isoformat()
         row["subject"] = workflow.subject
-        row["body"] = workflow.customer_inquiry
+        row["body"] = customer_body
         row["status"] = workflow.status
         row["revisions"] = next_revisions
         row["last_rejection_reason"] = reviewer_feedback
-        row["ai_draft_text"] = workflow.ai_draft
-        row["workflow"] = workflow.model_dump()
+        workflow_payload = workflow.model_dump()
+        workflow_payload["customer_inquiry"] = customer_body
+        if isinstance(workflow_payload.get("inquiry"), dict):
+            workflow_payload["inquiry"]["body"] = customer_body
+        ai_draft = append_product_references(workflow.ai_draft, workflow_payload)
+        row["ai_draft_text"] = ai_draft
+        row["workflow"] = workflow_payload
         row["updated"] = now
         self.repository.upsert_draft(row)
 
@@ -198,7 +242,7 @@ class DraftService:
             "next_version_id": regenerated_version_id,
             "sender": row.get("sender"),
             "subject": row.get("subject"),
-            "approver": "Sales Officer",
+            "approver": approver,
             "action": "rejected",
             "timestamp": now,
             "emailed_to": None,
@@ -208,11 +252,11 @@ class DraftService:
                 f"regeneration created {regenerated_version_id} using reviewer feedback."
             ),
             "review_comment": reviewer_feedback or None,
-            "customer_inquiry": workflow.customer_inquiry,
-            "ai_draft": workflow.ai_draft,
+            "customer_inquiry": customer_body,
+            "ai_draft": ai_draft,
             "details": {
                 "previous_ai_draft": previous_ai,
-                "regenerated_ai_draft": workflow.ai_draft,
+                "regenerated_ai_draft": ai_draft,
                 "product_context": workflow.product_context.model_dump(),
                 "validation": workflow.validation.model_dump(),
                 "supervisor_review": (
@@ -226,10 +270,10 @@ class DraftService:
         }
         audit = self.repository.insert_audit(audit)
 
-        regenerated = {
+        regenerated = self.get_draft(draft_id) or {
             **row,
-            "customer_inquiry": workflow.customer_inquiry,
-            "ai_draft": workflow.ai_draft,
+            "customer_inquiry": customer_body,
+            "ai_draft": ai_draft,
         }
         try:
             publish_event(
@@ -256,3 +300,32 @@ def _draft_version_id(draft_id: str, revisions: int) -> str:
 def _base_subject(subject: str) -> str:
     """keeps repeated regenerations from appending labels to the customer subject."""
     return subject.split(" (Regenerated")[0]
+
+
+def _customer_reply_body(body: str) -> str:
+    """strips internal thread-context wrappers from persisted customer text."""
+    text = (body or "").strip()
+    marker = "Current customer reply to answer now:"
+    if marker in text:
+        text = text.rsplit(marker, 1)[-1].strip()
+    for context_marker in (
+        "\nConversation history",
+        "\nUse this only",
+        "\nCustomer ",
+        "\nCompany ",
+    ):
+        if context_marker in text:
+            text = text.split(context_marker, 1)[0].strip()
+    return text or (body or "").strip()
+
+
+def _body_with_conversation_context(body: str, conversation_context: str) -> str:
+    """adds thread history for inference while keeping the current reply explicit."""
+    context = (conversation_context or "").strip()
+    current = (body or "").strip()
+    if not context:
+        return current
+    return (
+        f"Current customer reply to answer now: {current}\n\n"
+        f"{context}"
+    )
