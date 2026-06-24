@@ -44,6 +44,7 @@ def test_follow_up_draft_includes_prior_approved_thread_response():
             "product_context": {
                 "product": "Safety Helmet",
                 "sku": "SAFE-HELMET-001",
+                "source_url": "https://safetyware.com/product/safety-helmet/",
                 "price": 25.0,
                 "currency": "RM",
                 "stock_availability": 120,
@@ -74,7 +75,7 @@ def test_follow_up_draft_includes_prior_approved_thread_response():
     )
     assert payload["thread_history"][2]["is_current"] is True
     assert payload["product_reference"]["product"] == "Safety Helmet"
-    assert "SAFE-HELMET-001" in payload["product_reference"]["url"]
+    assert payload["product_reference"]["url"] == "https://safetyware.com/product/safety-helmet/"
 
 
 def test_initiation_draft_does_not_create_email_thread():
@@ -146,6 +147,7 @@ async def test_pending_page_renders_email_thread_panel():
                 "product_context": {
                     "product": "Safety Helmet",
                     "sku": "SAFE-HELMET-001",
+                    "source_url": "https://safetyware.com/product/safety-helmet/",
                     "price": 25.0,
                     "currency": "RM",
                     "stock_availability": 120,
@@ -174,10 +176,9 @@ async def test_pending_page_renders_email_thread_panel():
     assert "The original approved response is visible here." in response.text
     assert "Can I increase the quantity to 120 units?" in response.text
     assert "References:" in response.text
-    assert "1. https://safetyware.com/?post_type=product&amp;s=SAFE-HELMET-001" in response.text
+    assert "1. https://safetyware.com/product/safety-helmet/" in response.text
     assert "Product Reference" not in response.text
     assert "View product" not in response.text
-    assert "SAFE-HELMET-001" in response.text
 
 
 async def test_thread_context_lets_ai_resolve_omitted_product_in_follow_up():
@@ -226,3 +227,52 @@ async def test_thread_context_does_not_overanswer_pricing_only_follow_up():
     assert "Current available stock" not in draft.ai_draft
     assert "within the current available stock" not in draft.ai_draft
     assert "requested delivery" not in draft.ai_draft
+
+
+async def test_listing_follow_up_quotes_selected_product(monkeypatch):
+    """a customer selecting one listed product should not receive the list again."""
+    class BookletsProductClient:
+        def get_product(self, query):
+            assert "Booklets" in query
+            return {
+                "product": "Booklets",
+                "sku": "SW-BUSINESS-AND-EVENT-MATER-12619-451",
+                "price": 96.11,
+                "currency": "RM",
+                "stock_availability": 101,
+                "source": "postgres",
+                "confidence": 0.96,
+                "notes": ["Category: Business And Event Materials"],
+            }
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: BookletsProductClient(),
+    )
+
+    current_reply = "I would like for you to quote Booklets"
+    draft = await DraftService().generate_draft(
+        EmailPayload(
+            sender="thread.listing.customer@example.com",
+            subject="Re: Inquiry of products",
+            body=current_reply,
+            conversation_context=(
+                "Conversation history for resolving references in the current customer reply.\n"
+                "Customer Customer email: Could you list some products that are top 3?\n"
+                "Company Approved response: The following approved products match your request:\n"
+                "- Booklets (SW-BUSINESS-AND-EVENT-MATER-12619-451): RM 96.11 per unit, 101 unit available.\n"
+                "- Brochures (SW-BUSINESS-AND-EVENT-MATER-12620-799): RM 109.03 per unit, 143 unit available.\n"
+                "- Business Cards (SW-BUSINESS-AND-EVENT-MATER-12606-489): RM 85.01 per unit, 198 unit available."
+            ),
+        )
+    )
+
+    assert draft.status == "pending"
+    assert draft.customer_inquiry == current_reply
+    assert "Booklets" in draft.ai_draft
+    assert "approved reference price is RM 96.11 per unit" in draft.ai_draft
+    assert "Please confirm the missing details: quantity" in draft.ai_draft
+    assert "The following approved products match your request" not in draft.ai_draft
+    assert "Brochures" not in draft.ai_draft
+    assert "Business Cards" not in draft.ai_draft
+    assert "12620 units" not in draft.ai_draft

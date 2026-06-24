@@ -9,6 +9,7 @@ services:
       retries: 10
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init.db:/docker-entrypoint-initdb.d/001-init.sql:ro
     ports:
       - "5432:5432"
 

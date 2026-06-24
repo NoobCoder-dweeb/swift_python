@@ -142,7 +142,7 @@ class PostgresProductLookupClient:
         ) as conn:
             rows = conn.execute(
                 """
-                SELECT product_id, sku, name, category, description, currency,
+                SELECT product_id, sku, name, source_url, category, description, currency,
                        unit_price, stock_availability, unit_of_measure, status
                 FROM swift_products
                 WHERE status = 'active'
@@ -186,6 +186,7 @@ def _decimal_to_float(value: Any) -> Any:
 def _row_to_context(row: dict[str, Any]) -> dict[str, Any]:
     price = row.get("unit_price")
     price = _decimal_to_float(price)
+    source_url = _effective_source_url(row)
 
     notes = [
         f"Category: {row.get('category')}",
@@ -198,6 +199,7 @@ def _row_to_context(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "product": row.get("name"),
         "sku": row.get("sku"),
+        "source_url": source_url,
         "stock_availability": int(row.get("stock_availability") or 0),
         "price": price,
         "currency": row.get("currency") or "RM",
@@ -210,6 +212,7 @@ def _row_to_option(row: dict[str, Any], *, confidence: float) -> dict[str, Any]:
     return {
         "product": row.get("name"),
         "sku": row.get("sku"),
+        "source_url": _effective_source_url(row),
         "category": row.get("category"),
         "description": row.get("description"),
         "stock_availability": int(row.get("stock_availability") or 0),
@@ -219,6 +222,18 @@ def _row_to_option(row: dict[str, Any], *, confidence: float) -> dict[str, Any]:
         "source": "postgres",
         "confidence": confidence,
     }
+
+
+def _effective_source_url(row: dict[str, Any]) -> str | None:
+    source_url = str(row.get("source_url") or "").strip()
+    if source_url and source_url != "https://safetyware.com/products/":
+        return source_url
+
+    description = str(row.get("description") or "")
+    match = re.search(r"Source:\s*(https://safetyware\.com/product/[^.\s]+/)", description)
+    if match:
+        return match.group(1)
+    return source_url or None
 
 
 def _missing_product_context(
@@ -373,6 +388,7 @@ def _is_catalog_listing_request(query: str) -> bool:
         phrase in lower
         for phrase in (
             "list products",
+            "list some products",
             "list available products",
             "show products",
             "show available products",

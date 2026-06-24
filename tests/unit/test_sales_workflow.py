@@ -148,6 +148,48 @@ def test_sales_workflow_rejects_irrelevant_query():
     assert "only supports product pricing" in result.ai_draft.lower()
 
 
+def test_sales_workflow_accepts_approved_product_only_inquiry(monkeypatch):
+    """generic inquiries for approved products should not trigger bad-attempt replies."""
+
+    class StoredProductClient:
+        def get_product(self, query):
+            return {
+                "product": "Fire Hose",
+                "sku": "SAFE-FIRE-HOSE",
+                "source_url": "https://safetyware.com/product/fire-hose/",
+                "stock_availability": 24,
+                "price": 88.0,
+                "currency": "RM",
+                "source": "postgres",
+                "confidence": 0.96,
+                "notes": ["Unit of measure: unit"],
+            }
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: StoredProductClient(),
+    )
+
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Inquiry for Fire Hose",
+            body="Hi, I would like to know more about Fire Hose.",
+        ),
+        use_crewai=False,
+    )
+
+    assert result.status == "pending"
+    assert result.inquiry.inquiry_type == "mixed"
+    assert result.inquiry.product_name == "Fire Hose"
+    assert result.validation.valid is True
+    assert "Fire Hose" in result.ai_draft
+    assert "RM 88.00" in result.ai_draft
+    assert "24 units" in result.ai_draft
+    assert "https://safetyware.com/product/fire-hose/" in result.ai_draft
+    assert "only supports product pricing" not in result.ai_draft.lower()
+
+
 def test_sales_workflow_reports_missing_postgres_product(monkeypatch):
     """unknown database products should ask for database fields and suggest matches."""
 
@@ -294,6 +336,60 @@ def test_sales_workflow_lists_products_matching_criteria(monkeypatch):
     assert result.validation.valid is True
 
 
+def test_sales_workflow_lists_products_with_terms_between_list_and_products(monkeypatch):
+    """requests like 'list fire hose products' should not collapse to one product."""
+
+    class ListingProductClient:
+        def search_products(self, query, limit=5):
+            return [
+                {
+                    "product": "Fire Hose Reel",
+                    "sku": "SAFE-FIRE-HOSE-REEL",
+                    "category": "Fire Safety",
+                    "stock_availability": 12,
+                    "price": 75.0,
+                    "currency": "RM",
+                    "unit_of_measure": "unit",
+                    "source": "postgres",
+                    "confidence": 0.86,
+                },
+                {
+                    "product": "Fire Hose Sign",
+                    "sku": "SAFE-FIRE-HOSE-SIGN",
+                    "category": "Fire Sign",
+                    "stock_availability": 50,
+                    "price": 15.0,
+                    "currency": "RM",
+                    "unit_of_measure": "pack",
+                    "source": "postgres",
+                    "confidence": 0.86,
+                },
+            ][:limit]
+
+        def get_product(self, query):
+            raise AssertionError("listing requests should not use single-product lookup")
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: ListingProductClient(),
+    )
+
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Fire hose products",
+            body="Please list fire hose products.",
+        ),
+        use_crewai=False,
+    )
+
+    assert result.inquiry.inquiry_type == "listing"
+    assert len(result.product_context.listed_products) == 2
+    assert "Fire Hose Reel" in result.ai_draft
+    assert "Fire Hose Sign" in result.ai_draft
+    assert result.validation.valid is True
+
+
 def test_sales_workflow_lists_broad_available_products_from_local_catalog():
     """generic list requests should not ask for a specific product."""
     result = run_sales_inquiry_workflow(
@@ -356,6 +452,7 @@ def test_sales_workflow_uses_postgres_product_facts_only(monkeypatch):
             return {
                 "product": "Steel-Toe Safety Boots",
                 "sku": "SAFE-BOOT-STTOE-BLK",
+                "source_url": "https://safetyware.com/product/steel-toe-safety-boots/",
                 "stock_availability": 180,
                 "price": 58.0,
                 "currency": "RM",
@@ -383,6 +480,8 @@ def test_sales_workflow_uses_postgres_product_facts_only(monkeypatch):
     assert "Steel-Toe Safety Boots" in result.ai_draft
     assert "RM 58.00" in result.ai_draft
     assert "180 units" in result.ai_draft
+    assert "References:" in result.ai_draft
+    assert "https://safetyware.com/product/steel-toe-safety-boots/" in result.ai_draft
     assert "Please confirm the missing details: product name" not in result.ai_draft
 
 
@@ -415,6 +514,35 @@ async def test_create_draft_response_matches_persisted_database_row(monkeypatch)
         stored_response = await client.get(f"/api/drafts/{payload['draft_id']}")
         assert stored_response.status_code == 200
         assert stored_response.json()["ai_draft"] == payload["ai_draft"]
+
+
+async def test_listing_draft_response_is_persisted_for_pending_review(monkeypatch):
+    """listing requests should create visible pending drafts, not phantom ids."""
+    monkeypatch.setenv("SWIFT_AGENT_BACKEND", "deterministic")
+    reset_app_settings()
+    unique = uuid4().hex
+
+    draft = await DraftService().generate_draft(
+        EmailPayload(
+            sender=f"listing.{unique}@example.com",
+            subject="Inquiry of products",
+            body=(
+                "I found out about your business. Could you list some products "
+                "that are top 3?"
+            ),
+        )
+    )
+
+    stored = get_state_repository().get_draft(draft.draft_id)
+    assert draft.status == "pending"
+    assert stored is not None
+    assert stored["status"] == "pending"
+    assert stored["workflow"]["inquiry"]["inquiry_type"] == "listing"
+
+    payload = DraftService().get_draft(draft.draft_id)
+    assert payload is not None
+    assert payload["draft_id"] == draft.draft_id
+    assert "The following approved products match your request" in payload["ai_draft"]
 
 
 def test_draft_service_uses_sales_workflow(monkeypatch):

@@ -161,7 +161,7 @@ SWIFT_SMTP_USERNAME=your-sender@gmail.com
 SWIFT_SMTP_PASSWORD=your-gmail-app-password
 SWIFT_SMTP_FROM_EMAIL=your-sender@gmail.com
 SWIFT_SMTP_REPLY_TO_EMAIL=your-cloudmailin-address@cloudmailin.net
-SWIFT_PRODUCT_REFERENCE_BASE_URL=https://safetyware.com/?post_type=product&s=
+SWIFT_PRODUCT_REFERENCE_BASE_URL=https://safetyware.com/products/
 ```
 
 `SWIFT_SMTP_REPLY_TO_EMAIL` is what makes the real reply loop work: Gmail SMTP

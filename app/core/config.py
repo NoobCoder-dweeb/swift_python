@@ -73,7 +73,7 @@ class AppSettings:
     cloudmailin_basic_username: str
     cloudmailin_basic_password: str
     session_secret_key: str
-    product_reference_base_url: str = "https://safetyware.com/?post_type=product&s="
+    product_reference_base_url: str = "https://safetyware.com/products/"
 
     @property
     def storage_mode(self) -> str:
@@ -152,7 +152,7 @@ def get_app_settings() -> AppSettings:
         ),
         product_reference_base_url=_env_text(
             "SWIFT_PRODUCT_REFERENCE_BASE_URL",
-            "https://safetyware.com/?post_type=product&s=",
+            "https://safetyware.com/products/",
         ),
     )
 

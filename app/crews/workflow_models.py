@@ -36,6 +36,7 @@ class ProductOption(BaseModel):
 
     product: str
     sku: str | None = None
+    source_url: str | None = None
     category: str | None = None
     description: str | None = None
     stock_availability: int | None = None
@@ -51,6 +52,7 @@ class ProductContext(BaseModel):
 
     product: str | None = None
     sku: str | None = None
+    source_url: str | None = None
     stock_availability: int | None = None
     price: float | None = None
     currency: str = "RM"

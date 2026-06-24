@@ -190,6 +190,38 @@ _QUANTITY_RE = re.compile(
     re.IGNORECASE,
 )
 
+_NUMBER_WORDS: dict[str, int] = {
+    "a": 1,
+    "an": 1,
+    "one": 1,
+    "two": 2,
+    "three": 3,
+    "four": 4,
+    "five": 5,
+    "six": 6,
+    "seven": 7,
+    "eight": 8,
+    "nine": 9,
+    "ten": 10,
+    "eleven": 11,
+    "twelve": 12,
+    "thirteen": 13,
+    "fourteen": 14,
+    "fifteen": 15,
+    "sixteen": 16,
+    "seventeen": 17,
+    "eighteen": 18,
+    "nineteen": 19,
+    "twenty": 20,
+    "thirty": 30,
+    "forty": 40,
+    "fifty": 50,
+    "sixty": 60,
+    "seventy": 70,
+    "eighty": 80,
+    "ninety": 90,
+}
+
 
 class SalesProcessingAgent:
     """extracts safe structured sales context before drafting begins."""
@@ -205,7 +237,22 @@ class SalesProcessingAgent:
         risk_flags = self.detect_risks(text)
 
         listing = _is_product_listing_request(lower)
-        pricing = _contains_any(lower, ("price", "pricing", "quote", "cost", "rate"))
+        pricing = _contains_any(
+            lower,
+            (
+                "price",
+                "pricing",
+                "quote",
+                "cost",
+                "rate",
+                "how much",
+                "total",
+                "buy",
+                "purchase",
+                "harga",
+                "berapa",
+            ),
+        )
         availability = _contains_any(
             lower,
             (
@@ -214,6 +261,8 @@ class SalesProcessingAgent:
                 "available",
                 "inventory",
                 "in stock",
+                "carry",
+                "supply",
                 "delivery",
                 "courier",
                 "ship",
@@ -323,12 +372,13 @@ class SalesProcessingAgent:
 
     def lookup_product_list_context(self, query: str) -> ProductContext:
         """returns approved catalog rows for list-style customer requests."""
+        limit = _requested_listing_limit(query)
         if self.product_client and hasattr(self.product_client, "search_products"):
             try:
                 search_products = getattr(self.product_client, "search_products")
                 products = [
                     ProductOption.model_validate(item)
-                    for item in search_products(query, limit=5)
+                    for item in search_products(query, limit=limit)
                 ]
                 return ProductContext(
                     product=None,
@@ -347,9 +397,9 @@ class SalesProcessingAgent:
                     ],
                 )
 
-        products = _local_product_suggestions(query, limit=5)
+        products = _local_product_suggestions(query, limit=limit)
         if not products and _is_product_listing_request(query.lower()):
-            products = _local_product_options(limit=5)
+            products = _local_product_options(limit=limit)
         return ProductContext(
             product=None,
             source="local_catalog",
@@ -376,6 +426,9 @@ class SalesProcessingAgent:
             for match in _QUANTITY_RE.finditer(lower_text)
             if int(match.group("quantity").replace(",", "")) > 0
         ]
+        word_quantity = _detect_word_quantity(lower_text)
+        if word_quantity:
+            matches.append(word_quantity)
         if not matches:
             return None
         return max(matches)
@@ -744,6 +797,37 @@ def _format_product_option_line(item: ProductOption) -> str:
     return f"- {item.product}{sku}: {price} per {item.unit_of_measure or 'unit'}, {stock}{category}."
 
 
+def _detect_word_quantity(lower_text: str) -> int | None:
+    dozen_match = re.search(
+        r"\b(?P<count>a|an|half|one|two|three|four|five|six|seven|eight|nine|ten)?\s*dozen\b",
+        lower_text,
+    )
+    if dozen_match:
+        count = (dozen_match.group("count") or "one").strip()
+        if count == "half":
+            return 6
+        return _NUMBER_WORDS.get(count, 1) * 12
+
+    unit_match = re.search(
+        r"\b(?P<words>(?:one|two|three|four|five|six|seven|eight|nine|ten|"
+        r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+        r"eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|"
+        r"eighty|ninety)(?:[-\s]+(?:one|two|three|four|five|six|seven|"
+        r"eight|nine))?)\s+"
+        r"(?:units?|pcs?|pieces?|boxes?|cartons?|pairs?|sets?)\b",
+        lower_text,
+    )
+    if not unit_match:
+        return None
+    return _parse_number_words(unit_match.group("words"))
+
+
+def _parse_number_words(value: str) -> int | None:
+    parts = re.split(r"[-\s]+", value.strip())
+    total = sum(_NUMBER_WORDS.get(part, 0) for part in parts)
+    return total if total > 0 else None
+
+
 def _find_unapproved_fact_claims(
     draft: str,
     context: ProductContext,
@@ -1041,10 +1125,11 @@ def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
 
 def _is_product_listing_request(lower_text: str) -> bool:
     """detects customer requests to browse or list catalog products."""
-    return any(
+    if any(
         phrase in lower_text
         for phrase in (
             "list products",
+            "list some products",
             "show products",
             "which products",
             "what products",
@@ -1054,7 +1139,28 @@ def _is_product_listing_request(lower_text: str) -> bool:
             "products in",
             "available products",
         )
+    ):
+        return True
+    return bool(
+        re.search(
+            r"\b(?:list|show|browse|recommend|suggest)\b.{0,80}\b(?:products?|items?|catalog)\b",
+            lower_text,
+        )
     )
+
+
+def _requested_listing_limit(query: str, *, default: int = 5) -> int:
+    """uses explicit list sizes like 'top 3' while keeping responses bounded."""
+    lower = query.lower()
+    match = re.search(
+        r"\b(?:top|first|show|list)\s+(?P<count>\d{1,2})\b|"
+        r"\b(?P<count_after>\d{1,2})\s+(?:products?|items?)\b",
+        lower,
+    )
+    if not match:
+        return default
+    count = int(match.group("count") or match.group("count_after"))
+    return max(1, min(count, 10))
 
 
 def _local_product_suggestions(query: str, *, limit: int) -> list[ProductOption]:
@@ -1098,6 +1204,7 @@ def _local_product_option(item: ProductContext, *, confidence: float) -> Product
     return ProductOption(
         product=item.product or "",
         sku=item.sku,
+        source_url=item.source_url,
         stock_availability=item.stock_availability,
         price=item.price,
         currency=item.currency,

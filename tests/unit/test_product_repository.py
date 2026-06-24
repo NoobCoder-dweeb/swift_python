@@ -6,6 +6,7 @@ def _arc_flash_row():
         "product_id": "SWP-ARC-40",
         "sku": "CATU-ARC-40",
         "name": "CATU 40 Cal Arc Flash Kit",
+        "source_url": "https://safetyware.com/product/catu-40-cal-arc-flash-kit/",
         "category": "Arc Flash Protection",
         "description": "Electrical safety kit for arc flash protection.",
         "currency": "RM",
@@ -21,6 +22,7 @@ def _face_shield_row():
         "product_id": "SWP-FACE-01",
         "sku": "SAFE-FACE-SHIELD",
         "name": "Face Shield",
+        "source_url": "https://safetyware.com/product/face-shield/",
         "category": "Eye And Face Protection",
         "description": "Clear safety shield for face protection.",
         "currency": "RM",
@@ -36,6 +38,7 @@ def _safety_glasses_row():
         "product_id": "SWP-GLASSES-01",
         "sku": "SAFE-GLASSES",
         "name": "Safety Glasses",
+        "source_url": "https://safetyware.com/product/safety-glasses/",
         "category": "Eye And Face Protection",
         "description": "Protective shield eyewear for industrial work.",
         "currency": "RM",
@@ -71,6 +74,26 @@ def test_postgres_product_lookup_accepts_real_product_terms(monkeypatch):
     assert result["confidence"] == 0.96
     assert result["product"] == "CATU 40 Cal Arc Flash Kit"
     assert result["price"] == 2062.25
+    assert result["source_url"] == "https://safetyware.com/product/catu-40-cal-arc-flash-kit/"
+
+
+def test_postgres_product_lookup_recovers_source_url_from_legacy_description(monkeypatch):
+    """old imports stored exact product URLs in descriptions before source_url existed."""
+    row = {
+        **_arc_flash_row(),
+        "source_url": "https://safetyware.com/products/",
+        "description": (
+            "Safetyware catalog item from category 'Arc Flash Protection'. "
+            "Source: https://safetyware.com/product/catu-40-cal-arc-flash-kit/. "
+            "Public catalog price was unavailable."
+        ),
+    }
+    client = PostgresProductLookupClient("postgresql://unused")
+    monkeypatch.setattr(client, "_list_products", lambda: [row])
+
+    result = client.get_product("Can I get pricing for a CATU 40 Cal Arc Flash Kit?")
+
+    assert result["source_url"] == "https://safetyware.com/product/catu-40-cal-arc-flash-kit/"
 
 
 def test_postgres_product_lookup_returns_suggestions_for_missing_product(monkeypatch):
@@ -90,6 +113,7 @@ def test_postgres_product_lookup_returns_suggestions_for_missing_product(monkeyp
         "Face Shield",
         "Safety Glasses",
     ]
+    assert result["suggested_products"][0]["source_url"] == "https://safetyware.com/product/face-shield/"
 
 
 def test_postgres_product_lookup_omits_suggestions_without_signal(monkeypatch):
@@ -120,6 +144,7 @@ def test_postgres_product_search_lists_matching_catalog_rows(monkeypatch):
     ]
     assert result[0]["price"] == 12.5
     assert result[0]["stock_availability"] == 30
+    assert result[0]["source_url"] == "https://safetyware.com/product/face-shield/"
 
 
 def test_postgres_product_search_lists_broad_available_products(monkeypatch):

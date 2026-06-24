@@ -80,7 +80,7 @@
           <div class="draft-section-label">AI Response Draft</div>
           <div class="email-meta">
             <div><strong>To:</strong> ${escapeHtml(d.sender)}</div>
-            <div><strong>Subject:</strong> Re: ${escapeHtml(d.subject)}</div>
+            <div><strong>Subject:</strong> ${escapeHtml(replySubject(d.subject))}</div>
           </div>
           <div class="draft-section-content">${formatMultiline(d.ai_draft)}</div>
         </div>
@@ -186,6 +186,11 @@
 
   function titleCase(value){
     return (value || '').replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function replySubject(subject){
+    const cleaned = String(subject || 'Inquiry').trim() || 'Inquiry';
+    return /^re:/i.test(cleaned) ? cleaned : `Re: ${cleaned}`;
   }
 
   function updateThreadSection(card, draft){

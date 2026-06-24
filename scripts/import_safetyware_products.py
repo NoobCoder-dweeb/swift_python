@@ -1,31 +1,31 @@
 from __future__ import annotations
 
 import argparse
-import csv
+import hashlib
 import html
-import os
 import random
 import re
 import time
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
+from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import requests
-from sqlalchemy import MetaData, Table, create_engine, inspect, insert, select, text
 
 
 BASE_URL = "https://safetyware.com"
-PRODUCT_CATEGORY_SITEMAP = f"{BASE_URL}/product_cat-sitemap.xml"
-DEFAULT_DATABASE_URL = "postgresql+pg8000://swift:swift@127.0.0.1:5432/swift"
+PRODUCT_SOURCE_URL = f"{BASE_URL}/products/"
+DEFAULT_PRODUCT_LIMIT = 50
+DEFAULT_OUTPUT_PATH = "init.db"
 PRODUCT_COLUMNS = [
     "product_id",
     "sku",
     "name",
+    "source_url",
     "category",
     "description",
     "currency",
@@ -39,7 +39,7 @@ PRODUCT_COLUMNS = [
 
 
 @dataclass(frozen=True)
-class CategoryUrl:
+class CategoryPage:
     url: str
     slug: str
 
@@ -59,6 +59,7 @@ class ProductRow:
     product_id: str
     sku: str
     name: str
+    source_url: str
     category: str
     description: str
     currency: str
@@ -70,11 +71,37 @@ class ProductRow:
     updated_at: datetime
 
 
+class LinkCollector(HTMLParser):
+    """extracts href/text pairs without adding a heavy parser dependency."""
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.links: list[tuple[str, str]] = []
+        self._href_stack: list[str | None] = []
+        self._text_stack: list[list[str]] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() != "a":
+            return
+        href = next((value for name, value in attrs if name.lower() == "href"), None)
+        self._href_stack.append(href)
+        self._text_stack.append([])
+
+    def handle_data(self, data: str) -> None:
+        if self._text_stack:
+            self._text_stack[-1].append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "a" or not self._href_stack:
+            return
+        href = self._href_stack.pop()
+        text = normalize_whitespace(" ".join(self._text_stack.pop()))
+        if href:
+            self.links.append((href, text))
+
+
 def main() -> None:
     args = parse_args()
-    out_dir = Path(args.output_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
     session = requests.Session()
     session.headers.update(
         {
@@ -86,189 +113,146 @@ def main() -> None:
         }
     )
 
-    category_urls = load_category_urls(session, out_dir / "safetyware_product_cat_sitemap.xml")
-    print(f"Found {len(category_urls)} English Safetyware category URLs")
-
-    cards = scrape_category_cards(
+    cards = scrape_products(
         session=session,
-        category_urls=category_urls,
-        limit_per_category=args.category_limit,
+        limit=args.limit,
         request_delay=args.request_delay,
+        max_pages=args.max_pages,
     )
     rows = build_product_rows(cards)
-    print(f"Prepared {len(rows)} product rows from {len({c.category for c in cards})} categories")
-
-    write_product_files(rows, out_dir)
-    if not args.skip_db:
-        load_products(args, out_dir / "swift_products_load.csv", len(rows))
-        export_all_tables(args, out_dir / "tables")
-    write_import_sql(rows, out_dir / "swift_products_import.sql")
-
-    print(f"Wrote import/export files under {out_dir}")
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    write_init_db(rows, output_path)
+    print(f"Wrote {len(rows)} Safetyware products to {output_path}")
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Scrape up to N Safetyware products per English product category, "
-            "load swift_products, and export public Postgres tables."
-        )
+        description="Generate one Postgres init.db file with Safetyware product rows."
     )
-    parser.add_argument("--category-limit", type=int, default=10)
+    parser.add_argument("--limit", type=int, default=DEFAULT_PRODUCT_LIMIT)
     parser.add_argument("--request-delay", type=float, default=0.15)
-    parser.add_argument("--output-dir", default="exports/safetyware_products")
-    parser.add_argument(
-        "--database-url",
-        default=normalize_database_url(os.environ.get("DATABASE_URL", DEFAULT_DATABASE_URL)),
-    )
-    parser.add_argument("--skip-db", action="store_true")
+    parser.add_argument("--max-pages", type=int, default=250)
+    parser.add_argument("--output", default=DEFAULT_OUTPUT_PATH)
     return parser.parse_args()
 
 
-def load_category_urls(session: requests.Session, cache_path: Path) -> list[CategoryUrl]:
-    if cache_path.exists():
-        xml_text = cache_path.read_text(encoding="utf-8")
-    else:
-        response = session.get(PRODUCT_CATEGORY_SITEMAP, timeout=30)
+def scrape_products(
+    *,
+    session: requests.Session,
+    limit: int,
+    request_delay: float,
+    max_pages: int,
+) -> list[ProductCard]:
+    queue = load_initial_category_pages(session)
+    seen_categories: set[str] = set()
+    seen_products: set[str] = set()
+    cards: list[ProductCard] = []
+
+    while queue and len(cards) < limit and len(seen_categories) < max_pages:
+        category = queue.pop(0)
+        if category.url in seen_categories:
+            continue
+        seen_categories.add(category.url)
+
+        response = session.get(category.url, timeout=30)
+        if response.status_code == 404:
+            continue
         response.raise_for_status()
-        xml_text = response.text
-        cache_path.write_text(xml_text, encoding="utf-8")
+        html_text = response.text
 
-    root = ET.fromstring(xml_text)
-    ns = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
-    urls: list[CategoryUrl] = []
+        for child in parse_category_links(html_text):
+            if child.url not in seen_categories and child not in queue:
+                queue.append(child)
+
+        for card in parse_product_links(html_text, category):
+            if card.source_url in seen_products:
+                continue
+            seen_products.add(card.source_url)
+            cards.append(card)
+            if len(cards) >= limit:
+                break
+
+        next_page = find_next_page(html_text)
+        if next_page and next_page not in seen_categories:
+            queue.insert(0, CategoryPage(url=next_page, slug=category.slug))
+
+        if request_delay:
+            time.sleep(request_delay)
+
+    if len(cards) < limit:
+        raise RuntimeError(
+            f"Expected {limit} product rows from {PRODUCT_SOURCE_URL}, found {len(cards)}."
+        )
+    return cards[:limit]
+
+
+def load_initial_category_pages(session: requests.Session) -> list[CategoryPage]:
+    response = session.get(PRODUCT_SOURCE_URL, timeout=30)
+    response.raise_for_status()
+    categories = parse_category_links(response.text)
+    if not categories:
+        raise RuntimeError(f"No Safetyware category links found at {PRODUCT_SOURCE_URL}")
+    return categories
+
+
+def parse_category_links(html_text: str) -> list[CategoryPage]:
+    categories: list[CategoryPage] = []
     seen: set[str] = set()
-
-    for loc in root.findall(".//sm:loc", ns):
-        url = (loc.text or "").strip()
+    for href, _ in collect_links(html_text):
+        url = normalize_url(href)
         if not url or "/th/" in url or "/product-category/" not in url:
             continue
         slug = category_slug_from_url(url)
-        if not slug or slug in seen:
+        if not slug or url in seen:
             continue
-        seen.add(slug)
-        urls.append(CategoryUrl(url=url, slug=slug))
+        seen.add(url)
+        categories.append(CategoryPage(url=url, slug=slug))
+    return categories
 
-    return urls
 
-
-def scrape_category_cards(
-    *,
-    session: requests.Session,
-    category_urls: list[CategoryUrl],
-    limit_per_category: int,
-    request_delay: float,
-) -> list[ProductCard]:
+def parse_product_links(html_text: str, category: CategoryPage) -> list[ProductCard]:
     cards: list[ProductCard] = []
-    categories_with_products = 0
-
-    for index, category in enumerate(category_urls, start=1):
-        page_cards = scrape_one_category(
-            session=session,
-            category=category,
-            limit=limit_per_category,
-            request_delay=request_delay,
-        )
-        if page_cards:
-            categories_with_products += 1
-            cards.extend(page_cards[:limit_per_category])
-
-        if index % 10 == 0:
-            print(
-                f"Scanned {index}/{len(category_urls)} categories; "
-                f"{categories_with_products} yielded products; {len(cards)} rows so far"
-            )
-
-    return cards
-
-
-def scrape_one_category(
-    *,
-    session: requests.Session,
-    category: CategoryUrl,
-    limit: int,
-    request_delay: float,
-) -> list[ProductCard]:
-    collected: list[ProductCard] = []
-    next_url = category.url
-    seen_product_urls: set[str] = set()
-
-    for _ in range(5):
-        response = session.get(next_url, timeout=30)
-        if response.status_code == 404:
-            break
-        response.raise_for_status()
-
-        html_text = response.text
-        for card in parse_product_cards(html_text, category):
-            if card.source_url in seen_product_urls:
-                continue
-            seen_product_urls.add(card.source_url)
-            collected.append(card)
-            if len(collected) >= limit:
-                return collected
-
-        next_url = find_next_page(html_text)
-        if not next_url or next_url == category.url:
-            break
-        time.sleep(request_delay)
-
-    if request_delay:
-        time.sleep(request_delay)
-    return collected
-
-
-def parse_product_cards(html_text: str, category: CategoryUrl) -> list[ProductCard]:
-    pattern = re.compile(
-        r'<div class="product-small col[^"]* product type-product post-(?P<id>\d+)[\s\S]*?'
-        r'<p class="category[^>]*>\s*(?P<category>[\s\S]*?)\s*</p>\s*'
-        r'<p class="name product-title[^>]*><a href="(?P<url>[^"]+)"[^>]*>'
-        r"(?P<name>[\s\S]*?)</a>",
-        re.IGNORECASE,
-    )
-    cards: list[ProductCard] = []
-
-    for match in pattern.finditer(html_text):
-        source_url = normalize_whitespace(html.unescape(match.group("url")))
-        name = clean_text(match.group("name"))
-        display_category = title_from_slug(category.slug)
-        if not source_url.startswith(f"{BASE_URL}/product/") or not name:
+    seen: set[str] = set()
+    for href, text in collect_links(html_text):
+        url = normalize_url(href)
+        if not url or "/th/" in url or "/product/" not in url:
+            continue
+        if "/product-category/" in url or url in seen:
+            continue
+        seen.add(url)
+        name = clean_text(text) or title_from_slug(product_slug_from_url(url))
+        if not name:
             continue
         cards.append(
             ProductCard(
-                source_product_id=match.group("id"),
-                source_url=source_url,
+                source_product_id=source_id_from_url(url),
+                source_url=url,
                 name=name,
-                category=display_category or title_from_slug(category.slug),
+                category=title_from_slug(category.slug),
                 category_url=category.url,
                 category_slug=category.slug,
             )
         )
-
     return cards
 
 
-def find_next_page(html_text: str) -> str | None:
-    match = re.search(
-        r'<a[^>]+class="next page-number"[^>]+href="([^"]+)"',
-        html_text,
-        re.IGNORECASE,
-    )
-    if not match:
-        return None
-    return html.unescape(match.group(1))
+def collect_links(html_text: str) -> list[tuple[str, str]]:
+    parser = LinkCollector()
+    parser.feed(html_text)
+    return parser.links
 
 
 def build_product_rows(cards: list[ProductCard]) -> list[ProductRow]:
-    rng = random.Random()
+    rng = random.Random(20260624)
     now = datetime.now(timezone.utc)
     used_ids: set[str] = set()
     used_skus: set[str] = set()
     rows: list[ProductRow] = []
 
     for index, card in enumerate(cards, start=1):
-        product_id = unique_random_id(rng, used_ids)
-        sku = unique_sku(card, index, rng, used_skus)
+        product_id = unique_product_id(card, used_ids)
+        sku = unique_sku(card, index, used_skus)
         price = estimated_price(card.category, rng)
         description = (
             f"Safetyware catalog item from category '{card.category}'. "
@@ -281,6 +265,7 @@ def build_product_rows(cards: list[ProductCard]) -> list[ProductRow]:
                 product_id=product_id,
                 sku=sku,
                 name=card.name,
+                source_url=card.source_url,
                 category=card.category,
                 description=description,
                 currency="RM",
@@ -296,23 +281,30 @@ def build_product_rows(cards: list[ProductCard]) -> list[ProductRow]:
     return rows
 
 
-def unique_random_id(rng: random.Random, used: set[str]) -> str:
-    while True:
-        product_id = f"SWP-{rng.randint(10_000_000, 99_999_999)}"
-        if product_id not in used:
-            used.add(product_id)
-            return product_id
+def unique_product_id(card: ProductCard, used: set[str]) -> str:
+    base = f"SWP-{card.source_product_id}"
+    product_id = base
+    suffix = 2
+    while product_id in used:
+        product_id = f"{base}-{suffix}"
+        suffix += 1
+    used.add(product_id)
+    return product_id
 
 
-def unique_sku(card: ProductCard, index: int, rng: random.Random, used: set[str]) -> str:
+def unique_sku(card: ProductCard, index: int, used: set[str]) -> str:
     base = re.sub(r"[^A-Z0-9]+", "-", card.category_slug.upper()).strip("-")[:24]
-    while True:
-        sku = f"SW-{base}-{card.source_product_id}-{rng.randint(100, 999)}"
-        if len(sku) > 64:
-            sku = f"SW-{card.source_product_id}-{index}-{rng.randint(100, 999)}"
-        if sku not in used:
-            used.add(sku)
-            return sku
+    source_id = re.sub(r"[^A-Z0-9]+", "-", card.source_product_id.upper()).strip("-")
+    sku = f"SW-{base}-{source_id}"
+    if len(sku) > 64:
+        sku = f"SW-{source_id}-{index}"
+    candidate = sku
+    suffix = 2
+    while candidate in used:
+        candidate = f"{sku}-{suffix}"
+        suffix += 1
+    used.add(candidate)
+    return candidate
 
 
 def estimated_price(category: str, rng: random.Random) -> Decimal:
@@ -353,112 +345,96 @@ def unit_of_measure(category: str, name: str) -> str:
     return "unit"
 
 
-def write_product_files(rows: list[ProductRow], out_dir: Path) -> None:
-    write_rows_csv(out_dir / "swift_products_load.csv", PRODUCT_COLUMNS, rows)
-    write_rows_csv(out_dir / "swift_products_load.tbl", PRODUCT_COLUMNS, rows, delimiter="\t")
-
-
-def write_rows_csv(
-    path: Path,
-    columns: list[str],
-    rows: list[Any],
-    *,
-    delimiter: str = ",",
-) -> None:
-    with path.open("w", newline="", encoding="utf-8") as file:
-        writer = csv.writer(file, delimiter=delimiter)
-        writer.writerow(columns)
-        for row in rows:
-            writer.writerow([format_value(getattr(row, column)) for column in columns])
-
-
-def load_products(args: argparse.Namespace, csv_path: Path, row_count: int) -> None:
-    engine = create_engine(args.database_url)
-    rows = [row_to_mapping(row) for row in read_product_csv(csv_path)]
-    metadata = MetaData()
-    products = Table("swift_products", metadata, autoload_with=engine)
-
-    with engine.begin() as conn:
-        conn.execute(text("TRUNCATE TABLE swift_products"))
-        if rows:
-            conn.execute(insert(products), rows)
-
-    print(f"Truncated and inserted {row_count} rows into swift_products")
-
-
-def export_all_tables(args: argparse.Namespace, out_dir: Path) -> None:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    engine = create_engine(args.database_url)
-    inspector = inspect(engine)
-    table_names = sorted(inspector.get_table_names(schema="public"))
-    metadata = MetaData()
-
-    with engine.connect() as conn:
-        for table_name in table_names:
-            table = Table(table_name, metadata, schema="public", autoload_with=engine)
-            columns = [column.name for column in table.columns]
-            order_column = next(iter(table.columns))
-            records = conn.execute(select(table).order_by(order_column)).fetchall()
-            csv_text = table_records_to_csv(columns, records)
-            csv_path = out_dir / f"{table_name}.csv"
-            tbl_path = out_dir / f"{table_name}.tbl"
-            csv_path.write_text(csv_text, encoding="utf-8")
-            convert_csv_to_tbl(csv_text, tbl_path)
-            print(f"Exported {table_name}: {len(records)} rows")
-
-
-def read_product_csv(path: Path) -> list[dict[str, Any]]:
-    with path.open(newline="", encoding="utf-8") as file:
-        return list(csv.DictReader(file))
-
-
-def row_to_mapping(row: dict[str, Any]) -> dict[str, Any]:
-    converted = dict(row)
-    converted["unit_price"] = Decimal(converted["unit_price"])
-    converted["stock_availability"] = int(converted["stock_availability"])
-    converted["created_at"] = datetime.fromisoformat(converted["created_at"])
-    converted["updated_at"] = datetime.fromisoformat(converted["updated_at"])
-    return converted
-
-
-def table_records_to_csv(columns: list[str], records: list[Any]) -> str:
-    from io import StringIO
-
-    buffer = StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(columns)
-    for record in records:
-        writer.writerow([format_value(value) for value in record])
-    return buffer.getvalue()
-
-
-def normalize_database_url(database_url: str) -> str:
-    database_url = database_url.replace("@postgres:", "@127.0.0.1:")
-    if database_url.startswith("postgresql://"):
-        return database_url.replace("postgresql://", "postgresql+pg8000://", 1)
-    return database_url
-
-
-def convert_csv_to_tbl(csv_text: str, path: Path) -> None:
-    with path.open("w", newline="", encoding="utf-8") as file:
-        reader = csv.reader(csv_text.splitlines())
-        writer = csv.writer(file, delimiter="\t")
-        writer.writerows(reader)
-
-
-def write_import_sql(rows: list[ProductRow], path: Path) -> None:
-    lines = [
+def write_init_db(rows: list[ProductRow], path: Path) -> None:
+    statements = [
+        "-- Project Swift database initializer generated from https://safetyware.com/products/",
+        "BEGIN;",
+        create_schema_sql(),
         "TRUNCATE TABLE swift_products;",
-        "INSERT INTO swift_products ("
-        + ", ".join(PRODUCT_COLUMNS)
-        + ") VALUES",
     ]
-    values = []
-    for row in rows:
-        literals = [sql_literal(getattr(row, column)) for column in PRODUCT_COLUMNS]
-        values.append("(" + ", ".join(literals) + ")")
-    lines.append(",\n".join(values) + ";")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    if rows:
+        values = []
+        for row in rows:
+            literals = [sql_literal(getattr(row, column)) for column in PRODUCT_COLUMNS]
+            values.append("(" + ", ".join(literals) + ")")
+        statements.append(
+            "INSERT INTO swift_products ("
+            + ", ".join(PRODUCT_COLUMNS)
+            + ") VALUES\n"
+            + ",\n".join(values)
+            + ";"
+        )
+    statements.append("COMMIT;")
+    path.write_text("\n\n".join(statements) + "\n", encoding="utf-8")
+
+
+def create_schema_sql() -> str:
+    return """
+CREATE TABLE IF NOT EXISTS swift_drafts (
+    draft_id TEXT PRIMARY KEY,
+    sender TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    status TEXT NOT NULL,
+    created TEXT NOT NULL,
+    updated TEXT NOT NULL,
+    revisions INTEGER NOT NULL DEFAULT 0,
+    last_rejection_reason TEXT NOT NULL DEFAULT '',
+    ai_draft_text TEXT NOT NULL DEFAULT '',
+    workflow JSONB
+);
+
+CREATE INDEX IF NOT EXISTS swift_drafts_review_idx
+    ON swift_drafts (status, created DESC);
+
+CREATE TABLE IF NOT EXISTS swift_audits (
+    audit_id TEXT PRIMARY KEY,
+    draft_id TEXT,
+    action TEXT,
+    timestamp TEXT,
+    payload JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS swift_audits_action_idx
+    ON swift_audits (action, timestamp DESC);
+
+CREATE TABLE IF NOT EXISTS swift_emails (
+    email_id TEXT PRIMARY KEY,
+    sender TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    raw_body TEXT,
+    preprocessed BOOLEAN NOT NULL DEFAULT FALSE,
+    removed_line_count INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    draft_id TEXT,
+    payload JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS swift_emails_created_idx
+    ON swift_emails (created_at DESC);
+
+CREATE TABLE IF NOT EXISTS swift_products (
+    product_id TEXT PRIMARY KEY,
+    sku TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    source_url TEXT NOT NULL DEFAULT 'https://safetyware.com/products/',
+    category TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    currency TEXT NOT NULL DEFAULT 'RM',
+    unit_price NUMERIC(10,2) NOT NULL,
+    stock_availability INTEGER NOT NULL DEFAULT 0,
+    unit_of_measure TEXT NOT NULL DEFAULT 'unit',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS swift_products_status_idx
+    ON swift_products (status, name);
+""".strip()
 
 
 def sql_literal(value: Any) -> str:
@@ -471,18 +447,45 @@ def sql_literal(value: Any) -> str:
     return "'" + str(value).replace("'", "''") + "'"
 
 
-def format_value(value: Any) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, datetime):
-        return value.isoformat()
-    return str(value)
+def find_next_page(html_text: str) -> str | None:
+    match = re.search(
+        r'<a[^>]+class="[^"]*\bnext\s+page-number\b[^"]*"[^>]+href="([^"]+)"',
+        html_text,
+        re.IGNORECASE,
+    )
+    if not match:
+        return None
+    return normalize_url(html.unescape(match.group(1)))
+
+
+def normalize_url(href: str) -> str | None:
+    href = html.unescape(href).strip()
+    if not href or href.startswith(("#", "mailto:", "tel:", "javascript:")):
+        return None
+    url = urljoin(PRODUCT_SOURCE_URL, href)
+    parsed = urlparse(url)
+    if parsed.netloc and parsed.netloc != urlparse(BASE_URL).netloc:
+        return None
+    clean_path = parsed.path or "/"
+    if not clean_path.endswith("/"):
+        clean_path = f"{clean_path}/"
+    return f"{BASE_URL}{clean_path}"
+
+
+def source_id_from_url(url: str) -> str:
+    slug = product_slug_from_url(url)
+    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:8].upper()
+    return re.sub(r"[^A-Z0-9]+", "-", slug.upper()).strip("-")[:36] or digest
 
 
 def category_slug_from_url(url: str) -> str:
     path = urlparse(url).path.strip("/")
     parts = [part for part in path.split("/") if part]
     return parts[-1] if parts else ""
+
+
+def product_slug_from_url(url: str) -> str:
+    return category_slug_from_url(url)
 
 
 def title_from_slug(slug: str) -> str:

@@ -6,7 +6,7 @@ import time
 from dataclasses import dataclass, asdict, field
 from datetime import date, datetime
 from typing import Any
-from urllib.parse import quote_plus
+from urllib.parse import quote_plus, urlparse
 from uuid import uuid4
 
 from app.core.config import get_app_settings
@@ -635,10 +635,17 @@ def _add_product_reference(
         if '{query}' in base_url:
             url = base_url.replace('{query}', quote_plus(query))
         else:
-            separator = '' if base_url.endswith(('=', '/', '?', '&')) else (
-                '&' if '?' in base_url else '?q='
-            )
-            url = f'{base_url}{separator}{quote_plus(query)}'
+            parsed = urlparse(base_url)
+            if (
+                parsed.netloc == 'safetyware.com'
+                and parsed.path.rstrip('/') == '/products'
+            ):
+                url = base_url
+            else:
+                separator = '' if base_url.endswith(('=', '?', '&')) else (
+                    '&' if '?' in base_url else '?q='
+                )
+                url = f'{base_url}{separator}{quote_plus(query)}'
 
     price = product_context.get('price')
     currency = product_context.get('currency') or 'RM'

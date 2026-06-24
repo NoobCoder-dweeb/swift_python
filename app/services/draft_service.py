@@ -10,6 +10,7 @@ from data import (
     add_generated_draft,
     append_product_references,
     approve_draft as approve_pending_draft,
+    build_email_thread_context,
     get_drafts,
     publish_event,
 )
@@ -191,17 +192,27 @@ class DraftService:
             }
 
         reviewer_feedback = (reason or "").strip()
+        customer_body = _customer_reply_body(row["body"])
         previous_ai = row.get("ai_draft_text", "")
         reviewed_revisions = int(row.get("revisions", 0))
         reviewed_version_id = _draft_version_id(draft_id, reviewed_revisions)
         next_revisions = reviewed_revisions + 1
         regenerated_version_id = _draft_version_id(draft_id, next_revisions)
 
+        workflow_body = _body_with_conversation_context(
+            customer_body,
+            build_email_thread_context(
+                sender=row["sender"],
+                subject=row["subject"],
+                body=customer_body,
+                created=row.get("created"),
+            ),
+        )
         workflow = run_sales_inquiry_workflow(
             IncomingEmail(
                 sender=row["sender"],
                 subject=_base_subject(row["subject"]),
-                body=row["body"],
+                body=workflow_body,
             ),
             reviewer_feedback=reviewer_feedback,
             previous_draft=previous_ai,
@@ -210,11 +221,14 @@ class DraftService:
 
         now = datetime.now().isoformat()
         row["subject"] = workflow.subject
-        row["body"] = workflow.customer_inquiry
+        row["body"] = customer_body
         row["status"] = workflow.status
         row["revisions"] = next_revisions
         row["last_rejection_reason"] = reviewer_feedback
         workflow_payload = workflow.model_dump()
+        workflow_payload["customer_inquiry"] = customer_body
+        if isinstance(workflow_payload.get("inquiry"), dict):
+            workflow_payload["inquiry"]["body"] = customer_body
         ai_draft = append_product_references(workflow.ai_draft, workflow_payload)
         row["ai_draft_text"] = ai_draft
         row["workflow"] = workflow_payload
@@ -238,7 +252,7 @@ class DraftService:
                 f"regeneration created {regenerated_version_id} using reviewer feedback."
             ),
             "review_comment": reviewer_feedback or None,
-            "customer_inquiry": workflow.customer_inquiry,
+            "customer_inquiry": customer_body,
             "ai_draft": ai_draft,
             "details": {
                 "previous_ai_draft": previous_ai,
@@ -258,7 +272,7 @@ class DraftService:
 
         regenerated = self.get_draft(draft_id) or {
             **row,
-            "customer_inquiry": workflow.customer_inquiry,
+            "customer_inquiry": customer_body,
             "ai_draft": ai_draft,
         }
         try:
@@ -288,6 +302,23 @@ def _base_subject(subject: str) -> str:
     return subject.split(" (Regenerated")[0]
 
 
+def _customer_reply_body(body: str) -> str:
+    """strips internal thread-context wrappers from persisted customer text."""
+    text = (body or "").strip()
+    marker = "Current customer reply to answer now:"
+    if marker in text:
+        text = text.rsplit(marker, 1)[-1].strip()
+    for context_marker in (
+        "\nConversation history",
+        "\nUse this only",
+        "\nCustomer ",
+        "\nCompany ",
+    ):
+        if context_marker in text:
+            text = text.split(context_marker, 1)[0].strip()
+    return text or (body or "").strip()
+
+
 def _body_with_conversation_context(body: str, conversation_context: str) -> str:
     """adds thread history for inference while keeping the current reply explicit."""
     context = (conversation_context or "").strip()
@@ -295,6 +326,6 @@ def _body_with_conversation_context(body: str, conversation_context: str) -> str
     if not context:
         return current
     return (
-        f"{context}\n\n"
-        f"Current customer reply to answer now: {current}"
+        f"Current customer reply to answer now: {current}\n\n"
+        f"{context}"
     )

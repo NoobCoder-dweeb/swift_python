@@ -69,6 +69,7 @@ async def test_pending_page_shows_product_references_inside_ai_draft():
                 "product_context": {
                     "product": "Safety Helmet",
                     "sku": "SAFE-HELMET-001",
+                    "source_url": "https://safetyware.com/product/safety-helmet/",
                     "price": 12.5,
                     "currency": "RM",
                     "stock_availability": 40,
@@ -91,7 +92,6 @@ async def test_pending_page_shows_product_references_inside_ai_draft():
 
     assert response.status_code == 200
     assert "References:" in response.text
-    assert "1. https://safetyware.com/?post_type=product&amp;s=SAFE-HELMET-001" in response.text
-    assert "SAFE-HELMET-001" in response.text
+    assert "1. https://safetyware.com/product/safety-helmet/" in response.text
     assert "product-reference-card" not in response.text
     assert "draft-references" not in response.text
