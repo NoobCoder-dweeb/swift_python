@@ -236,3 +236,9 @@ Run the CrewAI variant only after a local model endpoint is available:
 ```bash
 .venv/bin/python -m app.crews.stress_test --crewai
 ```
+
+Generate test results
+```bash
+.venv/bin/pytest tests/unit
+.venv/bin/pytest tests
+```

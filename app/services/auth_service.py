@@ -19,10 +19,16 @@ class SalesOfficerAccount:
     role: str
     initials: str
 
-    def public_dict(self) -> dict[str, str]:
+    @property
+    def can_view_all_pages(self) -> bool:
+        """distinguishes managers/admins from regular sales reviewers."""
+        return role_can_view_all_pages(self.role)
+
+    def public_dict(self) -> dict[str, str | bool]:
         """returns fields safe for templates and session display."""
         payload = asdict(self)
         payload.pop("password", None)
+        payload["can_view_all_pages"] = self.can_view_all_pages
         return payload
 
 
@@ -30,10 +36,20 @@ ACCOUNTS: tuple[SalesOfficerAccount, ...] = (
     SalesOfficerAccount("john", "swift123", "John Doe", "Sales Officer", "JD"),
     SalesOfficerAccount("aisha", "swift123", "Aisha Sales", "Sales Officer", "AS"),
     SalesOfficerAccount("mira", "swift123", "Mira Tan", "Sales Officer", "MT"),
+    SalesOfficerAccount("manager", "swift123", "Sales Manager", "Sales Manager", "SM"),
+    SalesOfficerAccount("admin", "swift123", "Admin User", "Admin", "AU"),
 )
 
 
-def list_accounts() -> list[dict[str, str]]:
+FULL_PAGE_ACCESS_ROLES = {"admin", "administrator", "sales manager"}
+
+
+def role_can_view_all_pages(role: str) -> bool:
+    """returns true for roles allowed to view every UI page."""
+    return (role or "").strip().lower() in FULL_PAGE_ACCESS_ROLES
+
+
+def list_accounts() -> list[dict[str, str | bool]]:
     """lists selectable local sales officer accounts."""
     return [account.public_dict() for account in ACCOUNTS]
 

@@ -17,10 +17,12 @@
             <i class="ph ph-envelope"></i>
             <span>Pending Drafts</span>
         </a>
+        {% if can_view_all_pages %}
         <a href="{{ url_for('audit_page') }}" class="nav-link{% if request.endpoint == 'audit_page' %} active{% endif %}">
             <i class="ph ph-file-text"></i>
             <span>Audit Log</span>
         </a>
+        {% endif %}
     </div>
     <div class="sidebar-footer">
         <div class="sidebar-user">
