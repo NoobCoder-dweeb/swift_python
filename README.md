@@ -242,3 +242,87 @@ Generate test results
 .venv/bin/pytest tests/unit
 .venv/bin/pytest tests
 ```
+
+## Agent evaluation with DeepEval
+
+The benchmark goldens live in `data/sales_workflow_goldens.json`. They cover
+localized Malaysia sales inquiries and define the raw trigger, expected tool
+sequence, and expected database/ERP-ready output fields.
+
+Install the optional evaluation dependency:
+
+```bash
+uv pip install -r requirements-eval.txt --python .venv/bin/python
+```
+
+Run the four-pillar agent benchmark:
+
+```bash
+.venv/bin/deepeval test run tests/evaluation/test_sales_agent_deepeval.py
+```
+
+For local iteration without DeepEval's post-run trace prompt, run the same file
+through pytest:
+
+```bash
+.venv/bin/pytest -p no:rerunfailures tests/evaluation/test_sales_agent_deepeval.py -q
+```
+
+Useful benchmark flags:
+
+```bash
+SWIFT_EVAL_LIMIT=10
+SWIFT_EVAL_FIELD_F1_THRESHOLD=0.60
+SWIFT_EVAL_FAIL_ON_DETERMINISTIC_GATES=0
+SWIFT_EVAL_TOOL_THRESHOLD=0.90
+SWIFT_EVAL_TASK_THRESHOLD=0.80
+SWIFT_EVAL_ENABLE_G_EVAL=0
+SWIFT_EVAL_USE_CREWAI=1
+```
+
+Put those flags in `.env` for repeatable local runs instead of exporting them
+in the shell.
+
+The harness is organized around the four pillars of agent evaluation:
+
+| Pillar | What is measured |
+| --- | --- |
+| Task success | Field-level precision, recall, and F1 for structured workflow output, plus DeepEval `GEval` task completion when `SWIFT_EVAL_ENABLE_G_EVAL=1`. |
+| Tool quality | DeepEval `ToolCorrectnessMetric`, deterministic tool match, and extracted argument match. |
+| Coordination | Supervisor routing precision when CrewAI mode is enabled and duplicate tool-call detection. |
+| Cost and performance | Per-case latency and token-burn placeholders for CrewAI/external agent telemetry. |
+
+Normal `pytest` runs do not execute this suite. It is intentionally gated by
+`SWIFT_RUN_AGENT_EVALS=1` because DeepEval can call an evaluator LLM and may
+cost money. To inspect only the deterministic field/tool gates without an LLM
+judge, set `SWIFT_EVAL_ALLOW_NO_JUDGE=1`.
+
+If you do not have OpenAI, configure a different DeepEval judge first. For a
+free local judge with Ollama:
+
+```bash
+ollama run deepseek-r1:1.5b
+.venv/bin/deepeval set-ollama --model=deepseek-r1:1.5b
+.venv/bin/deepeval test run tests/evaluation/test_sales_agent_deepeval.py
+```
+
+For Google's Gemini API free tier:
+
+```bash
+.venv/bin/deepeval set-gemini --model=gemini-3.5-flash
+.venv/bin/deepeval test run tests/evaluation/test_sales_agent_deepeval.py
+```
+
+Gemini's free tier can return temporary `503 UNAVAILABLE` errors when a model is
+under high demand. Keep `SWIFT_EVAL_ENABLE_G_EVAL=0` for everyday runs, then
+turn it on for a small sample when you specifically need the subjective
+LLM-as-judge score:
+
+```bash
+SWIFT_EVAL_LIMIT=2
+SWIFT_EVAL_ENABLE_G_EVAL=1
+```
+
+If Gemini returns `503 UNAVAILABLE`, leave `SWIFT_EVAL_ENABLE_G_EVAL=0` and
+rerun. Tool correctness and deterministic field scoring will still complete
+without a Gemini call.

@@ -1,0 +1,2 @@
+deepeval>=4.0.0,<5
+google-genai>=1.0.0

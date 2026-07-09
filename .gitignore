@@ -10,3 +10,4 @@ exports/*
 
 # log files
 *.log
+data/*
