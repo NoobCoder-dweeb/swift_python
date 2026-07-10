@@ -9,6 +9,10 @@ agents:
       or ERP context and you flag missing information clearly.
     allow_delegation: false
     max_iter: 5
+    tools:
+      - postgres_product_lookup.get_product
+      - postgres_product_lookup.search_products
+      - postgres_product_lookup.suggest_products
 
   supervisor:
     role: Sales Workflow Supervisor
@@ -21,6 +25,7 @@ agents:
       for approval.
     allow_delegation: false
     max_iter: 4
+    tools: []
 
   email_drafting:
     role: Email Drafting Agent
@@ -32,3 +37,4 @@ agents:
       data and you ask for missing details instead of guessing.
     allow_delegation: false
     max_iter: 5
+    tools: []

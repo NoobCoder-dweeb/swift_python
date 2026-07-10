@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from string import Template
@@ -23,6 +23,7 @@ class AgentDefinition:
     backstory: str
     allow_delegation: bool = False
     max_iter: int = 5
+    tools: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -105,6 +106,7 @@ def _agent_definition_from_mapping(key: str, value: Any) -> AgentDefinition:
         backstory=_require_text(payload.get("backstory"), f"agents.{key}.backstory"),
         allow_delegation=bool(payload.get("allow_delegation", False)),
         max_iter=int(payload.get("max_iter", 5)),
+        tools=_optional_text_list(payload.get("tools", []), f"agents.{key}.tools"),
     )
 
 
@@ -129,6 +131,19 @@ def _require_text(value: Any, label: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"Expected {label} to be non-empty text.")
     return value
+
+
+def _optional_text_list(value: Any, label: str) -> list[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"Expected {label} to be a list of text values.")
+    result: list[str] = []
+    for index, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            raise ValueError(f"Expected {label}[{index}] to be non-empty text.")
+        result.append(item)
+    return result
 
 
 def _yaml_module() -> Any:

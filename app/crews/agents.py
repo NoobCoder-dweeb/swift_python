@@ -1038,6 +1038,7 @@ def create_sales_processing_crewai_agent(llm: Any = None, verbose: bool = False)
         verbose=verbose,
         allow_delegation=definition.allow_delegation,
         max_iter=definition.max_iter,
+        tools=_crewai_tools_for_agent(definition.tools),
     )
 
 
@@ -1055,6 +1056,7 @@ def create_supervisor_crewai_agent(llm: Any = None, verbose: bool = False):
         verbose=verbose,
         allow_delegation=definition.allow_delegation,
         max_iter=definition.max_iter,
+        tools=_crewai_tools_for_agent(definition.tools),
     )
 
 
@@ -1072,7 +1074,17 @@ def create_email_drafting_crewai_agent(llm: Any = None, verbose: bool = False):
         verbose=verbose,
         allow_delegation=definition.allow_delegation,
         max_iter=definition.max_iter,
+        tools=_crewai_tools_for_agent(definition.tools),
     )
+
+
+def _crewai_tools_for_agent(tool_names: list[str]) -> list[Any]:
+    """builds CrewAI BaseTool instances declared in agent YAML."""
+    if not tool_names:
+        return []
+    from app.crews.tools import build_crewai_tools
+
+    return build_crewai_tools(tool_names)
 
 
 def _crewai_symbol(symbol_name: str) -> Any:

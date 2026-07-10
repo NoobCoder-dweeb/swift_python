@@ -272,7 +272,7 @@ Useful benchmark flags:
 
 ```bash
 SWIFT_EVAL_LIMIT=10
-SWIFT_EVAL_USE_GOLDEN_PRODUCT_CATALOG=1
+SWIFT_EVAL_PRODUCT_SOURCE=database
 SWIFT_EVAL_FIELD_F1_THRESHOLD=0.60
 SWIFT_EVAL_FAIL_ON_DETERMINISTIC_GATES=1
 SWIFT_EVAL_TOOL_THRESHOLD=0.90
@@ -284,19 +284,40 @@ SWIFT_EVAL_USE_CREWAI=1
 Put those flags in `.env` for repeatable local runs instead of exporting them
 in the shell.
 
-`SWIFT_EVAL_USE_GOLDEN_PRODUCT_CATALOG=1` makes the workflow use the product
-facts declared in each golden instead of whichever similar item happens to rank
-highest in the live PostgreSQL catalog. Turn it off only when you intentionally
-want to benchmark live catalog matching.
+Evaluation runs use the live PostgreSQL `swift_products` table by default. Seed
+the database with `init.db` before running the benchmark so the golden dataset is
+scored against real persisted catalog rows, not synthetic facts in the harness.
+`SWIFT_EVAL_PRODUCT_SOURCE=golden` is available only for offline harness
+development when PostgreSQL is unavailable.
+
+Export CSV tables for results and discussion:
+
+```bash
+.venv/bin/python scripts/export_sales_eval_results.py --output-dir reports/evaluation
+```
+
+This writes:
+
+| CSV | Purpose |
+| --- | --- |
+| `sales_eval_case_metrics.csv` | Per-golden metrics for manual processing, SLM/deterministic workflow, and optional LLM/CrewAI runs. |
+| `sales_eval_aggregate_metrics.csv` | Mean, median, standard deviation, standard error, 95% CI, min, and max by processing mode. |
+| `sales_eval_pairwise_comparison.csv` | Manual-vs-SLM/LLM deltas for accuracy, tool quality, latency, review time, and automation savings. |
+
+Add `--include-llm` when the CrewAI/LLM backend is configured:
+
+```bash
+.venv/bin/python scripts/export_sales_eval_results.py --include-llm
+```
 
 The harness is organized around the four pillars of agent evaluation:
 
 | Pillar | What is measured |
 | --- | --- |
 | Task success | Field-level precision, recall, and F1 for structured workflow output, plus DeepEval `GEval` task completion when `SWIFT_EVAL_ENABLE_G_EVAL=1`. |
-| Tool quality | DeepEval `ToolCorrectnessMetric`, deterministic tool match, and extracted argument match. |
-| Coordination | Supervisor routing precision when CrewAI mode is enabled and duplicate tool-call detection. |
-| Cost and performance | Per-case latency and token-burn placeholders for CrewAI/external agent telemetry. |
+| Tool quality | DeepEval `ToolCorrectnessMetric`, deterministic tool precision/recall/F1, exact sequence matching, and extracted argument accuracy. |
+| Coordination | Supervisor routing precision when CrewAI mode is enabled, duplicate tool-call detection, tool-call count, chokehold count, blocked status, and human-review routing. |
+| Cost and performance | Per-case latency, estimated manual/review minutes, automation time saved, token-burn placeholders, and aggregate p50/p95-ready CSV statistics. |
 
 Normal `pytest` runs do not execute this suite. It is intentionally gated by
 `SWIFT_RUN_AGENT_EVALS=1` because DeepEval can call an evaluator LLM and may
