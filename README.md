@@ -272,8 +272,9 @@ Useful benchmark flags:
 
 ```bash
 SWIFT_EVAL_LIMIT=10
+SWIFT_EVAL_USE_GOLDEN_PRODUCT_CATALOG=1
 SWIFT_EVAL_FIELD_F1_THRESHOLD=0.60
-SWIFT_EVAL_FAIL_ON_DETERMINISTIC_GATES=0
+SWIFT_EVAL_FAIL_ON_DETERMINISTIC_GATES=1
 SWIFT_EVAL_TOOL_THRESHOLD=0.90
 SWIFT_EVAL_TASK_THRESHOLD=0.80
 SWIFT_EVAL_ENABLE_G_EVAL=0
@@ -282,6 +283,11 @@ SWIFT_EVAL_USE_CREWAI=1
 
 Put those flags in `.env` for repeatable local runs instead of exporting them
 in the shell.
+
+`SWIFT_EVAL_USE_GOLDEN_PRODUCT_CATALOG=1` makes the workflow use the product
+facts declared in each golden instead of whichever similar item happens to rank
+highest in the live PostgreSQL catalog. Turn it off only when you intentionally
+want to benchmark live catalog matching.
 
 The harness is organized around the four pillars of agent evaluation:
 
