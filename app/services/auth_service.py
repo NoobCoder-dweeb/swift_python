@@ -1,47 +1,129 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-import secrets
+from threading import RLock
 
+import bcrypt
 from fastapi import HTTPException, Request, status
+
+from app.repositories.state_repository import UserRow, get_state_repository
 
 
 SESSION_USER_KEY = "swift_sales_officer"
+ALLOWED_LEVELS = {"sales person", "admin", "sales manager"}
+FULL_PAGE_ACCESS_ROLES = {"admin", "administrator", "sales manager"}
 
 
 @dataclass(frozen=True)
 class SalesOfficerAccount:
-    """represents a local sales officer account for reviewer login."""
+    """represents a database-backed sales reviewer account."""
 
     username: str
-    password: str
+    email: str
     name: str
-    role: str
+    level: str
     initials: str
+
+    @property
+    def role(self) -> str:
+        """keeps existing route/template access checks compatible."""
+        return self.level
 
     @property
     def can_view_all_pages(self) -> bool:
         """distinguishes managers/admins from regular sales reviewers."""
-        return role_can_view_all_pages(self.role)
+        return role_can_view_all_pages(self.level)
 
     def public_dict(self) -> dict[str, str | bool]:
         """returns fields safe for templates and session display."""
         payload = asdict(self)
-        payload.pop("password", None)
+        payload["role"] = self.level.title()
         payload["can_view_all_pages"] = self.can_view_all_pages
         return payload
 
 
-ACCOUNTS: tuple[SalesOfficerAccount, ...] = (
-    SalesOfficerAccount("john", "swift123", "John Doe", "Sales Officer", "JD"),
-    SalesOfficerAccount("aisha", "swift123", "Aisha Sales", "Sales Officer", "AS"),
-    SalesOfficerAccount("mira", "swift123", "Mira Tan", "Sales Officer", "MT"),
-    SalesOfficerAccount("manager", "swift123", "Sales Manager", "Sales Manager", "SM"),
-    SalesOfficerAccount("admin", "swift123", "Admin User", "Admin", "AU"),
+@dataclass(frozen=True)
+class DefaultUserSeed:
+    """defines first-run reviewer users inserted into the configured database."""
+
+    username: str
+    email: str
+    password: str
+    level: str
+    name: str
+    initials: str
+
+
+DEFAULT_USER_SEEDS: tuple[DefaultUserSeed, ...] = (
+    DefaultUserSeed(
+        "john",
+        "john@project-swift.local",
+        "swift123",
+        "sales person",
+        "John Doe",
+        "JD",
+    ),
+    DefaultUserSeed(
+        "aisha",
+        "aisha@project-swift.local",
+        "swift123",
+        "sales person",
+        "Aisha Sales",
+        "AS",
+    ),
+    DefaultUserSeed(
+        "mira",
+        "mira@project-swift.local",
+        "swift123",
+        "sales person",
+        "Mira Tan",
+        "MT",
+    ),
+    DefaultUserSeed(
+        "manager",
+        "manager@project-swift.local",
+        "swift123",
+        "sales manager",
+        "Sales Manager",
+        "SM",
+    ),
+    DefaultUserSeed(
+        "admin",
+        "admin@project-swift.local",
+        "swift123",
+        "admin",
+        "Admin User",
+        "AU",
+    ),
 )
+DEFAULT_USER_PROFILES = {
+    seed.username: {"name": seed.name, "initials": seed.initials}
+    for seed in DEFAULT_USER_SEEDS
+}
+_seed_lock = RLock()
+_seeded_repository_ids: set[int] = set()
 
 
-FULL_PAGE_ACCESS_ROLES = {"admin", "administrator", "sales manager"}
+def hash_password(password: str) -> str:
+    """returns a bcrypt hash suitable for storage in swift_users."""
+    return bcrypt.hashpw((password or "").encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, hashed_password: str) -> bool:
+    """checks a submitted password against a stored bcrypt hash."""
+    try:
+        return bcrypt.checkpw(
+            (password or "").encode(),
+            (hashed_password or "").encode(),
+        )
+    except ValueError:
+        return False
+
+
+def normalize_level(level: str | None) -> str:
+    """keeps role gates tied to the supported database level values."""
+    normalized = (level or "").strip().lower()
+    return normalized if normalized in ALLOWED_LEVELS else "sales person"
 
 
 def role_can_view_all_pages(role: str) -> bool:
@@ -50,29 +132,76 @@ def role_can_view_all_pages(role: str) -> bool:
 
 
 def list_accounts() -> list[dict[str, str | bool]]:
-    """lists selectable local sales officer accounts."""
-    return [account.public_dict() for account in ACCOUNTS]
+    """lists database-backed sales reviewer accounts for UI context."""
+    ensure_default_users()
+    return [_account_from_row(row).public_dict() for row in get_state_repository().list_users()]
 
 
 def authenticate(username: str, password: str) -> SalesOfficerAccount | None:
-    """checks local sales officer credentials."""
+    """checks submitted credentials against the configured user database."""
+    ensure_default_users()
     normalized_username = (username or "").strip().lower()
-    password = password or ""
-    for account in ACCOUNTS:
-        username_matches = secrets.compare_digest(account.username, normalized_username)
-        password_matches = secrets.compare_digest(account.password, password)
-        if username_matches and password_matches:
-            return account
-    return None
+    row = get_state_repository().get_user_by_username(normalized_username)
+    if not row or not verify_password(password, str(row.get("hashed_password") or "")):
+        return None
+    return _account_from_row(row)
 
 
 def get_account(username: str | None) -> SalesOfficerAccount | None:
-    """finds a local account by username."""
+    """finds a database account by username."""
+    ensure_default_users()
     normalized_username = (username or "").strip().lower()
-    return next(
-        (account for account in ACCOUNTS if account.username == normalized_username),
-        None,
+    row = get_state_repository().get_user_by_username(normalized_username)
+    return _account_from_row(row) if row else None
+
+
+def ensure_default_users() -> None:
+    """seeds first-run users once per process if they are missing."""
+    repository = get_state_repository()
+    repository_id = id(repository)
+    if repository_id in _seeded_repository_ids:
+        return
+    with _seed_lock:
+        if repository_id in _seeded_repository_ids:
+            return
+        for seed in DEFAULT_USER_SEEDS:
+            if repository.get_user_by_username(seed.username):
+                continue
+            repository.upsert_user(
+                {
+                    "username": seed.username,
+                    "email": seed.email,
+                    "hashed_password": hash_password(seed.password),
+                    "level": normalize_level(seed.level),
+                }
+            )
+        _seeded_repository_ids.add(repository_id)
+
+
+def _account_from_row(row: UserRow) -> SalesOfficerAccount:
+    """maps stored user rows to the account shape used by routes/templates."""
+    username = str(row.get("username") or "").strip().lower()
+    profile = DEFAULT_USER_PROFILES.get(username, {})
+    name = str(profile.get("name") or _display_name(username))
+    initials = str(profile.get("initials") or _initials(name))
+    return SalesOfficerAccount(
+        username=username,
+        email=str(row.get("email") or ""),
+        name=name,
+        level=normalize_level(str(row.get("level") or "")),
+        initials=initials,
     )
+
+
+def _display_name(username: str) -> str:
+    """turns ad-hoc usernames into readable sidebar names."""
+    return (username or "Sales User").replace(".", " ").replace("_", " ").title()
+
+
+def _initials(name: str) -> str:
+    """derives compact initials for users not present in the seed profile."""
+    parts = [part for part in name.split() if part]
+    return "".join(part[0] for part in parts[:2]).upper() or "SU"
 
 
 def current_account(request: Request) -> SalesOfficerAccount | None:
