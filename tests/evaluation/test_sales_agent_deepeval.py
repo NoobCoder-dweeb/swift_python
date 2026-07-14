@@ -16,7 +16,13 @@ os.environ.setdefault("OTEL_SDK_DISABLED", "true")
 from tests.evaluation.sales_eval_harness import evaluate_golden, load_goldens  # noqa: E402
 
 
-pytestmark = pytest.mark.agent_eval
+pytestmark = [
+    pytest.mark.agent_eval,
+    pytest.mark.filterwarnings(
+        "ignore:function_calling_llm is deprecated.*:DeprecationWarning:crewai\\."
+    ),
+    pytest.mark.filterwarnings("ignore:deprecated:DeprecationWarning:crewai\\."),
+]
 
 if os.getenv("SWIFT_RUN_AGENT_EVALS") != "1":
     pytest.skip(
