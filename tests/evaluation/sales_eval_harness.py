@@ -306,30 +306,34 @@ def score_four_pillars(
     product_score = product_fact_score(expected_output, actual_output)
     tool_score = tool_match_score(expected_tools, actual_tools)
     argument_score = argument_match_score(expected_output, actual_output)
+    task_success = {
+        "field_f1": field_score["f1"],
+        "field_precision": field_score["precision"],
+        "field_recall": field_score["recall"],
+        "field_exact_match": field_score["exact_match"],
+        "field_checks": field_score["checks"],
+        "required_response_coverage": response_score["required_coverage"],
+        "forbidden_response_hits": response_score["forbidden_hits"],
+        "forbidden_response_hit_rate": response_score["forbidden_hit_rate"],
+        "product_fact_accuracy": product_score["accuracy"],
+        "product_fact_checks": product_score["checks"],
+        "task_completion_source": "deepeval_geval_when_enabled",
+    }
+    tool_quality = {
+        "tool_match": tool_score,
+        "tool_precision": tool_score["precision"],
+        "tool_recall": tool_score["recall"],
+        "tool_f1": tool_score["f1"],
+        "args_match": argument_score,
+        "argument_accuracy": argument_score["score"],
+        "expected_tools": expected_tools,
+        "actual_tools": actual_tools,
+    }
+    task_success["accuracy"] = overall_accuracy_score(task_success, tool_quality)
+    token_metrics = token_consumption_metrics(workflow, actual_output)
     return MetricMatrix(
-        task_success={
-            "field_f1": field_score["f1"],
-            "field_precision": field_score["precision"],
-            "field_recall": field_score["recall"],
-            "field_exact_match": field_score["exact_match"],
-            "field_checks": field_score["checks"],
-            "required_response_coverage": response_score["required_coverage"],
-            "forbidden_response_hits": response_score["forbidden_hits"],
-            "forbidden_response_hit_rate": response_score["forbidden_hit_rate"],
-            "product_fact_accuracy": product_score["accuracy"],
-            "product_fact_checks": product_score["checks"],
-            "task_completion_source": "deepeval_geval_when_enabled",
-        },
-        tool_quality={
-            "tool_match": tool_score,
-            "tool_precision": tool_score["precision"],
-            "tool_recall": tool_score["recall"],
-            "tool_f1": tool_score["f1"],
-            "args_match": argument_score,
-            "argument_accuracy": argument_score["score"],
-            "expected_tools": expected_tools,
-            "actual_tools": actual_tools,
-        },
+        task_success=task_success,
+        tool_quality=tool_quality,
         coordination={
             "routing_precision": routing_precision(workflow),
             "duplicate_tool_calls": duplicate_tool_calls(actual_tools),
@@ -342,7 +346,7 @@ def score_four_pillars(
         },
         cost_and_perf={
             "latency_ms": round(max(workflow.elapsed_ms, measured_latency_ms), 2),
-            "token_burn": token_burn(workflow),
+            **token_metrics,
             "estimated_manual_minutes": _env_float(
                 "SWIFT_EVAL_MANUAL_MINUTES_PER_CASE",
                 10.0,
@@ -525,6 +529,22 @@ def product_fact_score(
     }
 
 
+def overall_accuracy_score(
+    task_success: dict[str, Any],
+    tool_quality: dict[str, Any],
+) -> float:
+    """Combines output, product, response, and tool correctness into one score."""
+    scores = [
+        task_success["field_f1"],
+        task_success["product_fact_accuracy"],
+        task_success["required_response_coverage"],
+        1.0 - task_success["forbidden_response_hit_rate"],
+        tool_quality["tool_f1"],
+        tool_quality["argument_accuracy"],
+    ]
+    return round(mean([float(score) for score in scores]), 4)
+
+
 def routing_precision(workflow: SalesWorkflowResult) -> float | None:
     if workflow.execution_mode != "crewai":
         return None
@@ -541,10 +561,70 @@ def duplicate_tool_calls(actual_tools: list[str]) -> int:
     )
 
 
-def token_burn(workflow: SalesWorkflowResult) -> int | None:
+def token_consumption_metrics(
+    workflow: SalesWorkflowResult,
+    actual_output: dict[str, Any],
+) -> dict[str, Any]:
+    """Reports real token usage when available, otherwise a labeled estimate."""
+    real_usage = _real_token_usage(workflow)
+    if real_usage:
+        input_tokens = int(real_usage.get("input_tokens", 0) or 0)
+        output_tokens = int(real_usage.get("output_tokens", 0) or 0)
+        total_tokens = int(real_usage.get("total_tokens", input_tokens + output_tokens) or 0)
+        source = str(real_usage.get("token_count_source") or "provider_usage")
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": total_tokens,
+            "token_consumption": total_tokens,
+            "token_burn": total_tokens,
+            "token_count_source": source,
+        }
+
     if workflow.execution_mode == "deterministic":
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_tokens": 0,
+            "token_consumption": 0,
+            "token_burn": 0,
+            "token_count_source": "deterministic_no_llm",
+        }
+
+    input_text = "\n".join(
+        [
+            workflow.subject,
+            workflow.customer_inquiry,
+            workflow.inquiry.model_dump_json(),
+            workflow.product_context.model_dump_json(),
+        ]
+    )
+    output_text = json.dumps(actual_output, sort_keys=True, default=str)
+    input_tokens = _estimate_tokens(input_text)
+    output_tokens = _estimate_tokens(output_text)
+    total_tokens = input_tokens + output_tokens
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "token_consumption": total_tokens,
+        "token_burn": total_tokens,
+        "token_count_source": f"estimated_{workflow.execution_mode}_text",
+    }
+
+
+def _real_token_usage(workflow: SalesWorkflowResult) -> dict[str, Any]:
+    for attribute in ("token_usage", "usage", "llm_usage"):
+        usage = getattr(workflow, attribute, None)
+        if isinstance(usage, dict):
+            return usage
+    return {}
+
+
+def _estimate_tokens(text: str) -> int:
+    if not text:
         return 0
-    return None
+    return max(1, round(len(text) / 4))
 
 
 def estimated_review_minutes(workflow: SalesWorkflowResult) -> float:
@@ -687,6 +767,10 @@ def manual_baseline_row(golden: dict[str, Any]) -> dict[str, Any]:
         "processing_mode": "manual",
         "product_source": "human_verified_database",
         "execution_mode": "manual",
+        "raw_input": golden["input"],
+        "expected_output_json": json.dumps(expected_output, sort_keys=True),
+        "actual_output_json": json.dumps(expected_output, sort_keys=True),
+        "accuracy": 1.0,
         "field_f1": 1.0,
         "field_precision": 1.0,
         "field_recall": 1.0,
@@ -707,7 +791,12 @@ def manual_baseline_row(golden: dict[str, Any]) -> dict[str, Any]:
         "estimated_manual_minutes": manual_minutes,
         "estimated_review_minutes": manual_minutes,
         "automation_time_saved_pct": 0.0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "token_consumption": 0,
         "token_burn": 0,
+        "token_count_source": "manual_not_applicable",
         "status": expected_output.get("status"),
         "inquiry_type": expected_output.get("inquiry_type"),
         "product_name": expected_output.get("product_name"),
@@ -733,6 +822,10 @@ def evaluation_record_to_row(record: EvaluationRecord) -> dict[str, Any]:
         "processing_mode": record.processing_mode,
         "product_source": record.product_source,
         "execution_mode": record.workflow.execution_mode,
+        "raw_input": record.input,
+        "expected_output_json": json.dumps(record.expected_output, sort_keys=True),
+        "actual_output_json": record.actual_output_text,
+        "accuracy": task["accuracy"],
         "field_f1": task["field_f1"],
         "field_precision": task["field_precision"],
         "field_recall": task["field_recall"],
@@ -756,7 +849,12 @@ def evaluation_record_to_row(record: EvaluationRecord) -> dict[str, Any]:
             _safe_div(manual_minutes - review_minutes, manual_minutes) * 100,
             2,
         ),
+        "input_tokens": cost["input_tokens"],
+        "output_tokens": cost["output_tokens"],
+        "total_tokens": cost["total_tokens"],
+        "token_consumption": cost["token_consumption"],
         "token_burn": cost["token_burn"],
+        "token_count_source": cost["token_count_source"],
         "status": record.actual_output.get("status"),
         "inquiry_type": record.actual_output.get("inquiry_type"),
         "product_name": record.actual_output.get("product_name"),
@@ -774,6 +872,7 @@ def aggregate_case_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         grouped.setdefault(str(row["processing_mode"]), []).append(row)
 
     metric_names = (
+        "accuracy",
         "field_f1",
         "product_fact_accuracy",
         "required_response_coverage",
@@ -784,14 +883,28 @@ def aggregate_case_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "estimated_review_minutes",
         "automation_time_saved_pct",
         "chokehold_count",
+        "input_tokens",
+        "output_tokens",
+        "total_tokens",
+        "token_consumption",
+        "token_burn",
     )
     summary_rows: list[dict[str, Any]] = []
     for mode, mode_rows in sorted(grouped.items()):
+        token_sources = sorted(
+            {str(row.get("token_count_source") or "unknown") for row in mode_rows}
+        )
         summary: dict[str, Any] = {
             "processing_mode": mode,
             "n": len(mode_rows),
             "field_exact_match_rate": _rate(mode_rows, "field_exact_match"),
             "tool_exact_sequence_rate": _rate(mode_rows, "tool_exact_sequence"),
+            "token_count_sources": ", ".join(token_sources),
+            "input_tokens_total": _numeric_total(mode_rows, "input_tokens"),
+            "output_tokens_total": _numeric_total(mode_rows, "output_tokens"),
+            "total_tokens_total": _numeric_total(mode_rows, "total_tokens"),
+            "token_consumption_total": _numeric_total(mode_rows, "token_consumption"),
+            "token_burn_total": _numeric_total(mode_rows, "token_burn"),
         }
         for metric in metric_names:
             values = [_float(row.get(metric)) for row in mode_rows if row.get(metric) not in ("", None)]
@@ -818,6 +931,7 @@ def pairwise_comparison_rows(
             {
                 "baseline": baseline,
                 "comparison": mode,
+                "accuracy_delta": _delta(row, baseline_row, "accuracy_mean"),
                 "field_f1_delta": _delta(row, baseline_row, "field_f1_mean"),
                 "product_fact_accuracy_delta": _delta(
                     row,
@@ -841,6 +955,16 @@ def pairwise_comparison_rows(
                 ),
                 "automation_time_saved_pct_mean": row.get(
                     "automation_time_saved_pct_mean"
+                ),
+                "token_consumption_mean_delta": _delta(
+                    row,
+                    baseline_row,
+                    "token_consumption_mean",
+                ),
+                "token_consumption_total_delta": _delta(
+                    row,
+                    baseline_row,
+                    "token_consumption_total",
                 ),
             }
         )
@@ -974,6 +1098,11 @@ def _numeric_summary(metric: str, values: list[float]) -> dict[str, Any]:
         f"{metric}_min": round(min(values), 4),
         f"{metric}_max": round(max(values), 4),
     }
+
+
+def _numeric_total(rows: list[dict[str, Any]], key: str) -> float:
+    values = [_float(row.get(key)) for row in rows if row.get(key) not in ("", None)]
+    return round(sum(values), 4)
 
 
 def _delta(row: dict[str, Any], baseline: dict[str, Any], key: str) -> float | str:

@@ -104,6 +104,7 @@ def run_sales_inquiry_workflow(
     drafter = EmailDraftingAgent()
     agent_models: dict[str, str] = {}
     supervisor_review: DraftValidationResult | None = None
+    token_usage: dict[str, Any] = {}
 
     inquiry = processor.extract_inquiry(
         sender=cleaned_email.sender,
@@ -226,6 +227,7 @@ def run_sales_inquiry_workflow(
             execution_mode = "external"
             agent_models = external_result.agent_models
             supervisor_review = external_result.supervisor_review
+            token_usage = external_result.token_usage
         else:
             ai_draft = drafter.generate_response(
                 inquiry,
@@ -248,6 +250,7 @@ def run_sales_inquiry_workflow(
             execution_mode = "crewai"
             agent_models = crew_result.agent_models
             supervisor_review = crew_result.supervisor_review
+            token_usage = crew_result.token_usage
         else:
             ai_draft = drafter.generate_response(
                 inquiry,
@@ -303,6 +306,15 @@ def run_sales_inquiry_workflow(
             chokeholds.extend(validation.reasons)
 
     ai_draft = _append_product_references(ai_draft, product_context)
+    token_usage = _finalize_token_usage(
+        token_usage,
+        execution_mode=execution_mode,
+        subject=cleaned_email.subject,
+        body=cleaned_email.body,
+        inquiry=inquiry,
+        product_context=product_context,
+        ai_draft=ai_draft,
+    )
 
     elapsed_ms = (time.perf_counter() - start) * 1000
     return SalesWorkflowResult(
@@ -323,6 +335,7 @@ def run_sales_inquiry_workflow(
         learning_notes=_build_learning_notes(reviewer_feedback, validation),
         chokeholds=_dedupe(chokeholds),
         elapsed_ms=round(elapsed_ms, 2),
+        token_usage=token_usage,
     )
 
 
@@ -335,12 +348,14 @@ class _CrewDraftResult:
         error: str | None = None,
         agent_models: dict[str, str] | None = None,
         supervisor_review: DraftValidationResult | None = None,
+        token_usage: dict[str, Any] | None = None,
     ) -> None:
         """stores both success and failure details for workflow reporting."""
         self.draft = draft
         self.error = error
         self.agent_models = agent_models or {}
         self.supervisor_review = supervisor_review
+        self.token_usage = token_usage or {}
 
 
 def _run_crewai_draft(
@@ -410,10 +425,13 @@ def _run_crewai_draft(
             cache=False,
         )
         result = crew.kickoff()
+        token_usage = _extract_token_usage(result, crew)
         draft = str(result).strip()
         if not draft:
             return _CrewDraftResult(
-                error="crewai_returned_empty_draft", agent_models=agent_models
+                error="crewai_returned_empty_draft",
+                agent_models=agent_models,
+                token_usage=token_usage,
             )
 
         supervisor_review = None
@@ -436,7 +454,11 @@ def _run_crewai_draft(
                 memory=False,
                 cache=False,
             )
-            supervisor_crew.kickoff()
+            supervisor_result = supervisor_crew.kickoff()
+            token_usage = _merge_token_usage(
+                token_usage,
+                _extract_token_usage(supervisor_result, supervisor_crew),
+            )
             pydantic_output = getattr(validation_task.output, "pydantic", None)
             if isinstance(pydantic_output, DraftValidationResult):
                 supervisor_review = pydantic_output
@@ -447,6 +469,7 @@ def _run_crewai_draft(
             draft=draft,
             agent_models=agent_models,
             supervisor_review=supervisor_review,
+            token_usage=token_usage,
         )
     except Exception as exc:
         return _CrewDraftResult(error=_format_crewai_error(exc))
@@ -541,7 +564,186 @@ def _run_external_agent_draft(
             "provider": str(data.get("provider") or "external"),
         },
         supervisor_review=supervisor_review,
+        token_usage=_extract_token_usage(data),
     )
+
+
+def _finalize_token_usage(
+    token_usage: dict[str, Any],
+    *,
+    execution_mode: WorkflowMode,
+    subject: str,
+    body: str,
+    inquiry: InquiryDetails,
+    product_context: ProductContext,
+    ai_draft: str,
+) -> dict[str, Any]:
+    """ensures every workflow exposes token usage for evaluation reports."""
+    normalized = _normalize_token_usage(token_usage)
+    if normalized.get("total_tokens", 0) > 0:
+        return normalized
+
+    input_text = "\n".join(
+        [
+            subject,
+            body,
+            inquiry.model_dump_json(),
+            product_context.model_dump_json(),
+        ]
+    )
+    source = (
+        "estimated_slm_text"
+        if execution_mode == "deterministic"
+        else f"estimated_{execution_mode}_text"
+    )
+    return _estimated_token_usage(
+        input_text=input_text,
+        output_text=ai_draft,
+        source=source,
+    )
+
+
+def _extract_token_usage(*objects: Any) -> dict[str, Any]:
+    """pulls token usage from provider/CrewAI objects with varying shapes."""
+    usage: dict[str, Any] = {}
+    for item in objects:
+        usage = _merge_token_usage(usage, _token_usage_from_object(item))
+    return usage
+
+
+def _token_usage_from_object(item: Any) -> dict[str, Any]:
+    if item is None:
+        return {}
+    if isinstance(item, dict):
+        direct = _normalize_token_usage(item)
+        if direct.get("total_tokens", 0) > 0:
+            return direct
+        for key in ("usage", "token_usage", "usage_metrics", "tokens"):
+            nested = item.get(key)
+            if isinstance(nested, dict):
+                normalized = _normalize_token_usage(nested)
+                if normalized.get("total_tokens", 0) > 0:
+                    return normalized
+        return {}
+
+    for attribute in ("token_usage", "usage", "usage_metrics", "tokens"):
+        value = getattr(item, attribute, None)
+        normalized = _normalize_token_usage(value)
+        if normalized.get("total_tokens", 0) > 0:
+            return normalized
+    return {}
+
+
+def _normalize_token_usage(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    elif hasattr(value, "dict"):
+        value = value.dict()
+    elif not isinstance(value, dict) and hasattr(value, "__dict__"):
+        value = vars(value)
+    if not isinstance(value, dict):
+        return {}
+
+    input_tokens = _first_int(
+        value,
+        "input_tokens",
+        "prompt_tokens",
+        "prompt_eval_count",
+        "prompt_eval_tokens",
+    )
+    output_tokens = _first_int(
+        value,
+        "output_tokens",
+        "completion_tokens",
+        "eval_count",
+        "completion_eval_count",
+        "completion_eval_tokens",
+    )
+    total_tokens = _first_int(
+        value,
+        "total_tokens",
+        "total_token_count",
+        "tokens",
+    )
+    if total_tokens == 0:
+        total_tokens = input_tokens + output_tokens
+    if total_tokens == 0:
+        return {}
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "token_consumption": total_tokens,
+        "token_burn": total_tokens,
+        "token_count_source": str(value.get("token_count_source") or "provider_usage"),
+    }
+
+
+def _merge_token_usage(*usages: dict[str, Any]) -> dict[str, Any]:
+    merged = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "token_consumption": 0,
+        "token_burn": 0,
+        "token_count_source": "provider_usage",
+    }
+    found = False
+    sources: list[str] = []
+    for usage in usages:
+        normalized = _normalize_token_usage(usage)
+        if not normalized:
+            continue
+        found = True
+        merged["input_tokens"] += int(normalized.get("input_tokens", 0) or 0)
+        merged["output_tokens"] += int(normalized.get("output_tokens", 0) or 0)
+        merged["total_tokens"] += int(normalized.get("total_tokens", 0) or 0)
+        source = str(normalized.get("token_count_source") or "provider_usage")
+        sources.append(source)
+    if not found:
+        return {}
+    merged["token_consumption"] = merged["total_tokens"]
+    merged["token_burn"] = merged["total_tokens"]
+    merged["token_count_source"] = ", ".join(_dedupe(sources))
+    return merged
+
+
+def _estimated_token_usage(
+    *,
+    input_text: str,
+    output_text: str,
+    source: str,
+) -> dict[str, Any]:
+    input_tokens = _estimate_tokens(input_text)
+    output_tokens = _estimate_tokens(output_text)
+    total_tokens = input_tokens + output_tokens
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "token_consumption": total_tokens,
+        "token_burn": total_tokens,
+        "token_count_source": source,
+    }
+
+
+def _estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return max(1, round(len(text) / 4))
+
+
+def _first_int(payload: dict[str, Any], *keys: str) -> int:
+    for key in keys:
+        if key not in payload:
+            continue
+        try:
+            return int(payload.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+    return 0
 
 
 def _resolve_agent_backend(use_crewai: bool | None) -> str:

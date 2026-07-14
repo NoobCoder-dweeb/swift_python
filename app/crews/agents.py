@@ -127,6 +127,8 @@ class MultiAgentLLMConfig:
 
     def validate_unique_models(self) -> None:
         """avoids role collapse when separate agents should provide checks."""
+        if _env_bool("SWIFT_ALLOW_SHARED_LLM_MODELS", False):
+            return
         role_models = {
             "supervisor": self.supervisor.model,
             "sales": self.sales.model,
@@ -1293,6 +1295,14 @@ def _env_float(name: str, default: float, *, minimum: float | None = None) -> fl
     if minimum is not None and value < minimum:
         return default
     return value
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """parses common environment booleans without surprising truthiness."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _format_error_note(exc: Exception) -> str:

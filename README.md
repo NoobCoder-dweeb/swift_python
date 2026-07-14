@@ -296,13 +296,19 @@ Export CSV tables for results and discussion:
 .venv/bin/python scripts/export_sales_eval_results.py --output-dir reports/evaluation
 ```
 
+For raw per-case data only:
+
+```bash
+.venv/bin/python scripts/export_sales_eval_results.py --output-dir reports/evaluation --raw-only
+```
+
 This writes:
 
 | CSV | Purpose |
 | --- | --- |
-| `sales_eval_case_metrics.csv` | Per-golden metrics for manual processing, SLM/deterministic workflow, and optional LLM/CrewAI runs. |
-| `sales_eval_aggregate_metrics.csv` | Mean, median, standard deviation, standard error, 95% CI, min, and max by processing mode. |
-| `sales_eval_pairwise_comparison.csv` | Manual-vs-SLM/LLM deltas for accuracy, tool quality, latency, review time, and automation savings. |
+| `sales_eval_case_metrics.csv` | Per-golden raw inputs, expected/actual output JSON, manual processing, SLM/deterministic workflow, and optional LLM/CrewAI metrics, including composite accuracy and token-consumption fields. |
+| `sales_eval_aggregate_metrics.csv` | Mean, median, standard deviation, standard error, 95% CI, min, max, and token totals by processing mode. |
+| `sales_eval_pairwise_comparison.csv` | Manual-vs-SLM/LLM deltas for accuracy, tool quality, latency, review time, automation savings, and token consumption. |
 
 Add `--include-llm` when the CrewAI/LLM backend is configured:
 
@@ -310,14 +316,43 @@ Add `--include-llm` when the CrewAI/LLM backend is configured:
 .venv/bin/python scripts/export_sales_eval_results.py --include-llm
 ```
 
+For Gemini API-backed LLM rows, keep `GOOGLE_API_KEY` or `GEMINI_API_KEY`
+configured and override the CrewAI provider for the export:
+
+```bash
+SWIFT_LOCAL_LLM_PROVIDER=gemini \
+SWIFT_LOCAL_LLM_BASE_URL= \
+SWIFT_ALLOW_SHARED_LLM_MODELS=1 \
+SWIFT_SUPERVISOR_LLM_MODEL=gemini-2.0-flash-001 \
+SWIFT_SALES_LLM_MODEL=gemini-2.0-flash-001 \
+SWIFT_DRAFT_LLM_MODEL=gemini-2.0-flash-001 \
+.venv/bin/python scripts/export_sales_eval_results.py \
+  --output-dir reports/evaluation \
+  --include-llm \
+  --raw-only
+```
+
+If the Gemini API returns `429 RESOURCE_EXHAUSTED`, the generated LLM rows are
+fallback rows rather than successful CrewAI rows. The plotting helper excludes
+those fallback rows from LLM comparisons unless `execution_mode` is `crewai` or
+`external`.
+
 The harness is organized around the four pillars of agent evaluation:
 
 | Pillar | What is measured |
 | --- | --- |
-| Task success | Field-level precision, recall, and F1 for structured workflow output, plus DeepEval `GEval` task completion when `SWIFT_EVAL_ENABLE_G_EVAL=1`. |
+| Task success | Composite accuracy, field-level precision, recall, and F1 for structured workflow output, plus DeepEval `GEval` task completion when `SWIFT_EVAL_ENABLE_G_EVAL=1`. |
 | Tool quality | DeepEval `ToolCorrectnessMetric`, deterministic tool precision/recall/F1, exact sequence matching, and extracted argument accuracy. |
 | Coordination | Supervisor routing precision when CrewAI mode is enabled, duplicate tool-call detection, tool-call count, chokehold count, blocked status, and human-review routing. |
-| Cost and performance | Per-case latency, estimated manual/review minutes, automation time saved, token-burn placeholders, and aggregate p50/p95-ready CSV statistics. |
+| Cost and performance | Per-case latency, estimated manual/review minutes, automation time saved, input/output/total token consumption, token-count source labels, and aggregate p50/p95-ready CSV statistics. |
+
+Token counts are exact only when the workflow/provider returns usage metadata.
+The SLM/deterministic path exposes estimated input/output tokens from the
+workflow prompt and final draft text with `token_count_source=estimated_slm_text`.
+CrewAI, external, or other LLM paths use provider usage when it is returned;
+when local providers do not expose usage metadata, the harness estimates tokens
+from prompt/output text and labels them `estimated_crewai_text` or
+`estimated_external_text`.
 
 Normal `pytest` runs do not execute this suite. It is intentionally gated by
 `SWIFT_RUN_AGENT_EVALS=1` because DeepEval can call an evaluator LLM and may

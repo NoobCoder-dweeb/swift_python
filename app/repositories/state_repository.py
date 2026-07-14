@@ -24,6 +24,7 @@ else:
 DraftRow = dict[str, Any]
 AuditRow = dict[str, Any]
 EmailRow = dict[str, Any]
+UserRow = dict[str, Any]
 
 
 class StateRepository(Protocol):
@@ -83,6 +84,18 @@ class StateRepository(Protocol):
         """persists status transitions from received to processed."""
         ...
 
+    def list_users(self) -> list[UserRow]:
+        """lists application users available for reviewer login."""
+        ...
+
+    def get_user_by_username(self, username: str) -> UserRow | None:
+        """finds a login user by normalized username."""
+        ...
+
+    def upsert_user(self, user: UserRow) -> UserRow:
+        """creates or updates a login user with a stored password hash."""
+        ...
+
 
 class MemoryStateRepository:
     """keeps tests isolated without requiring a running PostgreSQL server."""
@@ -93,6 +106,7 @@ class MemoryStateRepository:
         self._drafts: dict[str, DraftRow] = {}
         self._audits: dict[str, AuditRow] = {}
         self._emails: dict[str, EmailRow] = {}
+        self._users: dict[str, UserRow] = {}
 
     def initialize(self) -> None:
         """matches the PostgreSQL repository contract even with no setup."""
@@ -178,6 +192,26 @@ class MemoryStateRepository:
         with self._lock:
             self._emails[str(email["email_id"])] = deepcopy(email)
             return deepcopy(email)
+
+    def list_users(self) -> list[UserRow]:
+        """returns copied user rows for auth UI/account assertions."""
+        with self._lock:
+            return [deepcopy(row) for row in self._users.values()]
+
+    def get_user_by_username(self, username: str) -> UserRow | None:
+        """performs case-insensitive username lookup like PostgreSQL."""
+        normalized_username = (username or "").strip().lower()
+        with self._lock:
+            row = self._users.get(normalized_username)
+            return deepcopy(row) if row else None
+
+    def upsert_user(self, user: UserRow) -> UserRow:
+        """stores login users with the same copy boundary as other rows."""
+        row = deepcopy(user)
+        row["username"] = str(row["username"]).strip().lower()
+        with self._lock:
+            self._users[str(row["username"])] = row
+            return deepcopy(row)
 
 
 class PostgresStateRepository:
@@ -284,6 +318,26 @@ class PostgresStateRepository:
                 """
                 CREATE INDEX IF NOT EXISTS swift_products_status_idx
                     ON swift_products (status, name)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS swift_users (
+                    username TEXT PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE,
+                    hashed_password TEXT NOT NULL,
+                    level TEXT NOT NULL CHECK (
+                        level IN ('sales person', 'admin', 'sales manager')
+                    ),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS swift_users_level_idx
+                    ON swift_users (level, username)
                 """
             )
 
@@ -472,6 +526,56 @@ class PostgresStateRepository:
                 ),
             )
         return dict(email)
+
+    def list_users(self) -> list[UserRow]:
+        """lists login user rows in a stable order."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT username, email, hashed_password, level
+                FROM swift_users
+                ORDER BY username
+                """
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_user_by_username(self, username: str) -> UserRow | None:
+        """retrieves the login row used by the auth service."""
+        normalized_username = (username or "").strip().lower()
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT username, email, hashed_password, level
+                FROM swift_users
+                WHERE lower(username) = %s
+                """,
+                (normalized_username,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_user(self, user: UserRow) -> UserRow:
+        """creates or updates a user row while preserving hashed credentials."""
+        row = dict(user)
+        row["username"] = str(row["username"]).strip().lower()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO swift_users (username, email, hashed_password, level)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (username) DO UPDATE SET
+                    email = EXCLUDED.email,
+                    hashed_password = EXCLUDED.hashed_password,
+                    level = EXCLUDED.level,
+                    updated_at = now()
+                """,
+                (
+                    row["username"],
+                    row["email"],
+                    row["hashed_password"],
+                    row["level"],
+                ),
+            )
+        return row
 
     def _connect(self):
         """opens the configured PostgreSQL connection."""

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -92,6 +92,7 @@ class SalesWorkflowResult(BaseModel):
     learning_notes: list[str] = Field(default_factory=list)
     chokeholds: list[str] = Field(default_factory=list)
     elapsed_ms: float = 0.0
+    token_usage: dict[str, Any] = Field(default_factory=dict)
 
 
 class StressScenario(BaseModel):

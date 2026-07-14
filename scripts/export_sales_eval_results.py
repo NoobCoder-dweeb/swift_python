@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import argparse
 from pathlib import Path
 import sys
@@ -23,7 +25,7 @@ from tests.evaluation.sales_eval_harness import (
 
 
 def main() -> None:
-    load_dotenv(override=True)
+    load_dotenv(override=False)
     args = _parse_args()
     output_dir = Path(args.output_dir)
     goldens = load_goldens(args.goldens, limit=args.limit)
@@ -54,14 +56,15 @@ def main() -> None:
             )
         )
 
-    aggregate_rows = aggregate_case_rows(rows)
-    comparison_rows = pairwise_comparison_rows(aggregate_rows)
-
     write_csv_table(output_dir / "sales_eval_case_metrics.csv", rows)
-    write_csv_table(output_dir / "sales_eval_aggregate_metrics.csv", aggregate_rows)
-    write_csv_table(output_dir / "sales_eval_pairwise_comparison.csv", comparison_rows)
+    if not args.raw_only:
+        aggregate_rows = aggregate_case_rows(rows)
+        comparison_rows = pairwise_comparison_rows(aggregate_rows)
+        write_csv_table(output_dir / "sales_eval_aggregate_metrics.csv", aggregate_rows)
+        write_csv_table(output_dir / "sales_eval_pairwise_comparison.csv", comparison_rows)
 
-    print(f"Wrote {len(rows)} case rows to {output_dir}")
+    output_mode = "raw case rows" if args.raw_only else "case, aggregate, and comparison rows"
+    print(f"Wrote {len(rows)} {output_mode} to {output_dir}")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -110,6 +113,11 @@ def _parse_args() -> argparse.Namespace:
         "--skip-slm",
         action="store_true",
         help="Do not run the deterministic/SLM workflow rows.",
+    )
+    parser.add_argument(
+        "--raw-only",
+        action="store_true",
+        help="Write only the per-case raw CSV and skip aggregate/comparison outputs.",
     )
     return parser.parse_args()
 
