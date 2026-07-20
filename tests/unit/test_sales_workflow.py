@@ -3,8 +3,16 @@ from uuid import uuid4
 
 import httpx
 
-from app.crews.sales_inquiry_crew import run_sales_inquiry_workflow
-from app.crews.agents import EmailDraftingAgent, LocalLLMConfig, SalesProcessingAgent
+from app.crews.sales_inquiry_crew import (
+    _extract_token_usage,
+    run_sales_inquiry_workflow,
+)
+from app.crews.agents import (
+    EmailDraftingAgent,
+    LocalLLMConfig,
+    MultiAgentLLMConfig,
+    SalesProcessingAgent,
+)
 from app.crews.workflow_models import ProductContext, ProductOption
 from app.core.config import reset_app_settings
 from app.main import app
@@ -39,6 +47,24 @@ def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
     assert "- Total: RM 30000.00" in result.ai_draft
     assert "500 units" in result.ai_draft
     assert result.validation.valid is True
+    assert result.token_usage["input_tokens"] > 0
+    assert result.token_usage["output_tokens"] > 0
+    assert result.token_usage["total_tokens"] > 0
+    assert result.token_usage["token_count_source"] == "estimated_slm_text"
+
+
+def test_llm_token_usage_normalizes_provider_shapes():
+    """CrewAI/LLM provider usage is exposed with common report field names."""
+    usage = _extract_token_usage(
+        {"usage_metrics": {"prompt_tokens": 120, "completion_tokens": 45}},
+        {"token_usage": {"input_tokens": 20, "output_tokens": 10}},
+    )
+
+    assert usage["input_tokens"] == 140
+    assert usage["output_tokens"] == 55
+    assert usage["total_tokens"] == 195
+    assert usage["token_consumption"] == 195
+    assert usage["token_count_source"] == "provider_usage"
 
 
 def test_sales_workflow_regeneration_uses_feedback_without_inventing_facts():
@@ -746,6 +772,18 @@ def test_local_llm_config_ignores_malformed_numeric_env(monkeypatch):
 
     assert config.timeout == 45
     assert config.temperature == 0.1
+
+
+def test_multi_agent_llm_config_can_allow_shared_models(monkeypatch):
+    """Gemini/API quota constrained runs may need one model for every role."""
+    monkeypatch.setenv("SWIFT_ALLOW_SHARED_LLM_MODELS", "1")
+    config = MultiAgentLLMConfig(
+        supervisor=LocalLLMConfig(model="gemini-2.0-flash-001", provider="gemini"),
+        sales=LocalLLMConfig(model="gemini-2.0-flash-001", provider="gemini"),
+        drafting=LocalLLMConfig(model="gemini-2.0-flash-001", provider="gemini"),
+    )
+
+    config.validate_unique_models()
 
 
 def test_product_lookup_failure_returns_low_confidence_context():

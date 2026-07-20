@@ -1,379 +1,137 @@
 {% extends '_base.html' %}
 {% set page_title = 'Dashboard' %}
 
-{% block title %}Dashboard - Admin Panel{% endblock %}
+{% block title %}Dashboard - Project Swift{% endblock %}
 {% block extra_styles %}
     <link rel="stylesheet" href="{{ url_for('static', filename='css/dashboard.css') }}">
 {% endblock %}
 
-{% block header_actions %}
-                <div class="header-search">
-                    <i class="ph ph-magnifying-glass"></i>
-                    <input type="text" placeholder="Search...">
-                </div>
-                {{ super() }}
-{% endblock %}
-
 {% block content %}
-            <div class="alert alert-info mb-lg">
-                <i class="ph ph-info"></i>
-                <div>
-                    <strong>Welcome back!</strong> You have <strong>{{ stats.pending_reviews }} pending reviews</strong> and <strong>5 new records</strong> since your last login.
+            <section class="dashboard-summary" aria-label="Review summary">
+                <div class="summary-copy">
+                    <div class="summary-kicker">Sales Review</div>
+                    <h2>{{ stats[0].value }} pending draft{% if stats[0].value != 1 %}s{% endif %}</h2>
+                    <p>Latest customer replies, AI drafts, and reviewer decisions in one queue-first view.</p>
                 </div>
-            </div>
+                <a class="btn btn-primary" href="{{ url_for('pending_page') }}">
+                    <i class="ph ph-envelope"></i>
+                    Open Queue
+                </a>
+            </section>
 
             <div class="grid-4 stat-cards">
-                <div class="card stat-card">
+                {% for stat in stats %}
+                <div class="card stat-card stat-card-{{ stat.tone }}">
                     <div class="stat-card-content">
-                        <div class="stat-card-label">Total Records</div>
-                        <div class="stat-card-value">1,284</div>
-                        <div class="stat-card-change positive">
-                            <i class="ph ph-trend-up"></i> +12.5% from last month
-                        </div>
+                        <div class="stat-card-label">{{ stat.label }}</div>
+                        <div class="stat-card-value">{{ stat.value }}</div>
+                        <div class="stat-card-change">{{ stat.detail }}</div>
                     </div>
-                    <div class="card-icon" style="background: var(--primary-light); color: var(--primary);">
-                        <i class="ph ph-folder-open"></i>
+                    <div class="card-icon">
+                        <i class="ph {{ stat.icon }}"></i>
                     </div>
                 </div>
-
-                <div class="card stat-card">
-                    <div class="stat-card-content">
-                        <div class="stat-card-label">Active Users</div>
-                        <div class="stat-card-value">384</div>
-                        <div class="stat-card-change positive">
-                            <i class="ph ph-trend-up"></i> +8.2% from last month
-                        </div>
-                    </div>
-                    <div class="card-icon" style="background: var(--success-light); color: var(--success);">
-                        <i class="ph ph-users"></i>
-                    </div>
-                </div>
-
-                <div class="card stat-card">
-                    <div class="stat-card-content">
-                        <div class="stat-card-label">Pending Reviews</div>
-                        <div class="stat-card-value">{{ stats.pending_reviews }}</div>
-                        <div class="stat-card-change negative">
-                            <i class="ph ph-trend-down"></i> -3.1% from last month
-                        </div>
-                    </div>
-                    <div class="card-icon" style="background: var(--warning-light); color: var(--warning);">
-                        <i class="ph ph-clock"></i>
-                    </div>
-                </div>
-
-                <div class="card stat-card">
-                    <div class="stat-card-content">
-                        <div class="stat-card-label">Resolved Issues</div>
-                        <div class="stat-card-value">847</div>
-                        <div class="stat-card-change positive">
-                            <i class="ph ph-trend-up"></i> +18.7% from last month
-                        </div>
-                    </div>
-                    <div class="card-icon" style="background: var(--danger-light); color: var(--danger);">
-                        <i class="ph ph-check-circle"></i>
-                    </div>
-                </div>
+                {% endfor %}
             </div>
 
-            <div class="grid-2" style="margin-top: 1.5rem;">
-                <div class="card">
-                    <div class="flex-between mb-md">
+            <div class="dashboard-grid">
+                <section class="card dashboard-panel dashboard-panel-main" aria-labelledby="pending-heading">
+                    <div class="panel-heading">
                         <div>
-                            <h3 style="font-size: 1.1rem; margin-bottom: 0.25rem;">Record Overview</h3>
-                            <p class="text-muted text-sm">Monthly submission trends</p>
+                            <h3 id="pending-heading">Pending Drafts</h3>
+                            <p>{{ pending_drafts|length }} shown from the active review queue</p>
                         </div>
-                        <div class="btn-group">
-                            <button class="btn btn-secondary btn-sm">7 Days</button>
-                            <button class="btn btn-primary btn-sm">30 Days</button>
-                        </div>
+                        <a class="btn btn-secondary btn-sm" href="{{ url_for('pending_page') }}">
+                            <i class="ph ph-arrow-right"></i>
+                            View All
+                        </a>
                     </div>
-                    <div class="chart-bars" id="chartBars">
-                        <div class="chart-bar-item">
-                            <div class="chart-bar" style="height: 60%;" data-value="86"></div>
-                            <div class="chart-bar-label">Jan</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar active" style="height: 80%;" data-value="112"></div>
-                            <div class="chart-bar-label">Feb</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar" style="height: 45%;" data-value="63"></div>
-                            <div class="chart-bar-label">Mar</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar" style="height: 70%;" data-value="98"></div>
-                            <div class="chart-bar-label">Apr</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar" style="height: 55%;" data-value="75"></div>
-                            <div class="chart-bar-label">May</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar" style="height: 90%;" data-value="128"></div>
-                            <div class="chart-bar-label">Jun</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar active" style="height: 100%;" data-value="142"></div>
-                            <div class="chart-bar-label">Jul</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar" style="height: 75%;" data-value="105"></div>
-                            <div class="chart-bar-label">Aug</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar" style="height: 50%;" data-value="71"></div>
-                            <div class="chart-bar-label">Sep</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar" style="height: 85%;" data-value="119"></div>
-                            <div class="chart-bar-label">Oct</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar" style="height: 65%;" data-value="91"></div>
-                            <div class="chart-bar-label">Nov</div>
-                        </div>
-                        <div class="chart-bar-item">
-                            <div class="chart-bar" style="height: 95%;" data-value="134"></div>
-                            <div class="chart-bar-label">Dec</div>
-                        </div>
-                    </div>
-                </div>
 
-                <div class="card">
-                    <div class="flex-between mb-md">
+                    {% if pending_drafts %}
+                    <div class="review-list">
+                        {% for draft in pending_drafts %}
+                        <article class="review-row">
+                            <div class="review-row-main">
+                                <div class="review-subject">{{ draft.subject }}</div>
+                                <div class="review-meta">{{ draft.sender }} • {{ draft.created_display }}</div>
+                            </div>
+                            <div class="review-row-side">
+                                {% if draft.thread_count %}
+                                <span class="badge badge-primary">{{ draft.thread_count }} msg</span>
+                                {% endif %}
+                                <span class="badge badge-warning">{{ draft.status }}</span>
+                            </div>
+                        </article>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="empty-state">
+                        <i class="ph ph-check-circle"></i>
+                        <div>No drafts pending.</div>
+                    </div>
+                    {% endif %}
+                </section>
+
+                <aside class="card dashboard-panel" aria-labelledby="breakdown-heading">
+                    <div class="panel-heading">
                         <div>
-                            <h3 style="font-size: 1.1rem; margin-bottom: 0.25rem;">Status Breakdown</h3>
-                            <p class="text-muted text-sm">Record distribution by status</p>
+                            <h3 id="breakdown-heading">Decision Mix</h3>
+                            <p>{{ total_items }} total queue item{% if total_items != 1 %}s{% endif %}</p>
                         </div>
                     </div>
                     <div class="status-list">
+                        {% for item in status_breakdown %}
                         <div class="status-item">
                             <div class="status-item-header">
-                                <span class="status-item-label"><span class="status-dot" style="background: var(--success);"></span> Active</span>
-                                <span class="status-item-count">847</span>
+                                <span class="status-item-label">
+                                    <span class="status-dot" style="background: {{ item.color }};"></span>
+                                    {{ item.label }}
+                                </span>
+                                <span class="status-item-count">{{ item.count }}</span>
                             </div>
                             <div class="progress-wrapper">
-                                <div class="progress-bar" style="width: 66%; background: var(--success);"></div>
+                                <div class="progress-bar" style="width: {{ item.percentage }}%; background: {{ item.color }};"></div>
                             </div>
                         </div>
-                        <div class="status-item">
-                            <div class="status-item-header">
-                                <span class="status-item-label"><span class="status-dot" style="background: var(--warning);"></span> Pending Review</span>
-                                <span class="status-item-count">214</span>
-                            </div>
-                            <div class="progress-wrapper">
-                                <div class="progress-bar" style="width: 17%; background: var(--warning);"></div>
-                            </div>
-                        </div>
-                        <div class="status-item">
-                            <div class="status-item-header">
-                                <span class="status-item-label"><span class="status-dot" style="background: var(--primary);"></span> In Progress</span>
-                                <span class="status-item-count">156</span>
-                            </div>
-                            <div class="progress-wrapper">
-                                <div class="progress-bar" style="width: 12%;"></div>
-                            </div>
-                        </div>
-                        <div class="status-item">
-                            <div class="status-item-header">
-                                <span class="status-item-label"><span class="status-dot" style="background: var(--danger);"></span> Archived</span>
-                                <span class="status-item-count">67</span>
-                            </div>
-                            <div class="progress-wrapper">
-                                <div class="progress-bar" style="width: 5%; background: var(--danger);"></div>
-                            </div>
-                        </div>
+                        {% endfor %}
                     </div>
-
-                    <hr class="divider">
-                    <div class="flex-between">
-                        <span class="text-muted text-sm">Total Records</span>
-                        <span class="font-bold">1,284</span>
-                    </div>
-                </div>
+                </aside>
             </div>
 
-            <div class="grid-2" style="margin-top: 1.5rem;">
-                <div class="card">
-                    <div class="flex-between mb-md">
-                        <h3 style="font-size: 1.1rem;">Recent Activity</h3>
+            <section class="card dashboard-panel" aria-labelledby="activity-heading">
+                <div class="panel-heading">
+                    <div>
+                        <h3 id="activity-heading">Recent Decisions</h3>
+                        <p>Approved, rejected, and edited draft responses</p>
                     </div>
-                    <div class="timeline">
-                        <div class="timeline-item">
-                            <div class="timeline-item-title">New record submitted by <strong>Alex Chen</strong></div>
-                            <div class="timeline-item-date">2 minutes ago</div>
-                        </div>
-                        <div class="timeline-item">
-                            <div class="timeline-item-title">Record <strong>#REC-1084</strong> approved by admin</div>
-                            <div class="timeline-item-date">1 hour ago</div>
-                        </div>
-                        <div class="timeline-item">
-                            <div class="timeline-item-title">Status update on <strong>#REC-1079</strong> changed to <span class="badge badge-warning" style="font-size: 0.7rem;">Pending</span></div>
-                            <div class="timeline-item-date">3 hours ago</div>
-                        </div>
-                        <div class="timeline-item">
-                            <div class="timeline-item-title"><strong>Sarah Miller</strong> joined as Viewer</div>
-                            <div class="timeline-item-date">Yesterday, 4:30 PM</div>
-                        </div>
-                        <div class="timeline-item">
-                            <div class="timeline-item-title">Bulk import completed: <strong>45 records</strong> added</div>
-                            <div class="timeline-item-date">2 days ago</div>
-                        </div>
-                    </div>
+                    {% if can_view_all_pages %}
+                    <a class="btn btn-secondary btn-sm" href="{{ url_for('audit_page') }}">
+                        <i class="ph ph-file-text"></i>
+                        Audit Log
+                    </a>
+                    {% endif %}
                 </div>
 
-                <div class="card">
-                    <div class="flex-between mb-md">
-                        <h3 style="font-size: 1.1rem;">Top Records</h3>
-                    </div>
-                    <div class="table-container">
-                        <table class="table">
-                            <thead>
-                                <tr>
-                                    <th>Record</th>
-                                    <th>Status</th>
-                                    <th>Updated</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>
-                                        <span style="color: var(--text-main); font-weight: 500;">REC-1084</span>
-                                    </td>
-                                    <td><span class="badge badge-success">Active</span></td>
-                                    <td class="text-muted">Today</td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <span style="color: var(--text-main); font-weight: 500;">REC-1083</span>
-                                    </td>
-                                    <td><span class="badge badge-warning">Pending</span></td>
-                                    <td class="text-muted">Yesterday</td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <span style="color: var(--text-main); font-weight: 500;">REC-1082</span>
-                                    </td>
-                                    <td><span class="badge badge-primary">In Progress</span></td>
-                                    <td class="text-muted">2 days ago</td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <span style="color: var(--text-main); font-weight: 500;">REC-1081</span>
-                                    </td>
-                                    <td><span class="badge badge-danger">Archived</span></td>
-                                    <td class="text-muted">3 days ago</td>
-                                </tr>
-                                <tr>
-                                    <td>
-                                        <span style="color: var(--text-main); font-weight: 500;">REC-1080</span>
-                                    </td>
-                                    <td><span class="badge badge-success">Active</span></td>
-                                    <td class="text-muted">1 week ago</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <div class="pagination" style="margin-top: 1rem;">
-                        <button class="pagination-btn" disabled><i class="ph ph-caret-left"></i></button>
-                        <button class="pagination-btn active">1</button>
-                        <button class="pagination-btn">2</button>
-                        <button class="pagination-btn">3</button>
-                        <button class="pagination-btn"><i class="ph ph-caret-right"></i></button>
-                    </div>
+                {% if recent_audits %}
+                <div class="activity-list">
+                    {% for audit in recent_audits %}
+                    <article class="activity-row">
+                        <div class="activity-icon">
+                            <i class="ph ph-file-text"></i>
+                        </div>
+                        <div class="activity-main">
+                            <div class="activity-title">{{ audit.draft_id }}</div>
+                            <div class="activity-meta">{{ audit.approver or 'Sales Officer' }} • {{ audit.timestamp_display }}</div>
+                        </div>
+                        <span class="badge {{ audit.badge_class }}">{{ audit.action_label }}</span>
+                    </article>
+                    {% endfor %}
                 </div>
-            </div>
-
-            <div class="grid gap-lg" style="margin-top: 1.5rem; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
-                <div class="card">
-                    <div class="flex-between mb-sm">
-                        <h3 style="font-size: 1.1rem;">Quick Actions</h3>
-                    </div>
-                    <p class="text-muted text-sm mb-md">Common tasks you might want to perform.</p>
-                    <div class="btn-group" style="flex-direction: column;">
-                        <button class="btn btn-secondary" style="justify-content: center;">
-                            <i class="ph ph-export"></i> Export Report
-                        </button>
-                    </div>
+                {% else %}
+                <div class="empty-state">
+                    <i class="ph ph-file-search"></i>
+                    <div>No decisions recorded yet.</div>
                 </div>
-
-                <div class="card">
-                    <div class="flex-between mb-sm">
-                        <h3 style="font-size: 1.1rem;">System Health</h3>
-                        <span class="badge badge-success">All Systems Go</span>
-                    </div>
-                    <div style="margin-top: 1rem;">
-                        <div class="flex-between mb-sm">
-                            <span class="text-sm">Server Load</span>
-                            <span class="text-sm font-semibold">42%</span>
-                        </div>
-                        <div class="progress-wrapper">
-                            <div class="progress-bar" style="width: 42%;"></div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 1rem;">
-                        <div class="flex-between mb-sm">
-                            <span class="text-sm">Database Storage</span>
-                            <span class="text-sm font-semibold">68%</span>
-                        </div>
-                        <div class="progress-wrapper">
-                            <div class="progress-bar" style="width: 68%; background: var(--warning);"></div>
-                        </div>
-                    </div>
-                    <div style="margin-top: 1rem;">
-                        <div class="flex-between mb-sm">
-                            <span class="text-sm">API Response Time</span>
-                            <span class="text-sm font-semibold text-success">120ms</span>
-                        </div>
-                        <div class="progress-wrapper">
-                            <div class="progress-bar" style="width: 15%; background: var(--success);"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card">
-                    <div class="flex-between mb-sm">
-                        <h3 style="font-size: 1.1rem;">Pending Approvals</h3>
-                        <span class="badge badge-warning">3 Items</span>
-                    </div>
-                    <div style="margin-top: 1rem; display: flex; flex-direction: column; gap: 0.75rem;">
-                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: var(--background); border-radius: var(--radius-sm);">
-                            <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                <div class="avatar avatar-sm">TC</div>
-                                <div>
-                                    <div style="font-weight: 500; font-size: 0.9rem;">Thomas Clinton</div>
-                                    <div class="text-muted text-sm">Role change request</div>
-                                </div>
-                            </div>
-                            <button class="btn btn-primary btn-sm" style="padding: 0.375rem 0.75rem;">Review</button>
-                        </div>
-                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: var(--background); border-radius: var(--radius-sm);">
-                            <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                <div class="avatar avatar-sm">LP</div>
-                                <div>
-                                    <div style="font-weight: 500; font-size: 0.9rem;">Lisa Park</div>
-                                    <div class="text-muted text-sm">New account verification</div>
-                                </div>
-                            </div>
-                            <button class="btn btn-primary btn-sm" style="padding: 0.375rem 0.75rem;">Review</button>
-                        </div>
-                        <div style="display: flex; align-items: center; justify-content: space-between; padding: 0.75rem; background: var(--background); border-radius: var(--radius-sm);">
-                            <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                <div class="avatar avatar-sm">MK</div>
-                                <div>
-                                    <div style="font-weight: 500; font-size: 0.9rem;">Mike Kim</div>
-                                    <div class="text-muted text-sm">Data export request</div>
-                                </div>
-                            </div>
-                            <button class="btn btn-primary btn-sm" style="padding: 0.375rem 0.75rem;">Review</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-{% endblock %}
-
-{% block extra_scripts %}
-    <script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+                {% endif %}
+            </section>
 {% endblock %}

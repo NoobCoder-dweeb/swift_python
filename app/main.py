@@ -1,9 +1,10 @@
 import asyncio
 import json
+from collections import Counter
 from datetime import datetime
 from urllib.parse import quote
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from fastapi.responses import StreamingResponse
@@ -21,8 +22,9 @@ from app.services.auth_service import (
     current_account,
     list_accounts,
     open_session,
+    role_can_view_all_pages,
 )
-from data import EVENTS_QUEUE, RECORDS, USERS, events_cond, get_audits, get_drafts
+from data import EVENTS_QUEUE, events_cond, get_audits, get_drafts
 
 settings = get_app_settings()
 
@@ -95,6 +97,7 @@ def _template_context(request: Request, **values):
         "request": request,
         "url_for": url_for,
         "current_user": account.public_dict() if account else None,
+        "can_view_all_pages": account.can_view_all_pages if account else False,
         **values,
     }
 
@@ -119,6 +122,117 @@ def _login_redirect(request: Request) -> RedirectResponse | None:
         url=f"/login?next={quote(next_path, safe='')}",
         status_code=303,
     )
+
+
+def _path_allowed_for_role(path: str, role: str) -> bool:
+    """keeps regular sales users on their two allowed UI pages."""
+    if role_can_view_all_pages(role):
+        return True
+    return (path or "").split("?", 1)[0] in {"/", "/dashboard", "/pending"}
+
+
+def _require_all_pages_access(request: Request) -> None:
+    """blocks manager/admin-only pages from regular sales accounts."""
+    account = current_account(request)
+    if account and account.can_view_all_pages:
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="This page is available to admins and sales managers only.",
+    )
+
+
+def _labelize(value: str | None) -> str:
+    """formats compact stored statuses/actions for dashboards."""
+    return (value or "unknown").replace("_", " ").replace("-", " ").title()
+
+
+def _badge_class(value: str | None) -> str:
+    """maps workflow states to existing badge styles."""
+    normalized = (value or "").strip().lower()
+    if normalized in {"approved", "accepted", "sent"}:
+        return "badge-success"
+    if normalized in {"rejected", "failed"}:
+        return "badge-danger"
+    if normalized in {"pending", "edited"}:
+        return "badge-warning"
+    return "badge-primary"
+
+
+def _dashboard_context() -> dict:
+    """builds a sales-focused dashboard from live review/audit data."""
+    pending_drafts = _sort_items(
+        [d.to_dict() for d in get_drafts()], "created", "desc"
+    )
+    audits = _sort_items(get_audits(), "timestamp", "desc")
+    action_counts = Counter(
+        (audit.get("action") or "unknown").lower() for audit in audits
+    )
+    approved_count = action_counts["approved"] + action_counts["accepted"]
+    rejected_count = action_counts["rejected"]
+    edited_count = action_counts["edited"]
+    total_items = len(pending_drafts) + approved_count + rejected_count + edited_count
+
+    status_breakdown = [
+        ("Pending", len(pending_drafts), "var(--warning)"),
+        ("Approved", approved_count, "var(--success)"),
+        ("Rejected", rejected_count, "var(--danger)"),
+        ("Edited", edited_count, "var(--primary)"),
+    ]
+
+    return {
+        "stats": [
+            {
+                "label": "Pending Reviews",
+                "value": len(pending_drafts),
+                "detail": "Awaiting sales approval",
+                "icon": "ph-clock",
+                "tone": "warning",
+            },
+            {
+                "label": "Approved",
+                "value": approved_count,
+                "detail": "Responses cleared",
+                "icon": "ph-check-circle",
+                "tone": "success",
+            },
+            {
+                "label": "Rejected",
+                "value": rejected_count,
+                "detail": "Returned for regeneration",
+                "icon": "ph-x-circle",
+                "tone": "danger",
+            },
+            {
+                "label": "Edited",
+                "value": edited_count,
+                "detail": "Manually revised",
+                "icon": "ph-pencil-simple",
+                "tone": "primary",
+            },
+        ],
+        "pending_drafts": pending_drafts[:6],
+        "recent_audits": [
+            {
+                **audit,
+                "action_label": _labelize(audit.get("action")),
+                "badge_class": _badge_class(audit.get("action")),
+            }
+            for audit in audits[:6]
+        ],
+        "status_breakdown": [
+            {
+                "label": label,
+                "count": count,
+                "color": color,
+                "percentage": (
+                    round((count / total_items) * 100) if total_items else 0
+                ),
+            }
+            for label, count, color in status_breakdown
+        ],
+        "total_items": total_items,
+    }
 
 
 @app.get("/")
@@ -183,6 +297,8 @@ if settings.ui_enabled:
             )
 
         open_session(request, account)
+        if not _path_allowed_for_role(next_path, account.role):
+            next_path = "/dashboard"
         return RedirectResponse(url=next_path, status_code=303)
 
     @app.post("/logout", name="logout")
@@ -197,16 +313,10 @@ if settings.ui_enabled:
         redirect = _login_redirect(request)
         if redirect:
             return redirect
-        stats = {
-            "total_records": len(RECORDS),
-            "active_users": len(USERS),
-            "pending_reviews": len(get_drafts()),
-            "resolved_issues": 847,
-        }
         return templates.TemplateResponse(
             request=request,
             name="dashboard.html",
-            context=_template_context(request, stats=stats, records=RECORDS[:5]),
+            context=_template_context(request, **_dashboard_context()),
         )
 
     @app.get("/pending", name="pending_page")
@@ -231,6 +341,7 @@ if settings.ui_enabled:
         redirect = _login_redirect(request)
         if redirect:
             return redirect
+        _require_all_pages_access(request)
         order = _get_sort_order(request)
         sorted_audits = _sort_items(get_audits(), "timestamp", order)
         return templates.TemplateResponse(

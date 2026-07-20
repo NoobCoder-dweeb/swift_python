@@ -48,6 +48,20 @@ CREATE TABLE IF NOT EXISTS swift_emails (
 CREATE INDEX IF NOT EXISTS swift_emails_created_idx
     ON swift_emails (created_at DESC);
 
+CREATE TABLE IF NOT EXISTS swift_users (
+    username TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    hashed_password TEXT NOT NULL,
+    level TEXT NOT NULL CHECK (
+        level IN ('sales person', 'admin', 'sales manager')
+    ),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS swift_users_level_idx
+    ON swift_users (level, username);
+
 CREATE TABLE IF NOT EXISTS swift_products (
     product_id TEXT PRIMARY KEY,
     sku TEXT NOT NULL UNIQUE,
@@ -68,6 +82,14 @@ CREATE INDEX IF NOT EXISTS swift_products_status_idx
     ON swift_products (status, name);
 
 TRUNCATE TABLE swift_products;
+
+INSERT INTO swift_users (username, email, hashed_password, level) VALUES
+('john', 'john@project-swift.local', '$2b$12$gkHhwO80XE42KsCdHni53Ol7Jb7vuxNRYPMFuvwzcsH0eEdNYPA22', 'sales person'),
+('aisha', 'aisha@project-swift.local', '$2b$12$GwxVRz6TnMKfkhRbcRpkTucX46eZIAxPyyMCgRDrb.Kmm5dYpS0cW', 'sales person'),
+('mira', 'mira@project-swift.local', '$2b$12$G/sAEt5LF3CZoPM24MgMHu145I58fs6HBOjLyy8yiHIL2NHp6QFSu', 'sales person'),
+('manager', 'manager@project-swift.local', '$2b$12$7smCKmiaPbUVr9n6LeMgKOy5ixFHynaXt5R3C75RyG9C0byom9cvi', 'sales manager'),
+('admin', 'admin@project-swift.local', '$2b$12$8q4sTgZVrvp9NGAx8SBViOsvQZK5SOWn/0xkkawGA9URGKAWN.I9e', 'admin')
+ON CONFLICT (username) DO NOTHING;
 
 INSERT INTO swift_products (product_id, sku, name, source_url, category, description, currency, unit_price, stock_availability, unit_of_measure, status, created_at, updated_at) VALUES
 ('SWP-QUICK-DAM-17FT-FLOOD-BARRIER', 'SW-FLOOD-CONTROL-QUICK-DAM-17FT-FLOOD-BARRIER', 'Quick Dam 17Ft Flood Barrier', 'https://safetyware.com/product/quick-dam-17ft-flood-barrier/', 'Flood Control', 'Safetyware catalog item from category ''Flood Control''. Source: https://safetyware.com/product/quick-dam-17ft-flood-barrier/. Public catalog price was unavailable; unit_price is an estimated average for similar products in this category.', 'RM', 289.79, 158, 'unit', 'active', '2026-06-24T01:00:23.319941+00:00', '2026-06-24T01:00:23.319941+00:00'),
@@ -120,5 +142,17 @@ INSERT INTO swift_products (product_id, sku, name, source_url, category, descrip
 ('SWP-POSTERS', 'SW-BUSINESS-AND-EVENT-MATER-POSTERS', 'Posters', 'https://safetyware.com/product/posters/', 'Business And Event Materials', 'Safetyware catalog item from category ''Business And Event Materials''. Source: https://safetyware.com/product/posters/. Public catalog price was unavailable; unit_price is an estimated average for similar products in this category.', 'RM', 387.77, 233, 'unit', 'active', '2026-06-24T01:00:23.319941+00:00', '2026-06-24T01:00:23.319941+00:00'),
 ('SWP-BANNERS', 'SW-BUSINESS-AND-EVENT-MATER-BANNERS', 'Banners', 'https://safetyware.com/product/banners/', 'Business And Event Materials', 'Safetyware catalog item from category ''Business And Event Materials''. Source: https://safetyware.com/product/banners/. Public catalog price was unavailable; unit_price is an estimated average for similar products in this category.', 'RM', 179.60, 465, 'unit', 'active', '2026-06-24T01:00:23.319941+00:00', '2026-06-24T01:00:23.319941+00:00'),
 ('SWP-TICKETS', 'SW-BUSINESS-AND-EVENT-MATER-TICKETS', 'Tickets', 'https://safetyware.com/product/tickets/', 'Business And Event Materials', 'Safetyware catalog item from category ''Business And Event Materials''. Source: https://safetyware.com/product/tickets/. Public catalog price was unavailable; unit_price is an estimated average for similar products in this category.', 'RM', 305.41, 53, 'unit', 'active', '2026-06-24T01:00:23.319941+00:00', '2026-06-24T01:00:23.319941+00:00');
+
+-- Stable benchmark products used by data/sales_workflow_goldens.json.
+-- These rows keep the evaluation dataset grounded in swift_products instead of
+-- synthetic facts embedded in the harness.
+INSERT INTO swift_products (product_id, sku, name, source_url, category, description, currency, unit_price, stock_availability, unit_of_measure, status, created_at, updated_at) VALUES
+('SWP-EVAL-SAFETY-HELMET', 'SAFE-HELMET-001', 'Safety Helmet', 'https://safetyware.com/product/safety-helmet/', 'Personal Protective Equipment', 'Benchmark catalog row for sales workflow evaluation. Source: database seed.', 'RM', 25.00, 120, 'unit', 'active', '2026-07-10T00:00:00+00:00', '2026-07-10T00:00:00+00:00'),
+('SWP-EVAL-SAFETY-GLOVES', 'SAFE-GLOVES-001', 'Safety Gloves', 'https://safetyware.com/product/safety-gloves/', 'Personal Protective Equipment', 'Benchmark catalog row for sales workflow evaluation. Source: database seed.', 'RM', 8.50, 900, 'pair', 'active', '2026-07-10T00:00:00+00:00', '2026-07-10T00:00:00+00:00'),
+('SWP-EVAL-PRODUCT-X', 'PROD-X-001', 'Product X', 'https://safetyware.com/product/product-x/', 'Industrial Supplies', 'Benchmark catalog row for sales workflow evaluation. Source: database seed.', 'RM', 120.00, 500, 'unit', 'active', '2026-07-10T00:00:00+00:00', '2026-07-10T00:00:00+00:00'),
+('SWP-EVAL-FACE-SHIELD', 'SAFE-FACE-SHIELD', 'Face Shield', 'https://safetyware.com/product/face-shield/', 'Eye And Face Protection', 'Benchmark catalog row for sales workflow evaluation. Source: database seed.', 'RM', 12.50, 30, 'piece', 'active', '2026-07-10T00:00:00+00:00', '2026-07-10T00:00:00+00:00'),
+('SWP-EVAL-FIRE-HOSE', 'SAFE-FIRE-HOSE', 'Fire Hose', 'https://safetyware.com/product/fire-hose/', 'Fire Safety', 'Benchmark catalog row for sales workflow evaluation. Source: database seed.', 'RM', 88.00, 24, 'unit', 'active', '2026-07-10T00:00:00+00:00', '2026-07-10T00:00:00+00:00'),
+('SWP-EVAL-SAFETY-BOOTS', 'SAFE-BOOTS-001', 'Steel-Toe Safety Boots', 'https://safetyware.com/product/steel-toe-safety-boots/', 'Foot Protection', 'Benchmark catalog row for sales workflow evaluation. Source: database seed.', 'RM', 58.00, 180, 'pair', 'active', '2026-07-10T00:00:00+00:00', '2026-07-10T00:00:00+00:00'),
+('SWP-EVAL-CATU-ARC-40', 'CATU-ARC-40', 'CATU 40 Cal Arc Flash Kit', 'https://safetyware.com/product/catu-40-cal-arc-flash-kit/', 'Electrical Safety', 'Benchmark catalog row for sales workflow evaluation. Source: database seed.', 'RM', 2062.25, 0, 'set', 'active', '2026-07-10T00:00:00+00:00', '2026-07-10T00:00:00+00:00');
 
 COMMIT;

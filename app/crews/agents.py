@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 import app.core.environment  # noqa: F401
+from app.crews.agent_config import get_agent_definition
 from app.crews.workflow_models import (
     DraftValidationResult,
     InquiryDetails,
@@ -126,6 +127,8 @@ class MultiAgentLLMConfig:
 
     def validate_unique_models(self) -> None:
         """avoids role collapse when separate agents should provide checks."""
+        if _env_bool("SWIFT_ALLOW_SHARED_LLM_MODELS", False):
+            return
         role_models = {
             "supervisor": self.supervisor.model,
             "sales": self.sales.model,
@@ -169,7 +172,7 @@ DEFAULT_PRODUCT_CATALOG: list[ProductContext] = [
     ),
     ProductContext(
         product="Safety Gloves",
-        sku="SAFE-GLOVE-001",
+        sku="SAFE-GLOVES-001",
         stock_availability=900,
         price=8.5,
         currency="RM",
@@ -270,6 +273,19 @@ class SalesProcessingAgent:
                 "order",
             ),
         )
+        pricing_only = _contains_any(
+            lower,
+            (
+                "only need price",
+                "only need pricing",
+                "price only",
+                "pricing only",
+                "quote only",
+                "only need item pricing",
+            ),
+        )
+        if pricing_only:
+            availability = False
 
         if risk_flags:
             inquiry_type = "unsupported"
@@ -1014,21 +1030,17 @@ def create_sales_processing_crewai_agent(llm: Any = None, verbose: bool = False)
     """wraps sales extraction instructions in a CrewAI agent when enabled."""
     _configure_crewai_storage()
     agent_class = _crewai_symbol("Agent")
+    definition = get_agent_definition("sales_processing")
 
     return agent_class(
-        role="Sales Processing Agent",
-        goal=(
-            "Extract product inquiry details, detect unsupported requests, and "
-            "prepare structured sales context without inventing product facts."
-        ),
-        backstory=(
-            "You are a careful sales operations analyst. You only use approved "
-            "catalog or ERP context and you flag missing information clearly."
-        ),
+        role=definition.role,
+        goal=definition.goal,
+        backstory=definition.backstory,
         llm=llm,
         verbose=verbose,
-        allow_delegation=False,
-        max_iter=5,
+        allow_delegation=definition.allow_delegation,
+        max_iter=definition.max_iter,
+        tools=_crewai_tools_for_agent(definition.tools),
     )
 
 
@@ -1036,22 +1048,17 @@ def create_supervisor_crewai_agent(llm: Any = None, verbose: bool = False):
     """adds an independent review role before drafts reach humans."""
     _configure_crewai_storage()
     agent_class = _crewai_symbol("Agent")
+    definition = get_agent_definition("supervisor")
 
     return agent_class(
-        role="Sales Workflow Supervisor",
-        goal=(
-            "Supervise the sales inquiry workflow, verify that product facts came "
-            "from approved data, and keep every AI response gated for human review."
-        ),
-        backstory=(
-            "You are a sales operations supervisor. You check draft quality, "
-            "guardrail compliance, and whether the draft is ready to notify a "
-            "human sales officer for approval."
-        ),
+        role=definition.role,
+        goal=definition.goal,
+        backstory=definition.backstory,
         llm=llm,
         verbose=verbose,
-        allow_delegation=False,
-        max_iter=4,
+        allow_delegation=definition.allow_delegation,
+        max_iter=definition.max_iter,
+        tools=_crewai_tools_for_agent(definition.tools),
     )
 
 
@@ -1059,22 +1066,27 @@ def create_email_drafting_crewai_agent(llm: Any = None, verbose: bool = False):
     """isolates customer-facing copy generation from extraction/supervision."""
     _configure_crewai_storage()
     agent_class = _crewai_symbol("Agent")
+    definition = get_agent_definition("email_drafting")
 
     return agent_class(
-        role="Email Drafting Agent",
-        goal=(
-            "Draft concise customer replies using only extracted inquiry details "
-            "and approved product context."
-        ),
-        backstory=(
-            "You write sales replies for human review. You do not disclose "
-            "confidential data and you ask for missing details instead of guessing."
-        ),
+        role=definition.role,
+        goal=definition.goal,
+        backstory=definition.backstory,
         llm=llm,
         verbose=verbose,
-        allow_delegation=False,
-        max_iter=5,
+        allow_delegation=definition.allow_delegation,
+        max_iter=definition.max_iter,
+        tools=_crewai_tools_for_agent(definition.tools),
     )
+
+
+def _crewai_tools_for_agent(tool_names: list[str]) -> list[Any]:
+    """builds CrewAI BaseTool instances declared in agent YAML."""
+    if not tool_names:
+        return []
+    from app.crews.tools import build_crewai_tools
+
+    return build_crewai_tools(tool_names)
 
 
 def _crewai_symbol(symbol_name: str) -> Any:
@@ -1283,6 +1295,14 @@ def _env_float(name: str, default: float, *, minimum: float | None = None) -> fl
     if minimum is not None and value < minimum:
         return default
     return value
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    """parses common environment booleans without surprising truthiness."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _format_error_note(exc: Exception) -> str:

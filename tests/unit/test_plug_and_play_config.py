@@ -60,6 +60,11 @@ def test_external_agent_backend_accepts_valid_vendor_draft(monkeypatch):
                     "Best regards,\n"
                     "Project Swift Support"
                 ),
+                "usage": {
+                    "input_tokens": 90,
+                    "output_tokens": 42,
+                    "total_tokens": 132,
+                },
             }
 
     def fake_post(url, *, json, headers, timeout):
@@ -84,5 +89,7 @@ def test_external_agent_backend_accepts_valid_vendor_draft(monkeypatch):
     assert result.validation.valid is True
     assert "RM 120.00" in result.ai_draft
     assert "500 units" in result.ai_draft
+    assert result.token_usage["total_tokens"] == 132
+    assert result.token_usage["token_count_source"] == "provider_usage"
 
     reset_app_settings()

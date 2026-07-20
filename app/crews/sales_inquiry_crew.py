@@ -54,7 +54,14 @@ def run_sales_inquiry_crew(
     llm_config: LocalLLMConfig | None = None,
     verbose: bool = False,
 ) -> dict:
-    """preserves the original dict API while using the structured workflow."""
+    """
+    Backward-compatible AI workflow entrypoint for raw email fields.
+
+    This function is the simple callable surface for code that has sender,
+    subject, and body strings rather than a validated IncomingEmail model. It
+    delegates to the structured sales workflow, then returns the legacy dict
+    shape expected by older API callers and tests.
+    """
     result = run_sales_inquiry_workflow(
         IncomingEmail(sender=sender, subject=subject, body=body),
         use_crewai=use_crewai,
@@ -79,7 +86,15 @@ def run_sales_inquiry_workflow(
     draft_id: str | None = None,
     verbose: bool = False,
 ) -> SalesWorkflowResult:
-    """orchestrates preprocessing, extraction, drafting, validation, and audit data."""
+    """
+    Run the complete AI-assisted sales inquiry workflow.
+
+    The workflow preprocesses the email, extracts bounded inquiry details,
+    looks up approved product facts, optionally asks an AI backend for a draft,
+    validates the result, and returns audit-ready metadata. Local validation
+    remains authoritative even when CrewAI or an external agent drafts the
+    customer response.
+    """
     start = time.perf_counter()
     reviewer_feedback = (reviewer_feedback or "").strip() or None
     previous_draft = (previous_draft or "").strip() or None
@@ -89,6 +104,7 @@ def run_sales_inquiry_workflow(
     drafter = EmailDraftingAgent()
     agent_models: dict[str, str] = {}
     supervisor_review: DraftValidationResult | None = None
+    token_usage: dict[str, Any] = {}
 
     inquiry = processor.extract_inquiry(
         sender=cleaned_email.sender,
@@ -211,6 +227,7 @@ def run_sales_inquiry_workflow(
             execution_mode = "external"
             agent_models = external_result.agent_models
             supervisor_review = external_result.supervisor_review
+            token_usage = external_result.token_usage
         else:
             ai_draft = drafter.generate_response(
                 inquiry,
@@ -233,6 +250,7 @@ def run_sales_inquiry_workflow(
             execution_mode = "crewai"
             agent_models = crew_result.agent_models
             supervisor_review = crew_result.supervisor_review
+            token_usage = crew_result.token_usage
         else:
             ai_draft = drafter.generate_response(
                 inquiry,
@@ -288,6 +306,15 @@ def run_sales_inquiry_workflow(
             chokeholds.extend(validation.reasons)
 
     ai_draft = _append_product_references(ai_draft, product_context)
+    token_usage = _finalize_token_usage(
+        token_usage,
+        execution_mode=execution_mode,
+        subject=cleaned_email.subject,
+        body=cleaned_email.body,
+        inquiry=inquiry,
+        product_context=product_context,
+        ai_draft=ai_draft,
+    )
 
     elapsed_ms = (time.perf_counter() - start) * 1000
     return SalesWorkflowResult(
@@ -308,6 +335,7 @@ def run_sales_inquiry_workflow(
         learning_notes=_build_learning_notes(reviewer_feedback, validation),
         chokeholds=_dedupe(chokeholds),
         elapsed_ms=round(elapsed_ms, 2),
+        token_usage=token_usage,
     )
 
 
@@ -320,12 +348,14 @@ class _CrewDraftResult:
         error: str | None = None,
         agent_models: dict[str, str] | None = None,
         supervisor_review: DraftValidationResult | None = None,
+        token_usage: dict[str, Any] | None = None,
     ) -> None:
         """stores both success and failure details for workflow reporting."""
         self.draft = draft
         self.error = error
         self.agent_models = agent_models or {}
         self.supervisor_review = supervisor_review
+        self.token_usage = token_usage or {}
 
 
 def _run_crewai_draft(
@@ -338,7 +368,14 @@ def _run_crewai_draft(
     crew_llm_config: MultiAgentLLMConfig | None,
     verbose: bool,
 ) -> _CrewDraftResult:
-    """tries the multi-agent path while keeping deterministic fallback possible."""
+    """
+    Ask the configured CrewAI agents to produce and review a customer draft.
+
+    The sales and drafting agents receive only validated inquiry data and
+    approved product context, while a separate supervisor agent may review the
+    output. Any CrewAI failure is captured as a result error so the caller can
+    fall back to deterministic drafting without losing audit context.
+    """
     try:
         multi_config = crew_llm_config or MultiAgentLLMConfig.from_env(
             sales_override=llm_config
@@ -388,10 +425,13 @@ def _run_crewai_draft(
             cache=False,
         )
         result = crew.kickoff()
+        token_usage = _extract_token_usage(result, crew)
         draft = str(result).strip()
         if not draft:
             return _CrewDraftResult(
-                error="crewai_returned_empty_draft", agent_models=agent_models
+                error="crewai_returned_empty_draft",
+                agent_models=agent_models,
+                token_usage=token_usage,
             )
 
         supervisor_review = None
@@ -414,7 +454,11 @@ def _run_crewai_draft(
                 memory=False,
                 cache=False,
             )
-            supervisor_crew.kickoff()
+            supervisor_result = supervisor_crew.kickoff()
+            token_usage = _merge_token_usage(
+                token_usage,
+                _extract_token_usage(supervisor_result, supervisor_crew),
+            )
             pydantic_output = getattr(validation_task.output, "pydantic", None)
             if isinstance(pydantic_output, DraftValidationResult):
                 supervisor_review = pydantic_output
@@ -425,6 +469,7 @@ def _run_crewai_draft(
             draft=draft,
             agent_models=agent_models,
             supervisor_review=supervisor_review,
+            token_usage=token_usage,
         )
     except Exception as exc:
         return _CrewDraftResult(error=_format_crewai_error(exc))
@@ -439,7 +484,14 @@ def _run_external_agent_draft(
     previous_draft: str | None,
     draft_id: str | None,
 ) -> _CrewDraftResult:
-    """calls a vendor-hosted agent while keeping local validation authoritative."""
+    """
+    Call a vendor-hosted AI drafting tool with explicit safety constraints.
+
+    The payload gives the external agent the cleaned email, extracted inquiry,
+    approved product context, reviewer feedback, and non-negotiable drafting
+    constraints. The returned draft is never trusted blindly: it is normalized
+    into a _CrewDraftResult and later checked by the local validator.
+    """
     settings = get_app_settings()
     if not settings.external_agent_url:
         return _CrewDraftResult(error="external_agent_url_not_configured")
@@ -512,7 +564,186 @@ def _run_external_agent_draft(
             "provider": str(data.get("provider") or "external"),
         },
         supervisor_review=supervisor_review,
+        token_usage=_extract_token_usage(data),
     )
+
+
+def _finalize_token_usage(
+    token_usage: dict[str, Any],
+    *,
+    execution_mode: WorkflowMode,
+    subject: str,
+    body: str,
+    inquiry: InquiryDetails,
+    product_context: ProductContext,
+    ai_draft: str,
+) -> dict[str, Any]:
+    """ensures every workflow exposes token usage for evaluation reports."""
+    normalized = _normalize_token_usage(token_usage)
+    if normalized.get("total_tokens", 0) > 0:
+        return normalized
+
+    input_text = "\n".join(
+        [
+            subject,
+            body,
+            inquiry.model_dump_json(),
+            product_context.model_dump_json(),
+        ]
+    )
+    source = (
+        "estimated_slm_text"
+        if execution_mode == "deterministic"
+        else f"estimated_{execution_mode}_text"
+    )
+    return _estimated_token_usage(
+        input_text=input_text,
+        output_text=ai_draft,
+        source=source,
+    )
+
+
+def _extract_token_usage(*objects: Any) -> dict[str, Any]:
+    """pulls token usage from provider/CrewAI objects with varying shapes."""
+    usage: dict[str, Any] = {}
+    for item in objects:
+        usage = _merge_token_usage(usage, _token_usage_from_object(item))
+    return usage
+
+
+def _token_usage_from_object(item: Any) -> dict[str, Any]:
+    if item is None:
+        return {}
+    if isinstance(item, dict):
+        direct = _normalize_token_usage(item)
+        if direct.get("total_tokens", 0) > 0:
+            return direct
+        for key in ("usage", "token_usage", "usage_metrics", "tokens"):
+            nested = item.get(key)
+            if isinstance(nested, dict):
+                normalized = _normalize_token_usage(nested)
+                if normalized.get("total_tokens", 0) > 0:
+                    return normalized
+        return {}
+
+    for attribute in ("token_usage", "usage", "usage_metrics", "tokens"):
+        value = getattr(item, attribute, None)
+        normalized = _normalize_token_usage(value)
+        if normalized.get("total_tokens", 0) > 0:
+            return normalized
+    return {}
+
+
+def _normalize_token_usage(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    elif hasattr(value, "dict"):
+        value = value.dict()
+    elif not isinstance(value, dict) and hasattr(value, "__dict__"):
+        value = vars(value)
+    if not isinstance(value, dict):
+        return {}
+
+    input_tokens = _first_int(
+        value,
+        "input_tokens",
+        "prompt_tokens",
+        "prompt_eval_count",
+        "prompt_eval_tokens",
+    )
+    output_tokens = _first_int(
+        value,
+        "output_tokens",
+        "completion_tokens",
+        "eval_count",
+        "completion_eval_count",
+        "completion_eval_tokens",
+    )
+    total_tokens = _first_int(
+        value,
+        "total_tokens",
+        "total_token_count",
+        "tokens",
+    )
+    if total_tokens == 0:
+        total_tokens = input_tokens + output_tokens
+    if total_tokens == 0:
+        return {}
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "token_consumption": total_tokens,
+        "token_burn": total_tokens,
+        "token_count_source": str(value.get("token_count_source") or "provider_usage"),
+    }
+
+
+def _merge_token_usage(*usages: dict[str, Any]) -> dict[str, Any]:
+    merged = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+        "token_consumption": 0,
+        "token_burn": 0,
+        "token_count_source": "provider_usage",
+    }
+    found = False
+    sources: list[str] = []
+    for usage in usages:
+        normalized = _normalize_token_usage(usage)
+        if not normalized:
+            continue
+        found = True
+        merged["input_tokens"] += int(normalized.get("input_tokens", 0) or 0)
+        merged["output_tokens"] += int(normalized.get("output_tokens", 0) or 0)
+        merged["total_tokens"] += int(normalized.get("total_tokens", 0) or 0)
+        source = str(normalized.get("token_count_source") or "provider_usage")
+        sources.append(source)
+    if not found:
+        return {}
+    merged["token_consumption"] = merged["total_tokens"]
+    merged["token_burn"] = merged["total_tokens"]
+    merged["token_count_source"] = ", ".join(_dedupe(sources))
+    return merged
+
+
+def _estimated_token_usage(
+    *,
+    input_text: str,
+    output_text: str,
+    source: str,
+) -> dict[str, Any]:
+    input_tokens = _estimate_tokens(input_text)
+    output_tokens = _estimate_tokens(output_text)
+    total_tokens = input_tokens + output_tokens
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": total_tokens,
+        "token_consumption": total_tokens,
+        "token_burn": total_tokens,
+        "token_count_source": source,
+    }
+
+
+def _estimate_tokens(text: str) -> int:
+    if not text:
+        return 0
+    return max(1, round(len(text) / 4))
+
+
+def _first_int(payload: dict[str, Any], *keys: str) -> int:
+    for key in keys:
+        if key not in payload:
+            continue
+        try:
+            return int(payload.get(key) or 0)
+        except (TypeError, ValueError):
+            continue
+    return 0
 
 
 def _resolve_agent_backend(use_crewai: bool | None) -> str:
@@ -537,6 +768,14 @@ def _lookup_product_context_for_inquiry(
     inquiry: InquiryDetails,
     product_query: str,
 ) -> ProductContext:
+    """
+    Select the product lookup tool that matches the classified inquiry.
+
+    Listing requests need a catalog search so the AI can mention multiple
+    persisted products. Product-specific pricing or availability requests use
+    the single-product lookup path, keeping the draft grounded in the best
+    approved match instead of letting the model invent catalog facts.
+    """
     if inquiry.inquiry_type == "listing":
         return processor.lookup_product_list_context(product_query)
     return processor.lookup_product_context(inquiry.product_name, product_query)
@@ -572,7 +811,14 @@ def _promote_product_only_inquiry(
 
 
 def _append_product_references(ai_draft: str, product_context: ProductContext) -> str:
-    """ensures workflow/model output includes customer-visible product links."""
+    """
+    Attach customer-visible product references to an AI-generated draft.
+
+    The AI may draft the prose, but this helper deterministically appends
+    approved source URLs from the product context. Existing References sections
+    are preserved so regenerated or externally supplied drafts are not given
+    duplicate link blocks.
+    """
     draft_text = (ai_draft or "").rstrip()
     if not draft_text:
         return draft_text
@@ -589,6 +835,13 @@ def _append_product_references(ai_draft: str, product_context: ProductContext) -
 
 
 def _product_reference_urls(product_context: ProductContext) -> list[str]:
+    """
+    Gather unique approved product URLs from all context visible to the AI.
+
+    The primary product, listed products, and suggested alternatives can each
+    contribute a reference. Dedupe happens here so the final customer draft is
+    readable even when the same product appears through multiple lookup paths.
+    """
     references: list[str] = []
     _add_product_reference_url(references, product_context)
     for item in [*product_context.listed_products, *product_context.suggested_products]:
@@ -604,6 +857,14 @@ def _product_reference_urls(product_context: ProductContext) -> list[str]:
 
 
 def _add_product_reference_url(references: list[str], product_context: Any) -> None:
+    """
+    Add one product reference URL from a catalog-like object.
+
+    AI-facing product context can come from ProductContext or ProductOption
+    instances. This helper reads their shared product, sku, and source_url
+    fields and falls back to a configured product-search URL when the catalog
+    row does not include a direct source link.
+    """
     product = str(getattr(product_context, "product", "") or "").strip()
     sku = str(getattr(product_context, "sku", "") or "").strip()
     source_url = str(getattr(product_context, "source_url", "") or "").strip()
@@ -613,6 +874,13 @@ def _add_product_reference_url(references: list[str], product_context: Any) -> N
 
 
 def _fallback_product_reference_url(query: str) -> str:
+    """
+    Build a deterministic product reference when catalog data lacks a URL.
+
+    The generated URL uses the configured product reference base and the product
+    name or SKU. This keeps AI-generated replies anchored to a navigable product
+    page/search without asking the model to construct links itself.
+    """
     base_url = get_app_settings().product_reference_base_url.strip()
     if not base_url:
         return ""
@@ -704,7 +972,14 @@ def _current_reply_inquiry_type(body: str) -> str | None:
 
 
 def _feedback_quantity_override(feedback: str) -> int | None:
-    """uses the corrected quantity from reviewer feedback when one is explicit."""
+    """
+    Extract an explicit reviewer quantity correction for AI redrafting.
+
+    Reviewer feedback can ask the workflow to compute or revise pricing for a
+    different quantity. This helper accepts only direct quantity phrases such as
+    units, pieces, boxes, cartons, pairs, or sets, then returns the last positive
+    quantity found so downstream drafting uses the intended customer amount.
+    """
     lower = feedback.lower()
     if not any(token in lower for token in ("want", "compute", "total", "price", "pricing")):
         return None

@@ -7,3 +7,8 @@ docker.env
 
 # exported tables
 exports/*
+
+# log files
+*.log
+data/*
+reports/*
