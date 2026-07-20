@@ -208,6 +208,7 @@ def _write_markdown_summary(
         )
 
     slm_rows = _mode_rows(rows, "slm")
+    llm_rows = _mode_rows(report_rows, "llm")
     if slm_rows:
         lowest = _lowest_modules(slm_rows)
         lines.extend(
@@ -257,12 +258,77 @@ def _write_markdown_summary(
                     "rules, response coverage, and edge-case handling."
                 ),
                 "",
+            ]
+        )
+        if llm_rows:
+            lines.extend(
+                [
+                    "",
+                    (
+                        "The CrewAI/LLM workflow is present as a separate "
+                        "processing mode with "
+                        f"{len(llm_rows)} reportable rows. It achieved mean "
+                        f"composite accuracy of {_fmt(_mean(_float(row['accuracy']) for row in llm_rows))}, "
+                        f"mean field F1 of {_fmt(_mean(_float(row['field_f1']) for row in llm_rows))}, "
+                        f"and mean tool F1 of {_fmt(_mean(_float(row['tool_f1']) for row in llm_rows))}. "
+                        "Report these rows as CrewAI-backed orchestration results, "
+                        "not as the deterministic SLM baseline."
+                    ),
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "",
+                    (
+                        "Because no LLM/CrewAI rows are present in this raw export, the "
+                        "figures should be reported as a comparison between manual "
+                        "handling and the deterministic/SLM workflow only. LLM results "
+                        "should be added as a separate processing mode once the local "
+                        "LLM backend is running and `--include-llm` completes."
+                    ),
+                ]
+            )
+        lines.extend(
+            [
+                "",
+                "## Limitations And Downsides",
+                "",
                 (
-                    "Because no LLM/CrewAI rows are present in this raw export, the "
-                    "figures should be reported as a comparison between manual "
-                    "handling and the deterministic/SLM workflow only. LLM results "
-                    "should be added as a separate processing mode once the local "
-                    "LLM backend is running and `--include-llm` completes."
+                    "The study should be interpreted as a controlled workflow "
+                    "evaluation rather than a live production measurement. The "
+                    "automated SLM and LLM rows used golden product facts in this "
+                    "run, while manual rows are treated as the human-verified "
+                    "baseline; this helps isolate workflow behavior but may "
+                    "overstate performance compared with noisy live catalog data."
+                ),
+                "",
+                (
+                    "The dataset is still small and scenario-driven: "
+                    f"{len({row['golden_id'] for row in rows})} golden cases across "
+                    f"{len({row['module'] for row in rows})} inquiry modules. "
+                    "It covers important sales patterns, but it cannot fully "
+                    "represent real customer phrasing, incomplete messages, catalog "
+                    "drift, concurrent requests, or long-running operational edge cases."
+                ),
+                "",
+                (
+                    "The operational savings are estimated, not observed from a live "
+                    "sales team. Manual handling is modeled at "
+                    f"{_fmt(_mean(_float(row['estimated_manual_minutes']) for row in slm_rows))} "
+                    "minutes per case, so the reported time savings depend on that "
+                    "assumption and should be validated with real review logs."
+                ),
+                "",
+                (
+                    "CrewAI/LLM orchestration also adds a clear cost and reliability "
+                    "trade-off. In this run, reportable LLM rows used about "
+                    f"{_fmt(_mean(_float(row['total_tokens']) for row in llm_rows)) if llm_rows else 'many more'} "
+                    "tokens per case versus "
+                    f"{_fmt(_mean(_float(row['total_tokens']) for row in slm_rows))} "
+                    "for the deterministic/SLM path, and one LLM case fell back to "
+                    "deterministic execution. That makes the CrewAI path more "
+                    "expensive and more sensitive to local model availability."
                 ),
             ]
         )
