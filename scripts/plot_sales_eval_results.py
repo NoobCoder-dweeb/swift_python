@@ -209,6 +209,7 @@ def _write_markdown_summary(
 
     slm_rows = _mode_rows(rows, "slm")
     llm_rows = _mode_rows(report_rows, "llm")
+    llm_fallback_count = len(_mode_rows(rows, "llm")) - len(llm_rows)
     if slm_rows:
         lowest = _lowest_modules(slm_rows)
         lines.extend(
@@ -326,8 +327,9 @@ def _write_markdown_summary(
                     f"{_fmt(_mean(_float(row['total_tokens']) for row in llm_rows)) if llm_rows else 'many more'} "
                     "tokens per case versus "
                     f"{_fmt(_mean(_float(row['total_tokens']) for row in slm_rows))} "
-                    "for the deterministic/SLM path, and one LLM case fell back to "
-                    "deterministic execution. That makes the CrewAI path more "
+                    "for the deterministic/SLM path, and "
+                    f"{llm_fallback_count} LLM {_plural('case', llm_fallback_count)} "
+                    "fell back to deterministic execution. That makes the CrewAI path more "
                     "expensive and more sensitive to local model availability."
                 ),
             ]
@@ -564,6 +566,10 @@ def _fmt(value: float) -> str:
 
 def _pct(value: float) -> str:
     return f"{value * 100:.1f}%"
+
+
+def _plural(word: str, count: int) -> str:
+    return word if count == 1 else f"{word}s"
 
 
 def _esc(text: str) -> str:
