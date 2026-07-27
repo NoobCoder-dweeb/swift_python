@@ -12,7 +12,7 @@ def test_non_sales_user_cannot_approve_draft(governance_service):
 
 
 def test_sales_user_with_active_sso_can_approve_draft(governance_service):
-    """confirms authorized sales users can complete draft decisions."""
+    """confirms authorised sales users can complete draft decisions."""
     user = {"department": "Sales", "sso_active": True}
 
     result = governance_service.authorise_draft_decision(user)

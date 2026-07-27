@@ -29,27 +29,27 @@ TEST_CLASSIFICATIONS = {
     "tests/unit/test_auth.py": (
         "BLACK-BOX",
         "app.services.auth_service + app.main UI auth routes",
-        "role-based access and login/logout behavior through public UI routes",
+        "role-based access and login/logout behaviour through public UI routes",
     ),
     "tests/unit/test_dashboard.py": (
         "BLACK-BOX",
         "app.main dashboard route + templates/dashboard.html",
-        "dashboard behavior observed through rendered UI",
+        "dashboard behaviour observed through rendered UI",
     ),
     "tests/unit/test_draft_editing.py": (
         "BLACK-BOX",
         "app.api.v1.routes.drafts + data draft workflow",
-        "reviewer workflow behavior for edit/reject/approve outcomes",
+        "reviewer workflow behaviour for edit/reject/approve outcomes",
     ),
     "tests/unit/test_dummy_email_ingestion.py": (
         "BLACK-BOX",
         "app.api.v1.routes.emails + app.services.email_service",
-        "email/webhook ingestion behavior through public request shapes",
+        "email/webhook ingestion behaviour through public request shapes",
     ),
     "tests/unit/test_email_dispatch.py": (
         "BLACK-BOX",
         "app.services.email_dispatcher + approval workflow",
-        "observable send/no-send email dispatch behavior",
+        "observable send/no-send email dispatch behaviour",
     ),
     "tests/unit/test_email_drafting_agent.py": (
         "WHITE-BOX",
@@ -69,7 +69,7 @@ TEST_CLASSIFICATIONS = {
     "tests/unit/test_email_threads.py": (
         "BLACK-BOX",
         "data email-thread workflow + pending UI",
-        "conversation/thread behavior visible in draft workflow outputs",
+        "conversation/thread behaviour visible in draft workflow outputs",
     ),
     "tests/unit/test_governance.py": (
         "BLACK-BOX",
@@ -88,7 +88,7 @@ TEST_CLASSIFICATIONS = {
     ),
     "tests/unit/test_notification.py": (
         "BLACK-BOX",
-        "review notification behavior",
+        "review notification behaviour",
         "observable notification contract when draft is ready",
     ),
     "tests/unit/test_pending_page.py": (
@@ -99,7 +99,7 @@ TEST_CLASSIFICATIONS = {
     "tests/unit/test_plug_and_play_config.py": (
         "BLACK-BOX",
         "app.core.config + runtime environment selection",
-        "configuration behavior from environment inputs",
+        "configuration behaviour from environment inputs",
     ),
     "tests/unit/test_product_repository.py": (
         "WHITE-BOX",
@@ -114,7 +114,7 @@ TEST_CLASSIFICATIONS = {
     "tests/unit/test_sales_processing_agent.py": (
         "WHITE-BOX",
         "app.crews.agents.SalesProcessingAgent",
-        "internal product-context query behavior",
+        "internal product-context query behaviour",
     ),
     "tests/unit/test_sales_workflow.py": (
         "WHITE-BOX",
@@ -464,18 +464,18 @@ def _default_test_classification(path: str) -> tuple[str, str, str]:
         return (
             "INTEGRATION",
             module,
-            "cross-module behavior from pytest outcome",
+            "cross-module behaviour from pytest outcome",
         )
     if path.startswith("tests/system/"):
         return (
             "SYSTEM",
             module,
-            "end-to-end user-facing behavior from pytest outcome",
+            "end-to-end user-facing behaviour from pytest outcome",
         )
     return (
         "BLACK-BOX",
         module,
-        "observable behavior from pytest outcome",
+        "observable behaviour from pytest outcome",
     )
 
 
@@ -504,7 +504,7 @@ def _criteria_conditions(
         ),
         "BLACK-BOX": (
             "Inputs are supplied through public routes, service contracts, or "
-            f"user-visible behavior; assertions check {technique}."
+            f"user-visible behaviour; assertions check {technique}."
         ),
         "INTEGRATION": (
             "Multiple application layers execute together with deterministic "
@@ -526,12 +526,12 @@ def _criteria_conditions(
 
 def _expected_output(test_type: str, objective: str) -> str:
     labels = {
-        "WHITE-BOX": "internal behavior",
-        "BLACK-BOX": "externally observable behavior",
+        "WHITE-BOX": "internal behaviour",
+        "BLACK-BOX": "externally observable behaviour",
         "INTEGRATION": "cross-module workflow",
         "SYSTEM": "end-to-end user journey",
     }
-    label = labels.get(test_type, "tested behavior")
+    label = labels.get(test_type, "tested behaviour")
     return (
         f"The {label} for '{objective}' matches the specified assertions, "
         "and pytest reports PASSED."
@@ -589,15 +589,15 @@ def _build_test_results_log(rows: list[dict[str, str]], config, exitstatus) -> s
             "-----------------------",
             (
                 "WHITE-BOX: Tests validate internal units, branches, data-flow "
-                "decisions, repository behavior, agent validation, or "
+                "decisions, repository behaviour, agent validation, or "
                 "implementation-aware control paths using mocks/fakes or direct "
                 "function/service calls."
             ),
             (
-                "BLACK-BOX: Tests validate externally observable behavior through "
+                "BLACK-BOX: Tests validate externally observable behaviour through "
                 "HTTP/UI routes, webhook/request contracts, service-level "
                 "outcomes, workflow acceptance criteria, or configuration "
-                "behavior without depending on private implementation details."
+                "behaviour without depending on private implementation details."
             ),
             (
                 "INTEGRATION: Tests validate collaboration between multiple "
@@ -605,7 +605,7 @@ def _build_test_results_log(rows: list[dict[str, str]], config, exitstatus) -> s
                 "and audit persistence, inside one business flow."
             ),
             (
-                "SYSTEM: Tests validate the deployed application behavior from "
+                "SYSTEM: Tests validate the deployed application behaviour from "
                 "a user journey perspective across major UI/API boundaries."
             ),
             "",
@@ -658,7 +658,7 @@ def pytest_pyfunc_call(pyfuncitem):
 
 
 class EmailListener:
-    """isolates routing behavior without running a real mailbox listener."""
+    """isolates routing behaviour without running a real mailbox listener."""
 
     def __init__(self, supervisor_agent):
         """lets tests toggle active state and inspect supervisor calls."""
@@ -744,7 +744,7 @@ def sales_agent(mock_odoo_client):
 
 @pytest.fixture
 def email_drafting_agent():
-    """exercises real deterministic drafting behavior in unit tests."""
+    """exercises real deterministic drafting behaviour in unit tests."""
     return EmailDraftingAgent()
 
 
@@ -762,7 +762,7 @@ def email_listener(supervisor_agent):
 
 @pytest.fixture
 def mock_email_client():
-    """verifies dispatch behavior without sending email."""
+    """verifies dispatch behaviour without sending email."""
     return MagicMock()
 
 
@@ -780,7 +780,7 @@ def notification_service():
 
 @pytest.fixture
 def governance_service():
-    """provides approval authorization rules for governance tests."""
+    """provides approval authorisation rules for governance tests."""
     return GovernanceService()
 
 

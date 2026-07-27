@@ -230,7 +230,7 @@ class SalesProcessingAgent:
     """extracts safe structured sales context before drafting begins."""
 
     def __init__(self, product_client: ProductLookupClient | None = None) -> None:
-        """allows approved product data to come from a real client or local catalog."""
+        """allows approved product data to come from a real client or local catalogue."""
         self.product_client = product_client
 
     def extract_inquiry(self, sender: str, subject: str, body: str) -> InquiryDetails:
@@ -358,7 +358,7 @@ class SalesProcessingAgent:
     def lookup_product_context(
         self, product_name: str | None, query: str = ""
     ) -> ProductContext:
-        """keeps drafting grounded in approved catalog/ERP facts."""
+        """keeps drafting grounded in approved catalogue/ERP facts."""
         if self.product_client:
             try:
                 return ProductContext.model_validate(self.product_client.get_product(query))
@@ -387,7 +387,7 @@ class SalesProcessingAgent:
         )
 
     def lookup_product_list_context(self, query: str) -> ProductContext:
-        """returns approved catalog rows for list-style customer requests."""
+        """returns approved catalogue rows for list-style customer requests."""
         limit = _requested_listing_limit(query)
         if self.product_client and hasattr(self.product_client, "search_products"):
             try:
@@ -400,7 +400,7 @@ class SalesProcessingAgent:
                     product=None,
                     source="product_client",
                     confidence=0.9 if products else 0.0,
-                    notes=["Catalog list request grounded in persisted products."],
+                    notes=["Catalogue list request grounded in persisted products."],
                     listed_products=products,
                 )
             except Exception as exc:
@@ -420,7 +420,7 @@ class SalesProcessingAgent:
             product=None,
             source="local_catalog",
             confidence=0.9 if products else 0.0,
-            notes=["Catalog list request grounded in local approved products."],
+            notes=["Catalogue list request grounded in local approved products."],
             listed_products=products,
         )
 
@@ -429,7 +429,7 @@ class SalesProcessingAgent:
         return assess_customer_inquiry(text).flags
 
     def _detect_product(self, lower_text: str) -> str | None:
-        """maps customer wording to approved product catalog names."""
+        """maps customer wording to approved product catalogue names."""
         for product, aliases in _PRODUCT_ALIASES.items():
             if any(alias in lower_text for alias in aliases):
                 return product
@@ -786,7 +786,7 @@ class EmailDraftingAgent:
 
 
 def _condense_response_lines(lines: list[str]) -> list[str]:
-    """honors concise feedback while preserving factual content lines."""
+    """honours concise feedback while preserving factual content lines."""
     content = [line for line in lines[2:] if line.strip()]
     if not content:
         return lines
@@ -1136,7 +1136,7 @@ def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
 
 
 def _is_product_listing_request(lower_text: str) -> bool:
-    """detects customer requests to browse or list catalog products."""
+    """detects customer requests to browse or list catalogue products."""
     if any(
         phrase in lower_text
         for phrase in (
@@ -1155,7 +1155,7 @@ def _is_product_listing_request(lower_text: str) -> bool:
         return True
     return bool(
         re.search(
-            r"\b(?:list|show|browse|recommend|suggest)\b.{0,80}\b(?:products?|items?|catalog)\b",
+            r"\b(?:list|show|browse|recommend|suggest)\b.{0,80}\b(?:products?|items?|catalogue)\b",
             lower_text,
         )
     )
@@ -1176,7 +1176,7 @@ def _requested_listing_limit(query: str, *, default: int = 5) -> int:
 
 
 def _local_product_suggestions(query: str, *, limit: int) -> list[ProductOption]:
-    """ranks the built-in catalog without using unapproved product facts."""
+    """ranks the built-in catalogue without using unapproved product facts."""
     query_tokens = _simple_product_tokens(query)
     scored: list[tuple[int, str, ProductContext]] = []
     for item in DEFAULT_PRODUCT_CATALOG:
@@ -1204,7 +1204,7 @@ def _local_product_suggestions(query: str, *, limit: int) -> list[ProductOption]
 
 
 def _local_product_options(*, limit: int) -> list[ProductOption]:
-    """returns broad approved local catalog rows for generic list requests."""
+    """returns broad approved local catalogue rows for generic list requests."""
     return [
         _local_product_option(item, confidence=0.86)
         for item in DEFAULT_PRODUCT_CATALOG[:limit]

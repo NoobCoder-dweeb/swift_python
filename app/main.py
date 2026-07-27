@@ -24,6 +24,13 @@ from app.services.auth_service import (
     open_session,
     role_can_view_all_pages,
 )
+from app.services.settings_service import (
+    get_prompt_settings,
+    get_user_theme,
+    reset_prompt_settings,
+    save_prompt_settings,
+    save_user_theme,
+)
 from data import EVENTS_QUEUE, events_cond, get_audits, get_drafts
 
 settings = get_app_settings()
@@ -65,7 +72,7 @@ def _parse_sort_datetime(value: str | None) -> datetime:
 
 
 def _sort_items(items, timestamp_key: str, order: str):
-    """centralizes page/API sort behavior so templates stay simple."""
+    """centralizes page/API sort behaviour so templates stay simple."""
     reverse = order != "asc"
     return sorted(
         items,
@@ -75,7 +82,7 @@ def _sort_items(items, timestamp_key: str, order: str):
 
 
 def _get_sort_order(request: Request) -> str:
-    """normalizes user input so unsupported values cannot flip sort logic."""
+    """normalises user input so unsupported values cannot flip sort logic."""
     order = (request.query_params.get("order") or "desc").strip().lower()
     return "asc" if order == "asc" else "desc"
 
@@ -93,11 +100,13 @@ def _template_context(request: Request, **values):
             return url.include_query_params(**path_params)
 
     account = current_account(request)
+    user_theme = get_user_theme(account.username) if account else "light"
     return {
         "request": request,
         "url_for": url_for,
         "current_user": account.public_dict() if account else None,
         "can_view_all_pages": account.can_view_all_pages if account else False,
+        "user_theme": user_theme,
         **values,
     }
 
@@ -128,7 +137,7 @@ def _path_allowed_for_role(path: str, role: str) -> bool:
     """keeps regular sales users on their two allowed UI pages."""
     if role_can_view_all_pages(role):
         return True
-    return (path or "").split("?", 1)[0] in {"/", "/dashboard", "/pending"}
+    return (path or "").split("?", 1)[0] in {"/", "/dashboard", "/pending", "/settings"}
 
 
 def _require_all_pages_access(request: Request) -> None:
@@ -149,12 +158,12 @@ def _labelize(value: str | None) -> str:
 
 def _badge_class(value: str | None) -> str:
     """maps workflow states to existing badge styles."""
-    normalized = (value or "").strip().lower()
-    if normalized in {"approved", "accepted", "sent"}:
+    normalised = (value or "").strip().lower()
+    if normalised in {"approved", "accepted", "sent"}:
         return "badge-success"
-    if normalized in {"rejected", "failed"}:
+    if normalised in {"rejected", "failed"}:
         return "badge-danger"
-    if normalized in {"pending", "edited"}:
+    if normalised in {"pending", "edited"}:
         return "badge-warning"
     return "badge-primary"
 
@@ -224,12 +233,12 @@ def _dashboard_context() -> dict:
             {
                 "label": label,
                 "count": count,
-                "color": color,
+                "colour": colour,
                 "percentage": (
                     round((count / total_items) * 100) if total_items else 0
                 ),
             }
-            for label, count, color in status_breakdown
+            for label, count, colour in status_breakdown
         ],
         "total_items": total_items,
     }
@@ -349,6 +358,58 @@ if settings.ui_enabled:
             name="audit.html",
             context=_template_context(request, audits=sorted_audits, sort_order=order),
         )
+
+    @app.get("/settings", name="settings_page")
+    async def settings_page(request: Request):
+        """renders user theme settings and manager/admin prompt controls."""
+        redirect = _login_redirect(request)
+        if redirect:
+            return redirect
+        account = current_account(request)
+        return templates.TemplateResponse(
+            request=request,
+            name="settings.html",
+            context=_template_context(
+                request,
+                prompt_settings=get_prompt_settings(),
+                can_edit_prompts=account.can_view_all_pages if account else False,
+            ),
+        )
+
+    @app.post("/api/settings/theme", name="save_theme_setting")
+    async def save_theme_setting(request: Request):
+        """stores the signed-in user's light/dark preference."""
+        redirect = _login_redirect(request)
+        if redirect:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        account = current_account(request)
+        payload = await request.json()
+        try:
+            return save_user_theme(account.username, str(payload.get("theme") or ""))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/settings/prompts", name="save_prompt_settings_route")
+    async def save_prompt_settings_route(request: Request):
+        """stores shared AI agent and task prompt overrides."""
+        redirect = _login_redirect(request)
+        if redirect:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        _require_all_pages_access(request)
+        payload = await request.json()
+        try:
+            return save_prompt_settings(payload.get("groups", {}))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/settings/prompts/reset", name="reset_prompt_settings_route")
+    async def reset_prompt_settings_route(request: Request):
+        """resets shared prompt settings to config/ YAML defaults."""
+        redirect = _login_redirect(request)
+        if redirect:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        _require_all_pages_access(request)
+        return reset_prompt_settings()
 
 
 def _wait_for_sse_events(timeout: float = 1.0) -> list[dict]:

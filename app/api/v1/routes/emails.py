@@ -79,7 +79,7 @@ async def reprocess_email(email_id: str):
 
 
 async def _email_from_request(request: Request) -> IncomingEmail:
-    """normalizes JSON, form, and raw email bodies into one schema."""
+    """normalises JSON, form, and raw email bodies into one schema."""
     content_type = (request.headers.get("content-type") or "").split(";")[0].lower()
 
     if content_type == "application/json":
@@ -122,7 +122,7 @@ async def _email_from_request(request: Request) -> IncomingEmail:
 
 
 async def _cloudmailin_email_from_request(request: Request) -> IncomingEmail:
-    """normalizes CloudMailin JSON Normalized or form webhook payloads."""
+    """normalises CloudMailin JSON Normalised or form webhook payloads."""
     content_type = (request.headers.get("content-type") or "").split(";")[0].lower()
     if content_type == "application/json":
         try:

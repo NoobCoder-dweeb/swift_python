@@ -255,9 +255,9 @@ def build_product_rows(cards: list[ProductCard]) -> list[ProductRow]:
         sku = unique_sku(card, index, used_skus)
         price = estimated_price(card.category, rng)
         description = (
-            f"Safetyware catalog item from category '{card.category}'. "
+            f"Safetyware catalogue item from category '{card.category}'. "
             f"Source: {card.source_url}. "
-            "Public catalog price was unavailable; unit_price is an estimated "
+            "Public catalogue price was unavailable; unit_price is an estimated "
             "average for similar products in this category."
         )
         rows.append(
@@ -347,7 +347,7 @@ def unit_of_measure(category: str, name: str) -> str:
 
 def write_init_db(rows: list[ProductRow], path: Path) -> None:
     statements = [
-        "-- Project Swift database initializer generated from https://safetyware.com/products/",
+        "-- Project Swift database initialiser generated from https://safetyware.com/products/",
         "BEGIN;",
         create_schema_sql(),
         "TRUNCATE TABLE swift_products;",

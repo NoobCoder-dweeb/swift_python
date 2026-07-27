@@ -175,7 +175,7 @@ class GoldenProductLookupClient:
             "currency": self.expected_context.get("currency", "RM"),
             "source": self.expected_context.get("source", "postgres"),
             "confidence": 0.99,
-            "notes": ["Golden evaluation catalog row."],
+            "notes": ["Golden evaluation catalogue row."],
         }
         if context["sku"] is None and context["price"] is None:
             return self._missing_product_context(product)

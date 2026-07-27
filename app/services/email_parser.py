@@ -36,7 +36,7 @@ class _HTMLTextExtractor(HTMLParser):
             self._chunks.append("\n")
 
     def get_text(self) -> str:
-        """returns normalized plain text for downstream preprocessing."""
+        """returns normalised plain text for downstream preprocessing."""
         return _clean_body("\n".join(self._chunks))
 
 
@@ -66,7 +66,7 @@ def incoming_email_from_mapping(payload: Mapping[str, Any]) -> IncomingEmail:
 
 
 def incoming_email_from_cloudmailin(payload: Mapping[str, Any]) -> IncomingEmail:
-    """normalizes CloudMailin JSON Normalized webhooks into the intake schema."""
+    """normalises CloudMailin JSON Normalised webhooks into the intake schema."""
     headers = {
         **_mapping_value(payload.get("headers")),
         **_bracket_mapping_value(payload, "headers"),
@@ -234,6 +234,6 @@ def _part_to_text(part: Message) -> str:
 
 
 def _clean_body(text: str) -> str:
-    """normalizes line endings so preprocessing rules behave consistently."""
+    """normalises line endings so preprocessing rules behave consistently."""
     lines = [line.rstrip() for line in text.replace("\r\n", "\n").split("\n")]
     return "\n".join(lines).strip()

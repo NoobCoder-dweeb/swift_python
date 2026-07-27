@@ -25,7 +25,7 @@ from app.services.draft_service import DraftService
 
 
 def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
-    """protects the core pricing-plus-stock workflow behavior."""
+    """protects the core pricing-plus-stock workflow behaviour."""
     result = run_sales_inquiry_workflow(
         IncomingEmail(
             sender="buyer@example.com",
@@ -263,7 +263,7 @@ def test_sales_workflow_reports_missing_postgres_product(monkeypatch):
 
 
 def test_sales_workflow_does_not_quote_unmatched_database_product(monkeypatch):
-    """non-catalog products must not inherit facts from weak token overlap."""
+    """non-catalogue products must not inherit facts from weak token overlap."""
 
     class WeakCatalogClient(PostgresProductLookupClient):
         def __init__(self):
@@ -308,7 +308,7 @@ def test_sales_workflow_does_not_quote_unmatched_database_product(monkeypatch):
 
 
 def test_sales_workflow_lists_products_matching_criteria(monkeypatch):
-    """catalog list requests should return persisted rows in the draft."""
+    """catalogue list requests should return persisted rows in the draft."""
 
     class ListingProductClient:
         def search_products(self, query, limit=5):
@@ -668,7 +668,7 @@ def test_draft_validation_rejects_stock_claim_without_database_stock():
 
 
 def test_draft_validation_rejects_unpersisted_suggestion_product():
-    """suggestion lines must map to approved persisted catalog rows."""
+    """suggestion lines must map to approved persisted catalogue rows."""
     draft = (
         "Hi,\n\n"
         "Thanks for your inquiry for Carbon Fiber Shield. We don't have this "

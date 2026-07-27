@@ -71,6 +71,11 @@ def load_agent_prompt_config(
     )
 
 
+def reset_agent_prompt_config_cache() -> None:
+    """clears cached YAML and database prompt settings after settings updates."""
+    _load_agent_prompt_config.cache_clear()
+
+
 @lru_cache(maxsize=4)
 def _load_agent_prompt_config(
     config_path: str,
@@ -81,6 +86,9 @@ def _load_agent_prompt_config(
     task_root = _load_yaml_mapping(yaml, Path(task_config_path), "task config")
     agent_payloads = _require_mapping(agent_root.get("agents"), "agents")
     task_payloads = _require_mapping(task_root.get("tasks"), "tasks")
+    overrides = _stored_prompt_overrides()
+    if overrides:
+        _merge_prompt_overrides(agent_payloads, task_payloads, overrides)
 
     agents = {
         key: _agent_definition_from_mapping(key, value)
@@ -155,3 +163,47 @@ def _yaml_module() -> Any:
             "using CrewAI agent/task configuration."
         ) from exc
     return yaml
+
+
+def _stored_prompt_overrides() -> dict[str, Any]:
+    """loads database prompt overrides without making YAML tests require storage."""
+    try:
+        from app.services.settings_service import PROMPT_SETTING_KEY
+        from app.repositories.state_repository import get_state_repository
+
+        row = get_state_repository().get_setting(PROMPT_SETTING_KEY)
+    except Exception:
+        return {}
+    value = row.get("value") if row else None
+    return value if isinstance(value, dict) else {}
+
+
+def _merge_prompt_overrides(
+    agent_payloads: dict[str, Any],
+    task_payloads: dict[str, Any],
+    overrides: dict[str, Any],
+) -> None:
+    """applies persisted editable fields on top of YAML defaults."""
+    agent_overrides = overrides.get("agents")
+    if isinstance(agent_overrides, dict):
+        for key, payload in agent_overrides.items():
+            if key not in agent_payloads or not isinstance(payload, dict):
+                continue
+            if not isinstance(agent_payloads[key], dict):
+                continue
+            for field_name in ("role", "goal", "backstory"):
+                value = payload.get(field_name)
+                if isinstance(value, str) and value.strip():
+                    agent_payloads[key][field_name] = value
+
+    task_overrides = overrides.get("tasks")
+    if isinstance(task_overrides, dict):
+        for key, payload in task_overrides.items():
+            if key not in task_payloads or not isinstance(payload, dict):
+                continue
+            if not isinstance(task_payloads[key], dict):
+                continue
+            for field_name in ("description", "expected_output"):
+                value = payload.get(field_name)
+                if isinstance(value, str) and value.strip():
+                    task_payloads[key][field_name] = value

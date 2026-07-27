@@ -63,7 +63,7 @@ async def test_ingest_json_accepts_from_alias():
 
 
 async def test_cloudmailin_json_webhook_creates_pending_draft(monkeypatch):
-    """CloudMailin JSON Normalized webhooks enter the review workflow."""
+    """CloudMailin JSON Normalised webhooks enter the review workflow."""
     monkeypatch.setenv("SWIFT_CLOUDMAILIN_BASIC_USERNAME", "cloudmailin")
     monkeypatch.setenv("SWIFT_CLOUDMAILIN_BASIC_PASSWORD", "secret")
     reset_app_settings()
@@ -192,7 +192,7 @@ async def test_cloudmailin_multipart_with_json_envelope_creates_pending_draft(
 async def test_cloudmailin_multipart_with_bracket_fields_creates_pending_draft(
     monkeypatch,
 ):
-    """CloudMailin multipart normalized fields use bracket-style names."""
+    """CloudMailin multipart normalised fields use bracket-style names."""
     monkeypatch.setenv("SWIFT_CLOUDMAILIN_BASIC_USERNAME", "cloudmailin")
     monkeypatch.setenv("SWIFT_CLOUDMAILIN_BASIC_PASSWORD", "secret")
     reset_app_settings()

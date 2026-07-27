@@ -1,0 +1,130 @@
+{% extends "_base.html" %}
+
+{% block title %}Settings - Project Swift{% endblock %}
+
+{% block extra_styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="settings-layout">
+    <aside class="settings-sidebar" aria-label="Settings sections">
+        <button type="button" class="settings-tab active" data-settings-panel="appearance">
+            <i class="ph ph-palette"></i>
+            <span>Appearance</span>
+        </button>
+        <button type="button" class="settings-tab" data-settings-panel="prompts">
+            <i class="ph ph-robot"></i>
+            <span>AI Prompts</span>
+        </button>
+    </aside>
+
+    <section class="settings-content">
+        <div id="panel-appearance" class="settings-panel active">
+            <div class="settings-section">
+                <div class="settings-section-header">
+                    <div>
+                        <div class="settings-section-title">Theme</div>
+                        <div class="settings-section-desc">Choose how Project Swift appears for your account.</div>
+                    </div>
+                    <span class="settings-status" id="themeStatus">Saved</span>
+                </div>
+
+                <div class="theme-options" role="radiogroup" aria-label="Theme">
+                    <button type="button" class="theme-option{% if user_theme == 'light' %} active{% endif %}" data-theme-choice="light" aria-pressed="{{ 'true' if user_theme == 'light' else 'false' }}">
+                        <i class="ph ph-sun"></i>
+                        <span>Light</span>
+                    </button>
+                    <button type="button" class="theme-option{% if user_theme == 'dark' %} active{% endif %}" data-theme-choice="dark" aria-pressed="{{ 'true' if user_theme == 'dark' else 'false' }}">
+                        <i class="ph ph-moon"></i>
+                        <span>Dark</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div id="panel-prompts" class="settings-panel">
+            <div class="settings-section">
+                <div class="settings-section-header">
+                    <div>
+                        <div class="settings-section-title">AI Agent And Task Prompts</div>
+                        <div class="settings-section-desc">Update shared CrewAI agent instructions and workflow task prompts.</div>
+                    </div>
+                    {% if prompt_settings.has_overrides %}
+                    <span class="settings-status settings-status-warning" id="promptStatus">Customised</span>
+                    {% else %}
+                    <span class="settings-status" id="promptStatus">Default</span>
+                    {% endif %}
+                </div>
+
+                {% if not can_edit_prompts %}
+                <div class="alert alert-warning">
+                    <i class="ph ph-lock"></i>
+                    <div>Prompt settings are available to admins and sales managers.</div>
+                </div>
+                {% endif %}
+
+                <div id="promptsAlert" class="settings-alert-slot"></div>
+
+                <div class="prompt-tabs" role="tablist" aria-label="Prompt groups">
+                    {% for key, group in prompt_settings.groups.items() %}
+                    <button type="button" class="prompt-tab{% if loop.first %} active{% endif %}" data-prompt-group="{{ key }}">
+                        {{ loop.index }}. {{ group.label }}
+                    </button>
+                    {% endfor %}
+                </div>
+
+                <form id="promptsForm" data-can-edit="{{ 'true' if can_edit_prompts else 'false' }}">
+                    {% for key, group in prompt_settings.groups.items() %}
+                    <div class="prompt-group-section{% if loop.first %} active{% endif %}" id="group-{{ key }}" data-group="{{ key }}">
+                        <h3>{{ group.label }}</h3>
+
+                        <div class="settings-field-stack">
+                            <label class="form-label" for="{{ key }}_role">Agent Role</label>
+                            <input id="{{ key }}_role" name="role" type="text" class="form-input" value="{{ group.role }}" required {% if not can_edit_prompts %}disabled{% endif %}>
+                        </div>
+
+                        <div class="settings-field-stack">
+                            <label class="form-label" for="{{ key }}_goal">Agent Goal</label>
+                            <textarea id="{{ key }}_goal" name="goal" class="form-input" rows="3" required {% if not can_edit_prompts %}disabled{% endif %}>{{ group.goal }}</textarea>
+                        </div>
+
+                        <div class="settings-field-stack">
+                            <label class="form-label" for="{{ key }}_backstory">Agent Backstory</label>
+                            <textarea id="{{ key }}_backstory" name="backstory" class="form-input" rows="3" required {% if not can_edit_prompts %}disabled{% endif %}>{{ group.backstory }}</textarea>
+                        </div>
+
+                        <div class="settings-subsection-title">Workflow Task</div>
+
+                        <div class="settings-field-stack">
+                            <label class="form-label" for="{{ key }}_task_description">Task Description</label>
+                            <textarea id="{{ key }}_task_description" name="task_description" class="form-input prompt-code" rows="8" required {% if not can_edit_prompts %}disabled{% endif %}>{{ group.task_description }}</textarea>
+                        </div>
+
+                        <div class="settings-field-stack">
+                            <label class="form-label" for="{{ key }}_task_expected_output">Expected Output</label>
+                            <textarea id="{{ key }}_task_expected_output" name="task_expected_output" class="form-input" rows="3" required {% if not can_edit_prompts %}disabled{% endif %}>{{ group.task_expected_output }}</textarea>
+                        </div>
+                    </div>
+                    {% endfor %}
+
+                    <div class="settings-actions">
+                        <button type="submit" class="btn btn-primary" id="savePromptsBtn" {% if not can_edit_prompts %}disabled{% endif %}>
+                            <i class="ph ph-floppy-disk"></i>
+                            Save Prompts
+                        </button>
+                        <button type="button" class="btn btn-danger" id="resetPromptsBtn" {% if not can_edit_prompts %}disabled{% endif %}>
+                            <i class="ph ph-arrow-counter-clockwise"></i>
+                            Reset To Defaults
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="{{ url_for('static', filename='js/settings.js') }}"></script>
+{% endblock %}

@@ -54,7 +54,7 @@ _INQUIRY_KEYWORDS = (
     "availability",
     "available",
     "bulk",
-    "catalog",
+    "catalogue",
     "cost",
     "delivery",
     "inventory",

@@ -138,7 +138,8 @@ function initTheme() {
 
     const icon = themeToggle.querySelector('i');
     const htmlDoc = document.documentElement;
-    const savedTheme = localStorage.getItem('theme') ||
+    const savedTheme = htmlDoc.getAttribute('data-theme') ||
+        localStorage.getItem('theme') ||
         (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 
     setTheme(savedTheme);

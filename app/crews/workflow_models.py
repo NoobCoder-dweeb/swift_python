@@ -32,7 +32,7 @@ class InquiryDetails(BaseModel):
 
 
 class ProductOption(BaseModel):
-    """represents a persisted catalog row safe to mention in a draft."""
+    """represents a persisted catalogue row safe to mention in a draft."""
 
     product: str
     sku: str | None = None
@@ -43,7 +43,7 @@ class ProductOption(BaseModel):
     price: float | None = None
     currency: str = "RM"
     unit_of_measure: str | None = None
-    source: str = "catalog"
+    source: str = "catalogue"
     confidence: float = 0.0
 
 
