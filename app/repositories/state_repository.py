@@ -877,7 +877,7 @@ class PostgresStateRepository:
             if existing:
                 row["thread_id"] = existing["thread_id"]
                 row.setdefault("created_at", existing["created_at"])
-            conn.execute(
+            stored = conn.execute(
                 """
                 INSERT INTO swift_threads (
                     thread_id, sender, sender_key, subject, subject_key,
@@ -888,6 +888,7 @@ class PostgresStateRepository:
                     sender = EXCLUDED.sender,
                     subject = EXCLUDED.subject,
                     updated_at = EXCLUDED.updated_at
+                RETURNING *
                 """,
                 (
                     row["thread_id"],
@@ -898,8 +899,8 @@ class PostgresStateRepository:
                     row["created_at"],
                     row["updated_at"],
                 ),
-            )
-        return row
+            ).fetchone()
+        return dict(stored) if stored else row
 
     def list_thread_messages(self, thread_id: str) -> list[ThreadMessageRow]:
         """returns normalised messages for one thread."""

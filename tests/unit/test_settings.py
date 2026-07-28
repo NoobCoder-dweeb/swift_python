@@ -158,7 +158,6 @@ async def test_admin_can_save_and_reset_guardrail_overrides():
     repository = get_state_repository()
     repository.delete_setting("guardrail_overrides")
     assert assess_customer_inquiry("Please quote purple gloves.").blocked is False
-
     rules = [
         {
             "flag": "purple_glove_request",
@@ -194,3 +193,31 @@ async def test_admin_can_save_and_reset_guardrail_overrides():
         assert reset.json()["has_overrides"] is False
 
     assert assess_customer_inquiry("Please quote purple gloves.").blocked is False
+
+
+async def test_invalid_guardrail_regex_returns_validation_error():
+    """admin regex typos should return a 400 instead of a server error."""
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+        follow_redirects=False,
+    ) as client:
+        await client.post(
+            "/login",
+            data={"username": "admin", "password": "swift123", "next": "/settings"},
+        )
+        response = await client.post(
+            "/api/settings/guardrails",
+            json={
+                "rules": [
+                    {
+                        "flag": "broken_rule",
+                        "patterns_text": "[",
+                    }
+                ]
+            },
+        )
+
+    assert response.status_code == 400
+    assert "invalid regex pattern" in response.json()["detail"]

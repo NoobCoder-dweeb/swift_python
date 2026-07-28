@@ -90,7 +90,13 @@ def compile_guardrail_payload(payload: Any) -> tuple[GuardrailRule, ...]:
                     f"Guardrail rule {flag} pattern {pattern_index + 1} is empty."
                 )
             pattern_texts.append(pattern.strip())
-        rules.append(GuardrailRule(flag=flag.strip(), patterns=_compile(*pattern_texts)))
+        try:
+            compiled_patterns = _compile(*pattern_texts)
+        except regex.error as exc:
+            raise ValueError(
+                f"Guardrail rule {flag} has an invalid regex pattern: {exc}"
+            ) from exc
+        rules.append(GuardrailRule(flag=flag.strip(), patterns=compiled_patterns))
     return tuple(rules)
 
 

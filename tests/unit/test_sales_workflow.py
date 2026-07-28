@@ -363,6 +363,46 @@ def test_sales_workflow_lists_products_matching_criteria(monkeypatch):
     assert result.validation.valid is True
 
 
+def test_sales_workflow_accepts_catalog_listing_spelling(monkeypatch):
+    """external customer wording may use catalog instead of catalogue."""
+
+    class ListingProductClient:
+        def search_products(self, query, limit=5):
+            return [
+                {
+                    "product": "Face Shield",
+                    "sku": "SAFE-FACE-SHIELD",
+                    "category": "Eye And Face Protection",
+                    "stock_availability": 30,
+                    "price": 12.5,
+                    "currency": "RM",
+                    "unit_of_measure": "unit",
+                    "source": "postgres",
+                    "confidence": 0.86,
+                }
+            ][:limit]
+
+        def get_product(self, query):
+            raise AssertionError("catalog listing should not use single-product lookup")
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: ListingProductClient(),
+    )
+
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Browse catalog",
+            body="Can I browse catalog items for eye protection?",
+        ),
+        use_crewai=False,
+    )
+
+    assert result.inquiry.inquiry_type == "listing"
+    assert "Face Shield" in result.ai_draft
+
+
 def test_sales_workflow_lists_products_with_terms_between_list_and_products(monkeypatch):
     """requests like 'list fire hose products' should not collapse to one product."""
 

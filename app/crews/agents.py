@@ -1149,6 +1149,8 @@ def _is_product_listing_request(lower_text: str) -> bool:
             "which products",
             "what products",
             "browse products",
+            "browse catalog",
+            "browse catalogue",
             "products that",
             "products with",
             "products in",
@@ -1158,7 +1160,7 @@ def _is_product_listing_request(lower_text: str) -> bool:
         return True
     return bool(
         re.search(
-            r"\b(?:list|show|browse|recommend|suggest)\b.{0,80}\b(?:products?|items?|catalogue)\b",
+            r"\b(?:list|show|browse|recommend|suggest)\b.{0,80}\b(?:products?|items?|catalog(?:ue)?)\b",
             lower_text,
         )
     )

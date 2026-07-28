@@ -416,6 +416,8 @@ def _asks_for_catalog_listing(query: str) -> bool:
             "what products",
             "which products",
             "browse products",
+            "browse catalog",
+            "browse catalogue",
             "available products",
             "products in",
         )

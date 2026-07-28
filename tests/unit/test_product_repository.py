@@ -162,3 +162,20 @@ def test_postgres_product_search_lists_broad_available_products(monkeypatch):
         "CATU 40 Cal Arc Flash Kit",
         "Face Shield",
     ]
+
+
+def test_postgres_product_search_accepts_catalog_listing_spelling(monkeypatch):
+    """catalog and catalogue should both trigger broad listing fallback."""
+    client = PostgresProductLookupClient("postgresql://unused")
+    monkeypatch.setattr(
+        client,
+        "_list_products",
+        lambda: [_arc_flash_row(), _face_shield_row(), _safety_glasses_row()],
+    )
+
+    result = client.search_products("Can I browse catalog?", limit=2)
+
+    assert [item["product"] for item in result] == [
+        "CATU 40 Cal Arc Flash Kit",
+        "Face Shield",
+    ]
