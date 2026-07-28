@@ -236,7 +236,7 @@ def _write_markdown_summary(
                 "",
                 (
                     "The largest operational gain was review workload reduction: "
-                    "manual processing was modeled at "
+                    "manual processing was modelled at "
                     f"{_fmt(_mean(_float(row['estimated_manual_minutes']) for row in slm_rows))} minutes per case, "
                     "whereas the SLM workflow required an estimated "
                     f"{_fmt(_mean(_float(row['estimated_review_minutes']) for row in slm_rows))} review minutes, "
@@ -300,8 +300,8 @@ def _write_markdown_summary(
                     "evaluation rather than a live production measurement. The "
                     "automated SLM and LLM rows used golden product facts in this "
                     "run, while manual rows are treated as the human-verified "
-                    "baseline; this helps isolate workflow behavior but may "
-                    "overstate performance compared with noisy live catalog data."
+                    "baseline; this helps isolate workflow behaviour but may "
+                    "overstate performance compared with noisy live catalogue data."
                 ),
                 "",
                 (
@@ -309,13 +309,13 @@ def _write_markdown_summary(
                     f"{len({row['golden_id'] for row in rows})} golden cases across "
                     f"{len({row['module'] for row in rows})} inquiry modules. "
                     "It covers important sales patterns, but it cannot fully "
-                    "represent real customer phrasing, incomplete messages, catalog "
+                    "represent real customer phrasing, incomplete messages, catalogue "
                     "drift, concurrent requests, or long-running operational edge cases."
                 ),
                 "",
                 (
                     "The operational savings are estimated, not observed from a live "
-                    "sales team. Manual handling is modeled at "
+                    "sales team. Manual handling is modelled at "
                     f"{_fmt(_mean(_float(row['estimated_manual_minutes']) for row in slm_rows))} "
                     "minutes per case, so the reported time savings depend on that "
                     "assumption and should be validated with real review logs."
@@ -395,7 +395,7 @@ def _grouped_bar_svg(
     margin_bottom = 130
     plot_w = width - margin_left - margin_right
     plot_h = height - margin_top - margin_bottom
-    colors = {"manual": "#536dfe", "slm": "#00897b", "llm": "#d81b60"}
+    colours = {"manual": "#536dfe", "slm": "#00897b", "llm": "#d81b60"}
     mode_names = list(series)
     group_w = plot_w / len(labels)
     bar_gap = 8
@@ -417,14 +417,14 @@ def _grouped_bar_svg(
             y = margin_top + plot_h - bar_h
             parts.append(
                 f'<rect x="{x:.1f}" y="{y:.1f}" width="{bar_w:.1f}" height="{bar_h:.1f}" '
-                f'rx="3" fill="{colors.get(mode, "#546e7a")}"/>'
+                f'rx="3" fill="{colours.get(mode, "#546e7a")}"/>'
             )
             parts.append(
                 f'<text x="{x + bar_w / 2:.1f}" y="{max(y - 7, margin_top + 12):.1f}" '
                 'text-anchor="middle" font-size="11" fill="#263238">'
                 f"{value:.2f}</text>"
             )
-    parts.append(_legend(mode_names, colors, margin_left, height - 34))
+    parts.append(_legend(mode_names, colours, margin_left, height - 34))
     parts.append("</svg>")
     return "\n".join(parts)
 
@@ -444,7 +444,7 @@ def _horizontal_bar_svg(
     margin_right = 84
     margin_top = 92
     plot_w = width - margin_left - margin_right
-    colors = "#00897b"
+    colours = "#00897b"
     parts = [_svg_open(width, height), _title(title, subtitle, width)]
     parts.append(
         f'<line x1="{margin_left}" y1="{margin_top - 8}" x2="{margin_left}" '
@@ -463,7 +463,7 @@ def _horizontal_bar_svg(
         )
         parts.append(
             f'<rect x="{margin_left}" y="{y}" width="{bar_w:.1f}" height="22" '
-            f'rx="3" fill="{colors}"/>'
+            f'rx="3" fill="{colours}"/>'
         )
         parts.append(
             f'<text x="{margin_left + bar_w + 8:.1f}" y="{y + 16}" '
@@ -503,7 +503,7 @@ def _axis(
 
 def _legend(
     modes: list[str],
-    colors: dict[str, str],
+    colours: dict[str, str],
     x: int,
     y: int,
 ) -> str:
@@ -512,7 +512,7 @@ def _legend(
     for mode in modes:
         parts.append(
             f'<rect x="{cursor}" y="{y - 12}" width="14" height="14" '
-            f'rx="2" fill="{colors.get(mode, "#546e7a")}"/>'
+            f'rx="2" fill="{colours.get(mode, "#546e7a")}"/>'
         )
         parts.append(
             f'<text x="{cursor + 20}" y="{y}" font-size="13" fill="#263238">'

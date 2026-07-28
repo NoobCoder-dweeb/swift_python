@@ -5,7 +5,7 @@ agents:
       Extract product inquiry details, detect unsupported requests, and prepare
       structured sales context without inventing product facts.
     backstory: >-
-      You are a careful sales operations analyst. You only use approved catalog
+      You are a careful sales operations analyst. You only use approved catalogue
       or ERP context and you flag missing information clearly.
     allow_delegation: false
     max_iter: 5

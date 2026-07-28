@@ -12,6 +12,7 @@ from app.crews.agents import (
     LocalLLMConfig,
     MultiAgentLLMConfig,
     SalesProcessingAgent,
+    create_local_llm,
 )
 from app.crews.workflow_models import ProductContext, ProductOption
 from app.core.config import reset_app_settings
@@ -25,7 +26,7 @@ from app.services.draft_service import DraftService
 
 
 def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
-    """protects the core pricing-plus-stock workflow behavior."""
+    """protects the core pricing-plus-stock workflow behaviour."""
     result = run_sales_inquiry_workflow(
         IncomingEmail(
             sender="buyer@example.com",
@@ -263,7 +264,7 @@ def test_sales_workflow_reports_missing_postgres_product(monkeypatch):
 
 
 def test_sales_workflow_does_not_quote_unmatched_database_product(monkeypatch):
-    """non-catalog products must not inherit facts from weak token overlap."""
+    """non-catalogue products must not inherit facts from weak token overlap."""
 
     class WeakCatalogClient(PostgresProductLookupClient):
         def __init__(self):
@@ -308,7 +309,7 @@ def test_sales_workflow_does_not_quote_unmatched_database_product(monkeypatch):
 
 
 def test_sales_workflow_lists_products_matching_criteria(monkeypatch):
-    """catalog list requests should return persisted rows in the draft."""
+    """catalogue list requests should return persisted rows in the draft."""
 
     class ListingProductClient:
         def search_products(self, query, limit=5):
@@ -360,6 +361,46 @@ def test_sales_workflow_lists_products_matching_criteria(monkeypatch):
     assert "RM 12.50" in result.ai_draft
     assert "Safety Glasses" in result.ai_draft
     assert result.validation.valid is True
+
+
+def test_sales_workflow_accepts_catalog_listing_spelling(monkeypatch):
+    """external customer wording may use catalog instead of catalogue."""
+
+    class ListingProductClient:
+        def search_products(self, query, limit=5):
+            return [
+                {
+                    "product": "Face Shield",
+                    "sku": "SAFE-FACE-SHIELD",
+                    "category": "Eye And Face Protection",
+                    "stock_availability": 30,
+                    "price": 12.5,
+                    "currency": "RM",
+                    "unit_of_measure": "unit",
+                    "source": "postgres",
+                    "confidence": 0.86,
+                }
+            ][:limit]
+
+        def get_product(self, query):
+            raise AssertionError("catalog listing should not use single-product lookup")
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: ListingProductClient(),
+    )
+
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Browse catalog",
+            body="Can I browse catalog items for eye protection?",
+        ),
+        use_crewai=False,
+    )
+
+    assert result.inquiry.inquiry_type == "listing"
+    assert "Face Shield" in result.ai_draft
 
 
 def test_sales_workflow_lists_products_with_terms_between_list_and_products(monkeypatch):
@@ -668,7 +709,7 @@ def test_draft_validation_rejects_stock_claim_without_database_stock():
 
 
 def test_draft_validation_rejects_unpersisted_suggestion_product():
-    """suggestion lines must map to approved persisted catalog rows."""
+    """suggestion lines must map to approved persisted catalogue rows."""
     draft = (
         "Hi,\n\n"
         "Thanks for your inquiry for Carbon Fiber Shield. We don't have this "
@@ -784,6 +825,41 @@ def test_multi_agent_llm_config_can_allow_shared_models(monkeypatch):
     )
 
     config.validate_unique_models()
+
+
+def test_multi_agent_llm_config_reports_workflow_role_names():
+    """agent model telemetry should match evaluator and audit role names."""
+    config = MultiAgentLLMConfig()
+
+    assert config.model_names() == {
+        "supervisor": "nemotron-mini:4b",
+        "sales_processing": "llama3.2:3b",
+        "email_drafting": "qwen2.5:3b",
+    }
+
+
+def test_create_local_llm_passes_ollama_api_base(monkeypatch):
+    """CrewAI's OpenAI-compatible Ollama adapter needs an explicit base URL."""
+    captured = {}
+
+    class FakeLLM:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setattr("app.crews.agents._crewai_symbol", lambda name: FakeLLM)
+
+    create_local_llm(
+        LocalLLMConfig(
+            model="llama3.2:3b",
+            provider="ollama",
+            base_url="http://127.0.0.1:11434",
+        )
+    )
+
+    assert captured["model"] == "llama3.2:3b"
+    assert captured["provider"] == "ollama"
+    assert captured["base_url"] == "http://127.0.0.1:11434"
+    assert captured["api_base"] == "http://127.0.0.1:11434"
 
 
 def test_product_lookup_failure_returns_low_confidence_context():

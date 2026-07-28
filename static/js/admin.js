@@ -138,7 +138,8 @@ function initTheme() {
 
     const icon = themeToggle.querySelector('i');
     const htmlDoc = document.documentElement;
-    const savedTheme = localStorage.getItem('theme') ||
+    const savedTheme = htmlDoc.getAttribute('data-theme') ||
+        localStorage.getItem('theme') ||
         (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
 
     setTheme(savedTheme);
@@ -146,13 +147,16 @@ function initTheme() {
     themeToggle.addEventListener('click', () => {
         const currentTheme = htmlDoc.getAttribute('data-theme');
         const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-        setTheme(newTheme);
+        setTheme(newTheme, {persist: true});
     });
 }
 
-function setTheme(theme) {
+function setTheme(theme, options = {}) {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
+    if (options.persist) {
+        persistTheme(theme);
+    }
 
     const themeToggle = document.getElementById('themeToggle');
     if (!themeToggle) return;
@@ -163,6 +167,19 @@ function setTheme(theme) {
     } else {
         icon.classList.remove('ph-sun');
         icon.classList.add('ph-moon');
+    }
+}
+
+async function persistTheme(theme) {
+    try {
+        const response = await fetch('/api/settings/theme', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({theme}),
+        });
+        if (!response.ok) throw new Error('Theme preference was not saved.');
+    } catch (error) {
+        console.warn(error.message || 'Theme preference was not saved.');
     }
 }
 

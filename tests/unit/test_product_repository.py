@@ -65,7 +65,7 @@ def test_postgres_product_lookup_rejects_quantity_only_overlap(monkeypatch):
 
 
 def test_postgres_product_lookup_accepts_real_product_terms(monkeypatch):
-    """specific product tokens should still resolve to the catalog row."""
+    """specific product tokens should still resolve to the catalogue row."""
     client = PostgresProductLookupClient("postgresql://unused")
     monkeypatch.setattr(client, "_list_products", lambda: [_arc_flash_row()])
 
@@ -83,9 +83,9 @@ def test_postgres_product_lookup_recovers_source_url_from_legacy_description(mon
         **_arc_flash_row(),
         "source_url": "https://safetyware.com/products/",
         "description": (
-            "Safetyware catalog item from category 'Arc Flash Protection'. "
+            "Safetyware catalogue item from category 'Arc Flash Protection'. "
             "Source: https://safetyware.com/product/catu-40-cal-arc-flash-kit/. "
-            "Public catalog price was unavailable."
+            "Public catalogue price was unavailable."
         ),
     }
     client = PostgresProductLookupClient("postgresql://unused")
@@ -97,7 +97,7 @@ def test_postgres_product_lookup_recovers_source_url_from_legacy_description(mon
 
 
 def test_postgres_product_lookup_returns_suggestions_for_missing_product(monkeypatch):
-    """nearby catalog rows should be suggested without becoming quoted facts."""
+    """nearby catalogue rows should be suggested without becoming quoted facts."""
     client = PostgresProductLookupClient("postgresql://unused")
     monkeypatch.setattr(
         client,
@@ -157,6 +157,23 @@ def test_postgres_product_search_lists_broad_available_products(monkeypatch):
     )
 
     result = client.search_products("Please list available products.", limit=2)
+
+    assert [item["product"] for item in result] == [
+        "CATU 40 Cal Arc Flash Kit",
+        "Face Shield",
+    ]
+
+
+def test_postgres_product_search_accepts_catalog_listing_spelling(monkeypatch):
+    """catalog and catalogue should both trigger broad listing fallback."""
+    client = PostgresProductLookupClient("postgresql://unused")
+    monkeypatch.setattr(
+        client,
+        "_list_products",
+        lambda: [_arc_flash_row(), _face_shield_row(), _safety_glasses_row()],
+    )
+
+    result = client.search_products("Can I browse catalog?", limit=2)
 
     assert [item["product"] for item in result] == [
         "CATU 40 Cal Arc Flash Kit",

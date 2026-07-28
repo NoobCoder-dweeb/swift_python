@@ -116,7 +116,7 @@ def next_record_id() -> str:
 
 
 def add_record(payload: dict[str, str]) -> Record:
-    """normalizes partial UI form input into a complete dashboard record."""
+    """normalises partial UI form input into a complete dashboard record."""
     record = Record(
         record_id=next_record_id(),
         title=payload.get('title') or 'Untitled Record',
@@ -498,16 +498,26 @@ def build_thread_history(draft: Draft) -> list[dict[str, Any]]:
     """collects the full customer/officer conversation for this email thread."""
     messages: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str]] = set()
-    audits = [
-        audit
-        for audit in get_state_repository().list_audits()
-        if _audit_belongs_to_thread(draft, audit)
-    ]
-    audits.sort(key=lambda audit: str(audit.get('timestamp') or ''))
-
-    for audit in audits:
-        for message in _thread_messages_from_audit(audit):
+    repository = get_state_repository()
+    thread = repository.find_thread(sender=draft.sender, subject=draft.subject)
+    if thread:
+        for row in repository.list_thread_messages(str(thread.get('thread_id'))):
+            message = _thread_message_from_normalised(row)
+            if _is_current_draft_message(draft, message):
+                continue
             _append_thread_message(messages, seen, message)
+
+    if not messages:
+        audits = [
+            audit
+            for audit in repository.list_audits()
+            if _audit_belongs_to_thread(draft, audit)
+        ]
+        audits.sort(key=lambda audit: str(audit.get('timestamp') or ''))
+
+        for audit in audits:
+            for message in _thread_messages_from_audit(audit):
+                _append_thread_message(messages, seen, message)
 
     if not messages:
         return []
@@ -524,6 +534,58 @@ def build_thread_history(draft: Draft) -> list[dict[str, Any]]:
     )
     _append_thread_message(messages, seen, current)
     return messages
+
+
+def _thread_message_from_normalised(row: dict[str, Any]) -> dict[str, Any]:
+    """adapts persisted thread messages to the pending-page timeline shape."""
+    kind = str(row.get('kind') or 'customer')
+    action = str(row.get('action') or kind)
+    return {
+        'message_id': row.get('message_id'),
+        'source_type': row.get('source_type'),
+        'source_id': row.get('source_id'),
+        'version_id': row.get('version_id'),
+        'kind': kind,
+        'title': (
+            'Customer email'
+            if kind == 'customer'
+            else f"{action.replace('_', ' ').title()} response"
+        ),
+        'meta': (
+            str(row.get('sender') or '')
+            if kind == 'customer'
+            else str(row.get('approver') or row.get('sender') or 'Sales Officer')
+        ),
+        'body': str(row.get('body') or ''),
+        'subject': str(row.get('subject') or ''),
+        'sender': str(row.get('sender') or ''),
+        'timestamp': str(row.get('timestamp') or ''),
+        'timestamp_display': _format_human_datetime(str(row.get('timestamp') or '')),
+        'action': row.get('action'),
+        'action_label': action.replace('_', ' ').title(),
+        'approver': row.get('approver') or ('Customer' if kind == 'customer' else 'Sales Officer'),
+        'approver_username': row.get('approver_username'),
+        'emailed_to': row.get('emailed_to'),
+        'sent': bool(row.get('sent')),
+        'customer_inquiry': str(row.get('body') or '') if kind == 'customer' else '',
+        'ai_draft': str(row.get('body') or '') if kind == 'officer' else '',
+        'review_comment': row.get('review_comment') or '',
+        'is_current': False,
+    }
+
+
+def _is_current_draft_message(draft: Draft, message: dict[str, Any]) -> bool:
+    """prevents the current pending draft email from appearing twice."""
+    return (
+        message.get('kind') == 'customer'
+        and str(message.get('body') or '').strip() == draft.customer_inquiry.strip()
+        and _thread_subject_key(str(message.get('subject') or '')) == _thread_subject_key(
+            draft.subject
+        )
+        and _normalize_email_address(str(message.get('sender') or '')) == _normalize_email_address(
+            draft.sender
+        )
+    )
 
 
 def build_email_thread_context(
@@ -733,7 +795,7 @@ def _thread_message(
     review_comment: str = '',
     is_current: bool = False,
 ) -> dict[str, Any]:
-    """normalizes timeline rows for the pending-page thread UI."""
+    """normalises timeline rows for the pending-page thread UI."""
     audit = audit or {}
     return {
         'message_id': f"{audit.get('audit_id') or 'current'}-{kind}",
@@ -751,6 +813,7 @@ def _thread_message(
         'action': audit.get('action'),
         'action_label': str(audit.get('action') or kind).replace('_', ' ').title(),
         'approver': audit.get('approver') or ('Customer' if kind == 'customer' else 'Sales Officer'),
+        'approver_username': audit.get('approver_username'),
         'emailed_to': audit.get('emailed_to'),
         'sent': bool(audit.get('sent')),
         'customer_inquiry': body if kind == 'customer' else '',
@@ -796,7 +859,7 @@ def _normalize_email_address(value: str) -> str:
 
 
 def _thread_subject_key(subject: str) -> str:
-    """normalizes reply/forward subjects to one conversation key."""
+    """normalises reply/forward subjects to one conversation key."""
     text = ' '.join((subject or 'No subject').split())
     text = re.sub(r'\s+\(Regenerated v\d+\)$', '', text, flags=re.IGNORECASE)
     prefix_re = re.compile(r'^(?:(?:re|fw|fwd)\s*:\s*)+', re.IGNORECASE)
@@ -837,7 +900,7 @@ def add_draft_from_email(email_payload: dict[str, object]) -> Draft | None:
     body = str(email_payload.get('body', ''))
     expand_short_body = bool(email_payload.get('expand_short_body', True))
 
-    # Normalize sender display name
+    # Normalise sender display name
     sender_name = sender.split('@')[0].replace('.', ' ').title()
 
     # If the incoming body is short, expand it into a more structured email-like body
@@ -902,13 +965,13 @@ def add_generated_draft(
     sender = str(email_payload.get('from') or email_payload.get('sender') or 'noreply@example.com')
     subject = str(email_payload.get('subject') or 'No subject')
     body = str(email_payload.get('body') or '')
-    normalized_status = status if status in {'pending', 'blocked'} else 'pending'
+    normalised_status = status if status in {'pending', 'blocked'} else 'pending'
 
     workflow_type = _workflow_inquiry_type(workflow)
     workflow_supported = workflow_type in {'pricing', 'availability', 'mixed', 'listing'}
     if (
         _classify_inquiry(subject, body) is None
-        and normalized_status == 'pending'
+        and normalised_status == 'pending'
         and not workflow_supported
     ):
         return None
@@ -917,7 +980,7 @@ def add_generated_draft(
         sender=sender,
         subject=subject,
         body=body,
-        status=normalized_status,
+        status=normalised_status,
     )
     ai_draft = append_product_references(ai_draft, workflow)
     if existing_row:
@@ -939,7 +1002,7 @@ def add_generated_draft(
         sender=sender,
         subject=subject,
         body=body,
-        status=normalized_status,
+        status=normalised_status,
         created=now,
         updated=now,
         revisions=0,
@@ -976,7 +1039,12 @@ def get_audits() -> list[dict]:
     return enriched
 
 
-def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -> dict | None:
+def approve_draft(
+    draft_id: str,
+    approver: str,
+    emailed_to: str | None = None,
+    approver_username: str | None = None,
+) -> dict | None:
     """records approval once and removes the draft from the active queue."""
     draft_row = get_state_repository().get_draft(draft_id)
     draft = _row_to_draft(draft_row) if draft_row else None
@@ -1004,6 +1072,7 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
             'sender': draft.sender,
             'subject': draft.subject,
             'approver': approver,
+            'approver_username': approver_username,
             'action': 'approval_failed',
             'emailed_to': recipient,
             'sent': False,
@@ -1022,6 +1091,7 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
         'sender': draft.sender,
         'subject': draft.subject,
         'approver': approver,
+        'approver_username': approver_username,
         'action': 'approved',
         'timestamp': datetime.now().isoformat(),
         'emailed_to': recipient,
@@ -1079,7 +1149,12 @@ def _workflow_inquiry_type(workflow: dict[str, Any] | None) -> str | None:
     return str(inquiry_type) if inquiry_type else None
 
 
-def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason: str = '') -> dict | None:
+def reject_and_regenerate_draft(
+    draft_id: str,
+    requester: str,
+    rejection_reason: str = '',
+    requester_username: str | None = None,
+) -> dict | None:
     """
     records rejection feedback and keeps the draft available for another review.
     """
@@ -1104,6 +1179,7 @@ def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason:
         'sender': draft.sender,
         'subject': draft.subject,
         'approver': requester,
+        'approver_username': requester_username,
         'action': 'rejected',
         'timestamp': datetime.now().isoformat(),
         'emailed_to': None,

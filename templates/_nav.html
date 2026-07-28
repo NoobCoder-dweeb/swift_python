@@ -23,6 +23,10 @@
             <span>Audit Log</span>
         </a>
         {% endif %}
+        <a href="{{ url_for('settings_page') }}" class="nav-link{% if request.endpoint == 'settings_page' %} active{% endif %}">
+            <i class="ph ph-gear-six"></i>
+            <span>Settings</span>
+        </a>
     </div>
     <div class="sidebar-footer">
         <div class="sidebar-user">

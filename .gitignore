@@ -2,6 +2,9 @@ data_store.json
 __pycache__
 __pycache__/*
 .*
+!.github/
+!.github/workflows/
+!.github/workflows/*.yml
 docker.env
 !.dockerignore
 

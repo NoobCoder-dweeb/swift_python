@@ -25,6 +25,9 @@ DraftRow = dict[str, Any]
 AuditRow = dict[str, Any]
 EmailRow = dict[str, Any]
 UserRow = dict[str, Any]
+ThreadRow = dict[str, Any]
+ThreadMessageRow = dict[str, Any]
+SettingRow = dict[str, Any]
 
 
 class StateRepository(Protocol):
@@ -89,11 +92,41 @@ class StateRepository(Protocol):
         ...
 
     def get_user_by_username(self, username: str) -> UserRow | None:
-        """finds a login user by normalized username."""
+        """finds a login user by normalised username."""
         ...
 
     def upsert_user(self, user: UserRow) -> UserRow:
         """creates or updates a login user with a stored password hash."""
+        ...
+
+    def find_thread(self, *, sender: str, subject: str) -> ThreadRow | None:
+        """finds an email thread by normalised sender and subject."""
+        ...
+
+    def upsert_thread(self, thread: ThreadRow) -> ThreadRow:
+        """creates or updates a normalised email thread."""
+        ...
+
+    def list_thread_messages(self, thread_id: str) -> list[ThreadMessageRow]:
+        """lists normalised messages for one email thread."""
+        ...
+
+    def insert_thread_message(
+        self, message: ThreadMessageRow
+    ) -> ThreadMessageRow:
+        """stores one normalised email-thread message."""
+        ...
+
+    def get_setting(self, key: str) -> SettingRow | None:
+        """retrieves one stored application setting by key."""
+        ...
+
+    def upsert_setting(self, setting: SettingRow) -> SettingRow:
+        """creates or updates a stored application setting."""
+        ...
+
+    def delete_setting(self, key: str) -> None:
+        """removes one stored application setting."""
         ...
 
 
@@ -107,6 +140,9 @@ class MemoryStateRepository:
         self._audits: dict[str, AuditRow] = {}
         self._emails: dict[str, EmailRow] = {}
         self._users: dict[str, UserRow] = {}
+        self._threads: dict[str, ThreadRow] = {}
+        self._thread_messages: dict[str, ThreadMessageRow] = {}
+        self._settings: dict[str, SettingRow] = {}
 
     def initialize(self) -> None:
         """matches the PostgreSQL repository contract even with no setup."""
@@ -161,7 +197,7 @@ class MemoryStateRepository:
             return deepcopy(row) if row else None
 
     def find_audit(self, *, draft_id: str, action: str) -> AuditRow | None:
-        """keeps retry/idempotency behavior testable without PostgreSQL."""
+        """keeps retry/idempotency behaviour testable without PostgreSQL."""
         with self._lock:
             for row in self._audits.values():
                 if row.get("draft_id") == draft_id and row.get("action") == action:
@@ -174,7 +210,9 @@ class MemoryStateRepository:
         row.setdefault("audit_id", f"AUD-{uuid4().hex[:8].upper()}")
         with self._lock:
             self._audits[str(row["audit_id"])] = row
-            return deepcopy(row)
+            stored = deepcopy(row)
+        self._record_audit_thread_messages(stored)
+        return stored
 
     def list_emails(self) -> list[EmailRow]:
         """lets email queue tests inspect stored intake records."""
@@ -191,7 +229,9 @@ class MemoryStateRepository:
         """stores intake status changes without leaking mutable references."""
         with self._lock:
             self._emails[str(email["email_id"])] = deepcopy(email)
-            return deepcopy(email)
+            row = deepcopy(email)
+        self._record_email_thread_message(row)
+        return row
 
     def list_users(self) -> list[UserRow]:
         """returns copied user rows for auth UI/account assertions."""
@@ -200,9 +240,9 @@ class MemoryStateRepository:
 
     def get_user_by_username(self, username: str) -> UserRow | None:
         """performs case-insensitive username lookup like PostgreSQL."""
-        normalized_username = (username or "").strip().lower()
+        normalised_username = (username or "").strip().lower()
         with self._lock:
-            row = self._users.get(normalized_username)
+            row = self._users.get(normalised_username)
             return deepcopy(row) if row else None
 
     def upsert_user(self, user: UserRow) -> UserRow:
@@ -212,6 +252,94 @@ class MemoryStateRepository:
         with self._lock:
             self._users[str(row["username"])] = row
             return deepcopy(row)
+
+    def find_thread(self, *, sender: str, subject: str) -> ThreadRow | None:
+        """finds an existing thread using the same key as PostgreSQL."""
+        sender_key = _normalize_email_address(sender)
+        subject_key = _thread_subject_key(subject)
+        with self._lock:
+            for row in self._threads.values():
+                if (
+                    row.get("sender_key") == sender_key
+                    and row.get("subject_key") == subject_key
+                ):
+                    return deepcopy(row)
+        return None
+
+    def upsert_thread(self, thread: ThreadRow) -> ThreadRow:
+        """creates or updates a normalised thread row."""
+        row = deepcopy(thread)
+        row.setdefault("thread_id", f"THR-{uuid4().hex[:8].upper()}")
+        row["sender_key"] = _normalize_email_address(str(row.get("sender") or ""))
+        row["subject_key"] = _thread_subject_key(str(row.get("subject") or ""))
+        with self._lock:
+            existing = self.find_thread(
+                sender=str(row.get("sender") or ""),
+                subject=str(row.get("subject") or ""),
+            )
+            if existing:
+                row["thread_id"] = existing["thread_id"]
+                row.setdefault("created_at", existing.get("created_at"))
+            self._threads[str(row["thread_id"])] = row
+            return deepcopy(row)
+
+    def list_thread_messages(self, thread_id: str) -> list[ThreadMessageRow]:
+        """returns copied messages for one normalised email thread."""
+        with self._lock:
+            rows = [
+                deepcopy(row)
+                for row in self._thread_messages.values()
+                if row.get("thread_id") == thread_id
+            ]
+        return sorted(rows, key=lambda row: str(row.get("timestamp") or ""))
+
+    def insert_thread_message(
+        self, message: ThreadMessageRow
+    ) -> ThreadMessageRow:
+        """stores a thread message idempotently."""
+        row = deepcopy(message)
+        row.setdefault("message_id", f"MSG-{uuid4().hex[:8].upper()}")
+        with self._lock:
+            self._thread_messages[str(row["message_id"])] = row
+            return deepcopy(row)
+
+    def _record_email_thread_message(self, email: EmailRow) -> None:
+        """normalises inbound email rows into the thread message store."""
+        body = str(email.get("body") or "").strip()
+        if not body:
+            return
+        thread = _thread_for_message(
+            self,
+            sender=str(email.get("sender") or ""),
+            subject=str(email.get("subject") or ""),
+            timestamp=str(email.get("created_at") or email.get("updated_at") or ""),
+        )
+        self.insert_thread_message(
+            _thread_message_from_email(thread["thread_id"], email)
+        )
+
+    def _record_audit_thread_messages(self, audit: AuditRow) -> None:
+        """normalises audit rows into customer and officer thread messages."""
+        for message in _thread_messages_from_audit(self, audit):
+            self.insert_thread_message(message)
+
+    def get_setting(self, key: str) -> SettingRow | None:
+        """retrieves one copied setting row."""
+        with self._lock:
+            row = self._settings.get(key)
+            return deepcopy(row) if row else None
+
+    def upsert_setting(self, setting: SettingRow) -> SettingRow:
+        """stores one setting row in memory."""
+        row = deepcopy(setting)
+        with self._lock:
+            self._settings[str(row["key"])] = row
+            return deepcopy(row)
+
+    def delete_setting(self, key: str) -> None:
+        """removes one memory setting row."""
+        with self._lock:
+            self._settings.pop(key, None)
 
 
 class PostgresStateRepository:
@@ -249,13 +377,55 @@ class PostgresStateRepository:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS swift_users (
+                    username TEXT PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE,
+                    hashed_password TEXT NOT NULL,
+                    level TEXT NOT NULL CHECK (
+                        level IN ('sales officer', 'admin', 'sales manager')
+                    ),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_users
+                    DROP CONSTRAINT IF EXISTS swift_users_level_check
+                """
+            )
+            conn.execute(
+                """
+                UPDATE swift_users
+                SET level = 'sales officer'
+                WHERE level = 'sales person'
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_users
+                    ADD CONSTRAINT swift_users_level_check
+                    CHECK (level IN ('sales officer', 'admin', 'sales manager'))
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS swift_audits (
                     audit_id TEXT PRIMARY KEY,
                     draft_id TEXT,
                     action TEXT,
                     timestamp TEXT,
+                    approver_username TEXT REFERENCES swift_users(username),
                     payload JSONB NOT NULL
                 )
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_audits
+                    ADD COLUMN IF NOT EXISTS approver_username TEXT
+                    REFERENCES swift_users(username)
                 """
             )
             conn.execute(
@@ -322,15 +492,110 @@ class PostgresStateRepository:
             )
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS swift_users (
-                    username TEXT PRIMARY KEY,
-                    email TEXT NOT NULL UNIQUE,
-                    hashed_password TEXT NOT NULL,
-                    level TEXT NOT NULL CHECK (
-                        level IN ('sales person', 'admin', 'sales manager')
-                    ),
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                CREATE TABLE IF NOT EXISTS swift_threads (
+                    thread_id TEXT PRIMARY KEY,
+                    sender TEXT NOT NULL,
+                    sender_key TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    subject_key TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    UNIQUE (sender_key, subject_key)
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS swift_threads_updated_idx
+                    ON swift_threads (updated_at DESC)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS swift_thread_messages (
+                    message_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL REFERENCES swift_threads(thread_id)
+                        ON DELETE CASCADE,
+                    source_type TEXT NOT NULL CHECK (source_type IN ('email', 'audit')),
+                    source_id TEXT NOT NULL,
+                    version_id TEXT,
+                    kind TEXT NOT NULL CHECK (kind IN ('customer', 'officer')),
+                    sender TEXT NOT NULL,
+                    subject TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    timestamp TEXT NOT NULL,
+                    action TEXT,
+                    approver TEXT,
+                    approver_username TEXT REFERENCES swift_users(username),
+                    emailed_to TEXT,
+                    sent BOOLEAN NOT NULL DEFAULT FALSE,
+                    review_comment TEXT,
+                    payload JSONB NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_thread_messages
+                    ADD COLUMN IF NOT EXISTS source_type TEXT
+                    CHECK (source_type IN ('email', 'audit'))
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_thread_messages
+                    ADD COLUMN IF NOT EXISTS source_id TEXT
+                """
+            )
+            conn.execute(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_name = 'swift_thread_messages'
+                            AND column_name = 'email_id'
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_name = 'swift_thread_messages'
+                            AND column_name = 'audit_id'
+                    ) THEN
+                        UPDATE swift_thread_messages
+                        SET
+                            source_type = CASE
+                                WHEN source_type IS NOT NULL THEN source_type
+                                WHEN email_id IS NOT NULL THEN 'email'
+                                WHEN audit_id IS NOT NULL THEN 'audit'
+                                ELSE source_type
+                            END,
+                            source_id = COALESCE(source_id, email_id, audit_id)
+                        WHERE source_type IS NULL OR source_id IS NULL;
+                    END IF;
+                END $$;
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_thread_messages
+                    ADD COLUMN IF NOT EXISTS approver_username TEXT
+                    REFERENCES swift_users(username)
+                """
+            )
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS swift_thread_messages_thread_idx
+                    ON swift_thread_messages (thread_id, timestamp)
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS swift_settings (
+                    key TEXT PRIMARY KEY,
+                    value JSONB NOT NULL,
+                    updated_at TEXT NOT NULL
                 )
                 """
             )
@@ -453,12 +718,15 @@ class PostgresStateRepository:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO swift_audits (audit_id, draft_id, action, timestamp, payload)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO swift_audits (
+                    audit_id, draft_id, action, timestamp, approver_username, payload
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (audit_id) DO UPDATE SET
                     draft_id = EXCLUDED.draft_id,
                     action = EXCLUDED.action,
                     timestamp = EXCLUDED.timestamp,
+                    approver_username = EXCLUDED.approver_username,
                     payload = EXCLUDED.payload
                 """,
                 (
@@ -466,9 +734,11 @@ class PostgresStateRepository:
                     row.get("draft_id") or row.get("target_id"),
                     row.get("action"),
                     row.get("timestamp") or row.get("created_at"),
+                    row.get("approver_username"),
                     self._json(row),
                 ),
             )
+        self._record_audit_thread_messages(row)
         return row
 
     def list_emails(self) -> list[EmailRow]:
@@ -525,6 +795,7 @@ class PostgresStateRepository:
                     self._json(email),
                 ),
             )
+        self._record_email_thread_message(dict(email))
         return dict(email)
 
     def list_users(self) -> list[UserRow]:
@@ -541,7 +812,7 @@ class PostgresStateRepository:
 
     def get_user_by_username(self, username: str) -> UserRow | None:
         """retrieves the login row used by the auth service."""
-        normalized_username = (username or "").strip().lower()
+        normalised_username = (username or "").strip().lower()
         with self._connect() as conn:
             row = conn.execute(
                 """
@@ -549,7 +820,7 @@ class PostgresStateRepository:
                 FROM swift_users
                 WHERE lower(username) = %s
                 """,
-                (normalized_username,),
+                (normalised_username,),
             ).fetchone()
         return dict(row) if row else None
 
@@ -577,6 +848,174 @@ class PostgresStateRepository:
             )
         return row
 
+    def find_thread(self, *, sender: str, subject: str) -> ThreadRow | None:
+        """finds an existing normalised thread by sender and subject."""
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM swift_threads
+                WHERE sender_key = %s AND subject_key = %s
+                """,
+                (_normalize_email_address(sender), _thread_subject_key(subject)),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_thread(self, thread: ThreadRow) -> ThreadRow:
+        """creates or updates a normalised thread row."""
+        row = dict(thread)
+        row.setdefault("thread_id", f"THR-{uuid4().hex[:8].upper()}")
+        row["sender_key"] = _normalize_email_address(str(row.get("sender") or ""))
+        row["subject_key"] = _thread_subject_key(str(row.get("subject") or ""))
+        with self._connect() as conn:
+            existing = conn.execute(
+                """
+                SELECT * FROM swift_threads
+                WHERE sender_key = %s AND subject_key = %s
+                """,
+                (row["sender_key"], row["subject_key"]),
+            ).fetchone()
+            if existing:
+                row["thread_id"] = existing["thread_id"]
+                row.setdefault("created_at", existing["created_at"])
+            stored = conn.execute(
+                """
+                INSERT INTO swift_threads (
+                    thread_id, sender, sender_key, subject, subject_key,
+                    created_at, updated_at
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (sender_key, subject_key) DO UPDATE SET
+                    sender = EXCLUDED.sender,
+                    subject = EXCLUDED.subject,
+                    updated_at = EXCLUDED.updated_at
+                RETURNING *
+                """,
+                (
+                    row["thread_id"],
+                    row["sender"],
+                    row["sender_key"],
+                    row["subject"],
+                    row["subject_key"],
+                    row["created_at"],
+                    row["updated_at"],
+                ),
+            ).fetchone()
+        return dict(stored) if stored else row
+
+    def list_thread_messages(self, thread_id: str) -> list[ThreadMessageRow]:
+        """returns normalised messages for one thread."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT payload FROM swift_thread_messages
+                WHERE thread_id = %s
+                ORDER BY timestamp
+                """,
+                (thread_id,),
+            ).fetchall()
+        return [dict(row["payload"]) for row in rows]
+
+    def insert_thread_message(
+        self, message: ThreadMessageRow
+    ) -> ThreadMessageRow:
+        """stores a normalised thread message idempotently."""
+        row = dict(message)
+        row.setdefault("message_id", f"MSG-{uuid4().hex[:8].upper()}")
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO swift_thread_messages (
+                    message_id, thread_id, source_type, source_id, version_id,
+                    kind, sender, subject, body, timestamp, action, approver,
+                    approver_username, emailed_to, sent, review_comment, payload
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (message_id) DO UPDATE SET
+                    source_type = EXCLUDED.source_type,
+                    source_id = EXCLUDED.source_id,
+                    version_id = EXCLUDED.version_id,
+                    body = EXCLUDED.body,
+                    timestamp = EXCLUDED.timestamp,
+                    action = EXCLUDED.action,
+                    approver = EXCLUDED.approver,
+                    approver_username = EXCLUDED.approver_username,
+                    emailed_to = EXCLUDED.emailed_to,
+                    sent = EXCLUDED.sent,
+                    review_comment = EXCLUDED.review_comment,
+                    payload = EXCLUDED.payload
+                """,
+                (
+                    row["message_id"],
+                    row["thread_id"],
+                    row["source_type"],
+                    row["source_id"],
+                    row.get("version_id"),
+                    row["kind"],
+                    row["sender"],
+                    row["subject"],
+                    row["body"],
+                    row["timestamp"],
+                    row.get("action"),
+                    row.get("approver"),
+                    row.get("approver_username"),
+                    row.get("emailed_to"),
+                    bool(row.get("sent", False)),
+                    row.get("review_comment"),
+                    self._json(row),
+                ),
+            )
+        return row
+
+    def _record_email_thread_message(self, email: EmailRow) -> None:
+        """normalises inbound email rows into the thread message store."""
+        body = str(email.get("body") or "").strip()
+        if not body:
+            return
+        thread = _thread_for_message(
+            self,
+            sender=str(email.get("sender") or ""),
+            subject=str(email.get("subject") or ""),
+            timestamp=str(email.get("created_at") or email.get("updated_at") or ""),
+        )
+        self.insert_thread_message(
+            _thread_message_from_email(thread["thread_id"], email)
+        )
+
+    def _record_audit_thread_messages(self, audit: AuditRow) -> None:
+        """normalises audit rows into customer and officer thread messages."""
+        for message in _thread_messages_from_audit(self, audit):
+            self.insert_thread_message(message)
+
+    def get_setting(self, key: str) -> SettingRow | None:
+        """retrieves one stored application setting."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT key, value, updated_at FROM swift_settings WHERE key = %s",
+                (key,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def upsert_setting(self, setting: SettingRow) -> SettingRow:
+        """creates or updates one stored application setting."""
+        row = dict(setting)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO swift_settings (key, value, updated_at)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (key) DO UPDATE SET
+                    value = EXCLUDED.value,
+                    updated_at = EXCLUDED.updated_at
+                """,
+                (row["key"], self._json(row.get("value")), row["updated_at"]),
+            )
+        return row
+
+    def delete_setting(self, key: str) -> None:
+        """removes one stored application setting."""
+        with self._connect() as conn:
+            conn.execute("DELETE FROM swift_settings WHERE key = %s", (key,))
+
     def _connect(self):
         """opens the configured PostgreSQL connection."""
         psycopg_module, row_factory = _postgres_connection_parts()
@@ -595,7 +1034,7 @@ class PostgresStateRepository:
 
     @staticmethod
     def _draft_from_row(row: dict[str, Any]) -> DraftRow:
-        """normalizes database rows to the service-layer draft shape."""
+        """normalises database rows to the service-layer draft shape."""
         return {
             "draft_id": row["draft_id"],
             "sender": row["sender"],
@@ -609,6 +1048,146 @@ class PostgresStateRepository:
             "ai_draft_text": row.get("ai_draft_text", ""),
             "workflow": row.get("workflow"),
         }
+
+
+def _thread_for_message(
+    repository: StateRepository,
+    *,
+    sender: str,
+    subject: str,
+    timestamp: str,
+) -> ThreadRow:
+    """finds or creates the normalised thread for a message."""
+    existing = repository.find_thread(sender=sender, subject=subject)
+    now = timestamp or ""
+    return repository.upsert_thread(
+        {
+            "thread_id": existing.get("thread_id") if existing else f"THR-{uuid4().hex[:8].upper()}",
+            "sender": sender,
+            "subject": subject,
+            "created_at": existing.get("created_at") if existing else now,
+            "updated_at": now,
+        }
+    )
+
+
+def _thread_message_from_email(
+    thread_id: str,
+    email: EmailRow,
+) -> ThreadMessageRow:
+    """converts a stored email row into a normalised customer message."""
+    email_id = str(email.get("email_id") or f"EML-{uuid4().hex[:8].upper()}")
+    return {
+        "message_id": f"{email_id}-customer",
+        "thread_id": thread_id,
+        "source_type": "email",
+        "source_id": email_id,
+        "version_id": None,
+        "kind": "customer",
+        "sender": str(email.get("sender") or ""),
+        "subject": str(email.get("subject") or ""),
+        "body": str(email.get("body") or ""),
+        "timestamp": str(email.get("created_at") or email.get("updated_at") or ""),
+        "action": None,
+        "approver": None,
+        "approver_username": None,
+        "emailed_to": None,
+        "sent": False,
+        "review_comment": None,
+    }
+
+
+def _thread_messages_from_audit(
+    repository: StateRepository,
+    audit: AuditRow,
+) -> list[ThreadMessageRow]:
+    """converts audit payloads into normalised customer and officer messages."""
+    action = str(audit.get("action") or "").lower()
+    if action not in {"approved", "edited", "rejected"}:
+        return []
+
+    sender = str(audit.get("sender") or "")
+    subject = str(audit.get("subject") or "")
+    timestamp = str(audit.get("timestamp") or audit.get("created_at") or "")
+    thread = _thread_for_message(
+        repository,
+        sender=sender,
+        subject=subject,
+        timestamp=timestamp,
+    )
+    thread_id = thread["thread_id"]
+    audit_id = str(audit.get("audit_id") or f"AUD-{uuid4().hex[:8].upper()}")
+    messages: list[ThreadMessageRow] = []
+    customer_text = str(audit.get("customer_inquiry") or "").strip()
+    if customer_text:
+        messages.append(
+            {
+                "message_id": f"{audit_id}-customer",
+                "thread_id": thread_id,
+                "source_type": "audit",
+                "source_id": audit_id,
+                "version_id": audit.get("version_id"),
+                "kind": "customer",
+                "sender": sender,
+                "subject": subject,
+                "body": customer_text,
+                "timestamp": timestamp,
+                "action": action,
+                "approver": audit.get("approver"),
+                "approver_username": audit.get("approver_username"),
+                "emailed_to": audit.get("emailed_to"),
+                "sent": bool(audit.get("sent", False)),
+                "review_comment": None,
+            }
+        )
+
+    officer_text = str(audit.get("ai_draft") or audit.get("review_comment") or "").strip()
+    if officer_text:
+        approver = str(audit.get("approver") or "Sales Officer")
+        messages.append(
+            {
+                "message_id": f"{audit_id}-officer",
+                "thread_id": thread_id,
+                "source_type": "audit",
+                "source_id": audit_id,
+                "version_id": audit.get("version_id"),
+                "kind": "officer",
+                "sender": approver,
+                "subject": f"Re: {subject}".strip(),
+                "body": officer_text,
+                "timestamp": timestamp,
+                "action": action,
+                "approver": approver,
+                "approver_username": audit.get("approver_username"),
+                "emailed_to": audit.get("emailed_to"),
+                "sent": bool(audit.get("sent", False)),
+                "review_comment": audit.get("review_comment"),
+            }
+        )
+    return messages
+
+
+def _normalize_email_address(value: str) -> str:
+    """compares bare email addresses even when display names are present."""
+    import re
+
+    match = re.search(r"<([^>]+)>", value)
+    address = match.group(1) if match else value
+    return address.strip().lower()
+
+
+def _thread_subject_key(subject: str) -> str:
+    """normalises reply/forward subjects to one conversation key."""
+    import re
+
+    text = " ".join((subject or "No subject").split())
+    text = re.sub(r"\s+\(Regenerated v\d+\)$", "", text, flags=re.IGNORECASE)
+    prefix_re = re.compile(r"^(?:(?:re|fw|fwd)\s*:\s*)+", re.IGNORECASE)
+    previous = None
+    while previous != text:
+        previous = text
+        text = prefix_re.sub("", text).strip()
+    return text.lower()
 
 
 def _postgres_connection_parts() -> tuple[Any, Any]:

@@ -45,8 +45,8 @@ class HybridSpamFilter:
 
     def assess(self, email: IncomingEmail) -> SpamAssessment:
         """scores spam before the sales drafting workflow spends effort."""
-        text = _email_text(email)
-        rule_score, reasons = _rule_score(email, text)
+        text = _email_text_for_spam_scan(email)
+        rule_score, reasons = _score_deterministic_spam_rules(email, text)
         classifier_score = (
             self.classifier.predict_spam_score(text)
             if self.classifier and self.classifier.available
@@ -129,11 +129,15 @@ class TfidfSpamClassifier:
         return 1.0 if int(prediction) == 1 else 0.0
 
 
-def _email_text(email: IncomingEmail) -> str:
+def _email_text_for_spam_scan(email: IncomingEmail) -> str:
+    """combines sender and message text so sender patterns affect scoring."""
     return f"{email.sender}\n{email.subject}\n{email.body}".strip()
 
 
-def _rule_score(email: IncomingEmail, text: str) -> tuple[float, list[str]]:
+def _score_deterministic_spam_rules(
+    email: IncomingEmail, text: str
+) -> tuple[float, list[str]]:
+    """scores obvious spam signals before the optional ML classifier runs."""
     lower = text.lower()
     body_lower = email.body.lower()
     reasons: list[str] = []
@@ -178,13 +182,13 @@ def _rule_score(email: IncomingEmail, text: str) -> tuple[float, list[str]]:
         score += 0.15
         reasons.append("repeated_characters")
 
-    if _low_product_relevance(body_lower) and (
+    if _lacks_sales_product_terms(body_lower) and (
         url_count or any(reason in reasons for reason in ("spam_keyword", "marketing_call_to_action"))
     ):
         score += 0.2
         reasons.append("low_product_relevance")
 
-    if _suspicious_sender(email.sender):
+    if _sender_has_suspicious_pattern(email.sender):
         score += 0.15
         reasons.append("suspicious_sender")
 
@@ -192,10 +196,12 @@ def _rule_score(email: IncomingEmail, text: str) -> tuple[float, list[str]]:
 
 
 def _contains_any(text: str, needles: tuple[str, ...]) -> bool:
+    """keeps keyword checks readable at call sites."""
     return any(needle in text for needle in needles)
 
 
 def _uppercase_ratio(value: str) -> float:
+    """measures shouting-style text without counting punctuation or digits."""
     letters = [char for char in value if char.isalpha()]
     if not letters:
         return 0.0
@@ -203,7 +209,8 @@ def _uppercase_ratio(value: str) -> float:
     return len(uppercase) / len(letters)
 
 
-def _low_product_relevance(lower_body: str) -> bool:
+def _lacks_sales_product_terms(lower_body: str) -> bool:
+    """flags messages that do not look like product, price, or stock inquiries."""
     product_terms = (
         "product",
         "price",
@@ -222,7 +229,8 @@ def _low_product_relevance(lower_body: str) -> bool:
     return not _contains_any(lower_body, product_terms)
 
 
-def _suspicious_sender(sender: str) -> bool:
+def _sender_has_suspicious_pattern(sender: str) -> bool:
+    """detects disposable-looking sender patterns that increase spam confidence."""
     lowered = sender.lower()
     local, _, domain = lowered.partition("@")
     if not domain:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Any, Iterable
 
 import regex
 
@@ -16,7 +16,7 @@ class GuardrailRule:
 
 @dataclass(frozen=True)
 class GuardrailAssessment:
-    """summarizes guardrail findings for the sales workflow."""
+    """summarises guardrail findings for the sales workflow."""
 
     flags: list[str]
 
@@ -54,7 +54,50 @@ class CustomerInquiryGuardrail:
 
 def assess_customer_inquiry(text: str) -> GuardrailAssessment:
     """keeps callers independent from guardrail construction details."""
-    return DEFAULT_INQUIRY_GUARDRAIL.assess(text)
+    return CustomerInquiryGuardrail(_effective_guardrail_rules()).assess(text)
+
+
+def default_guardrail_payload() -> list[dict[str, Any]]:
+    """serialises default regex rules for the settings UI."""
+    return [
+        {
+            "flag": rule.flag,
+            "patterns": [pattern.pattern for pattern in rule.patterns],
+        }
+        for rule in DEFAULT_GUARDRAIL_RULES
+    ]
+
+
+def compile_guardrail_payload(payload: Any) -> tuple[GuardrailRule, ...]:
+    """validates and compiles editable guardrail settings."""
+    if not isinstance(payload, list):
+        raise ValueError("Guardrail rules must be a list.")
+
+    rules: list[GuardrailRule] = []
+    for index, item in enumerate(payload):
+        if not isinstance(item, dict):
+            raise ValueError(f"Guardrail rule {index + 1} must be an object.")
+        flag = item.get("flag")
+        patterns = item.get("patterns")
+        if not isinstance(flag, str) or not flag.strip():
+            raise ValueError(f"Guardrail rule {index + 1} needs a flag.")
+        if not isinstance(patterns, list) or not patterns:
+            raise ValueError(f"Guardrail rule {flag} needs at least one pattern.")
+        pattern_texts = []
+        for pattern_index, pattern in enumerate(patterns):
+            if not isinstance(pattern, str) or not pattern.strip():
+                raise ValueError(
+                    f"Guardrail rule {flag} pattern {pattern_index + 1} is empty."
+                )
+            pattern_texts.append(pattern.strip())
+        try:
+            compiled_patterns = _compile(*pattern_texts)
+        except regex.error as exc:
+            raise ValueError(
+                f"Guardrail rule {flag} has an invalid regex pattern: {exc}"
+            ) from exc
+        rules.append(GuardrailRule(flag=flag.strip(), patterns=compiled_patterns))
+    return tuple(rules)
 
 
 def _compile(*patterns: str) -> tuple[regex.Pattern[str], ...]:
@@ -111,3 +154,20 @@ DEFAULT_GUARDRAIL_RULES: tuple[GuardrailRule, ...] = (
 )
 
 DEFAULT_INQUIRY_GUARDRAIL = CustomerInquiryGuardrail()
+
+
+def _effective_guardrail_rules() -> tuple[GuardrailRule, ...]:
+    """loads database guardrail overrides, falling back to code defaults."""
+    try:
+        from app.repositories.state_repository import get_state_repository
+
+        row = get_state_repository().get_setting("guardrail_overrides")
+    except Exception:
+        return DEFAULT_GUARDRAIL_RULES
+    value = row.get("value") if row else None
+    if not value:
+        return DEFAULT_GUARDRAIL_RULES
+    try:
+        return compile_guardrail_payload(value)
+    except ValueError:
+        return DEFAULT_GUARDRAIL_RULES

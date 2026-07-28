@@ -21,7 +21,7 @@ class ProductLookupGetProductTool(BaseTool):
 
     name: str = "postgres_product_lookup.get_product"
     description: str = (
-        "Use this tool to retrieve the best approved product catalog match for a "
+        "Use this tool to retrieve the best approved product catalogue match for a "
         "customer product, pricing, stock, SKU, or delivery query. Input should "
         "be the full customer product query."
     )
@@ -38,9 +38,9 @@ class ProductLookupSearchProductsTool(BaseTool):
 
     name: str = "postgres_product_lookup.search_products"
     description: str = (
-        "Use this tool for catalog listing requests such as 'show products' or "
+        "Use this tool for catalogue listing requests such as 'show products' or "
         "'which products do you carry'. Returns only persisted or approved "
-        "catalog rows that may be mentioned to the customer."
+        "catalogue rows that may be mentioned to the customer."
     )
 
     def _run(self, query: str, limit: int = 5) -> str:
@@ -57,7 +57,7 @@ class ProductLookupSuggestProductsTool(BaseTool):
     name: str = "postgres_product_lookup.suggest_products"
     description: str = (
         "Use this tool when the exact requested product is ambiguous or missing. "
-        "It returns nearby approved catalog alternatives without treating them "
+        "It returns nearby approved catalogue alternatives without treating them "
         "as exact product matches."
     )
 

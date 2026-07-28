@@ -286,7 +286,7 @@ in the shell.
 
 Evaluation runs use the live PostgreSQL `swift_products` table by default. Seed
 the database with `init.db` before running the benchmark so the golden dataset is
-scored against real persisted catalog rows, not synthetic facts in the harness.
+scored against real persisted catalogue rows, not synthetic facts in the harness.
 `SWIFT_EVAL_PRODUCT_SOURCE=golden` is available only for offline harness
 development when PostgreSQL is unavailable.
 
@@ -337,7 +337,7 @@ fallback rows rather than successful CrewAI rows. The plotting helper excludes
 those fallback rows from LLM comparisons unless `execution_mode` is `crewai` or
 `external`.
 
-The harness is organized around the four pillars of agent evaluation:
+The harness is organised around the four pillars of agent evaluation:
 
 | Pillar | What is measured |
 | --- | --- |

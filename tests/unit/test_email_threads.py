@@ -3,8 +3,8 @@ from datetime import datetime
 import httpx
 
 from app.main import app
+from app.repositories.state_repository import PostgresStateRepository, get_state_repository
 from app.schemas.draft import EmailPayload
-from app.repositories.state_repository import get_state_repository
 from app.services.draft_service import DraftService
 from data import add_generated_draft, get_drafts
 
@@ -76,6 +76,53 @@ def test_follow_up_draft_includes_prior_approved_thread_response():
     assert payload["thread_history"][2]["is_current"] is True
     assert payload["product_reference"]["product"] == "Safety Helmet"
     assert payload["product_reference"]["url"] == "https://safetyware.com/product/safety-helmet/"
+
+
+def test_postgres_thread_upsert_returns_persisted_conflict_thread_id(monkeypatch):
+    """concurrent thread creation should return the row kept by Postgres."""
+    stored_thread = {
+        "thread_id": "THR-WINNER",
+        "sender": "Customer <buyer@example.com>",
+        "sender_key": "buyer@example.com",
+        "subject": "Re: Quote",
+        "subject_key": "quote",
+        "created_at": "2026-07-28T00:00:00",
+        "updated_at": "2026-07-28T00:00:01",
+    }
+
+    class Result:
+        def __init__(self, row):
+            self.row = row
+
+        def fetchone(self):
+            return self.row
+
+    class Connection:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        def execute(self, query, params=()):
+            if "INSERT INTO swift_threads" in query:
+                return Result(stored_thread)
+            return Result(None)
+
+    repository = PostgresStateRepository("postgresql://unused")
+    monkeypatch.setattr(repository, "_connect", lambda: Connection())
+
+    result = repository.upsert_thread(
+        {
+            "thread_id": "THR-LOSER",
+            "sender": "buyer@example.com",
+            "subject": "Quote",
+            "created_at": "2026-07-28T00:00:00",
+            "updated_at": "2026-07-28T00:00:01",
+        }
+    )
+
+    assert result["thread_id"] == "THR-WINNER"
 
 
 def test_initiation_draft_does_not_create_email_thread():

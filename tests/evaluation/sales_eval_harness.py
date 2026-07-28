@@ -175,7 +175,7 @@ class GoldenProductLookupClient:
             "currency": self.expected_context.get("currency", "RM"),
             "source": self.expected_context.get("source", "postgres"),
             "confidence": 0.99,
-            "notes": ["Golden evaluation catalog row."],
+            "notes": ["Golden evaluation catalogue row."],
         }
         if context["sku"] is None and context["price"] is None:
             return self._missing_product_context(product)
@@ -839,6 +839,8 @@ def evaluation_record_to_row(record: EvaluationRecord) -> dict[str, Any]:
         "tool_f1": record.metrics.tool_quality["tool_f1"],
         "tool_exact_sequence": tool_match["exact_sequence_match"],
         "argument_accuracy": record.metrics.tool_quality["argument_accuracy"],
+        "routing_precision": coordination["routing_precision"],
+        "agent_models": json.dumps(coordination["agent_models"], sort_keys=True),
         "duplicate_tool_calls": coordination["duplicate_tool_calls"],
         "tool_call_count": coordination["tool_call_count"],
         "chokehold_count": coordination["chokehold_count"],
@@ -879,6 +881,7 @@ def aggregate_case_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         "forbidden_response_hit_rate",
         "tool_f1",
         "argument_accuracy",
+        "routing_precision",
         "latency_ms",
         "estimated_review_minutes",
         "automation_time_saved_pct",

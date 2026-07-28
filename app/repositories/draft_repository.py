@@ -21,7 +21,7 @@ class DraftRepository:
         return self.repository.get_draft(draft_id)
 
     def save(self, draft: dict[str, Any]) -> dict[str, Any]:
-        """keeps create/update behavior behind one repository method."""
+        """keeps create/update behaviour behind one repository method."""
         return self.repository.upsert_draft(draft)
 
     def delete(self, draft_id: str) -> None:

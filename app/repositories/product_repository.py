@@ -16,7 +16,7 @@ _PRODUCT_STOP_WORDS = {
     "available",
     "browse",
     "can",
-    "catalog",
+    "catalogue",
     "category",
     "confirm",
     "cost",
@@ -72,7 +72,7 @@ else:
 
 
 class PostgresProductLookupClient:
-    """looks up approved product facts from the PostgreSQL product catalog."""
+    """looks up approved product facts from the PostgreSQL product catalogue."""
 
     def __init__(self, database_url: str | None = None) -> None:
         self.database_url = database_url or get_app_settings().database_url
@@ -84,14 +84,14 @@ class PostgresProductLookupClient:
             return _missing_product_context(None)
 
         rows = self._list_products()
-        best = _best_match(query, rows)
+        best = _best_catalog_match(query, rows)
         if not best:
             return _missing_product_context(
-                _extract_requested_product(query),
+                _extract_requested_product_name(query),
                 suggestions=self.suggest_products(query, limit=3, rows=rows),
             )
 
-        return _row_to_context(best)
+        return _catalog_row_to_product_context(best)
 
     def search_products(
         self,
@@ -103,15 +103,18 @@ class PostgresProductLookupClient:
         """returns persisted active products matching customer criteria."""
         query = (query or "").strip()
         rows = rows if rows is not None else self._list_products()
-        matches = _ranked_matches(
+        matches = _rank_catalog_matches_by_relevance(
             query,
             rows,
             for_suggestions=True,
             relaxed_min_overlap=2,
         )
-        if not matches and _is_catalog_listing_request(query):
+        if not matches and _asks_for_catalog_listing(query):
             matches = rows
-        return [_row_to_option(row, confidence=0.86) for row in matches[:limit]]
+        return [
+            _catalog_row_to_product_option(row, confidence=0.86)
+            for row in matches[:limit]
+        ]
 
     def suggest_products(
         self,
@@ -123,8 +126,8 @@ class PostgresProductLookupClient:
         """returns nearest persisted alternatives without treating them as exact."""
         rows = rows if rows is not None else self._list_products()
         return [
-            _row_to_option(row, confidence=0.62)
-            for row in _ranked_matches(
+            _catalog_row_to_product_option(row, confidence=0.62)
+            for row in _rank_catalog_matches_by_relevance(
                 query,
                 rows,
                 for_suggestions=True,
@@ -133,6 +136,7 @@ class PostgresProductLookupClient:
         ]
 
     def _list_products(self) -> list[dict[str, Any]]:
+        """loads active catalogue rows that are approved for customer-facing drafts."""
         psycopg_module, row_factory = _postgres_connection_parts()
 
         with psycopg_module.connect(
@@ -178,12 +182,14 @@ def build_product_lookup_client() -> PostgresProductLookupClient | None:
 
 
 def _decimal_to_float(value: Any) -> Any:
+    """converts PostgreSQL Decimal prices into JSON-safe numeric values."""
     if isinstance(value, Decimal):
         return float(value)
     return value
 
 
-def _row_to_context(row: dict[str, Any]) -> dict[str, Any]:
+def _catalog_row_to_product_context(row: dict[str, Any]) -> dict[str, Any]:
+    """maps one persisted catalogue row into the drafting product context shape."""
     price = row.get("unit_price")
     price = _decimal_to_float(price)
     source_url = _effective_source_url(row)
@@ -208,7 +214,11 @@ def _row_to_context(row: dict[str, Any]) -> dict[str, Any]:
         "notes": notes,
     }
 
-def _row_to_option(row: dict[str, Any], *, confidence: float) -> dict[str, Any]:
+
+def _catalog_row_to_product_option(
+    row: dict[str, Any], *, confidence: float
+) -> dict[str, Any]:
+    """maps a catalogue row into a suggested/listed product option."""
     return {
         "product": row.get("name"),
         "sku": row.get("sku"),
@@ -225,12 +235,16 @@ def _row_to_option(row: dict[str, Any], *, confidence: float) -> dict[str, Any]:
 
 
 def _effective_source_url(row: dict[str, Any]) -> str | None:
+    """recovers product URLs from current rows and older description-only imports."""
     source_url = str(row.get("source_url") or "").strip()
     if source_url and source_url != "https://safetyware.com/products/":
         return source_url
 
     description = str(row.get("description") or "")
-    match = re.search(r"Source:\s*(https://safetyware\.com/product/[^.\s]+/)", description)
+    match = re.search(
+        r"Source:\s*(https://safetyware\.com/product/[^.\s]+/)",
+        description,
+    )
     if match:
         return match.group(1)
     return source_url or None
@@ -241,6 +255,7 @@ def _missing_product_context(
     *,
     suggestions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    """returns a safe low-confidence context when no approved catalogue match exists."""
     return {
         "product": product,
         "source": "postgres",
@@ -250,18 +265,20 @@ def _missing_product_context(
     }
 
 
-def _best_match(query: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
-    ranked = _ranked_matches(query, rows, for_suggestions=False)
+def _best_catalog_match(query: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """selects the strongest approved catalogue row for exact product lookup."""
+    ranked = _rank_catalog_matches_by_relevance(query, rows, for_suggestions=False)
     return ranked[0] if ranked else None
 
 
-def _ranked_matches(
+def _rank_catalog_matches_by_relevance(
     query: str,
     rows: list[dict[str, Any]],
     *,
     for_suggestions: bool,
     relaxed_min_overlap: int = 1,
 ) -> list[dict[str, Any]]:
+    """scores catalogue rows by SKU/name hits and meaningful product-token overlap."""
     query_lower = query.lower()
     query_tokens = _meaningful_product_tokens(query)
     scored: list[tuple[int, str, dict[str, Any]]] = []
@@ -310,7 +327,8 @@ def _ranked_matches(
     return [item[2] for item in scored]
 
 
-def _tokens(value: str) -> set[str]:
+def _search_tokens(value: str) -> set[str]:
+    """tokenizes customer/catalogue text and includes simple singular variants."""
     tokens = set()
     for token in re.findall(r"[a-z0-9]+", value.lower()):
         if len(token) < 2:
@@ -322,10 +340,10 @@ def _tokens(value: str) -> set[str]:
 
 
 def _meaningful_product_tokens(value: str) -> set[str]:
-    """removes inquiry wording so catalog matching depends on product terms."""
+    """removes inquiry wording so catalogue matching depends on product terms."""
     return {
         token
-        for token in _tokens(value)
+        for token in _search_tokens(value)
         if token not in _PRODUCT_STOP_WORDS and not token.isdigit()
     }
 
@@ -348,7 +366,8 @@ def _has_sufficient_match_signal(
     return False
 
 
-def _extract_requested_product(query: str) -> str | None:
+def _extract_requested_product_name(query: str) -> str | None:
+    """best-effort extraction for explaining which product could not be matched."""
     lowered = query.lower()
     patterns = (
         r"\b\d{1,6}(?:\.\d+)?\s*(?:units?|pcs?|pieces?|boxes?|cartons?|pairs?|sets?)\s+of\s+(?P<product>[a-z0-9][a-z0-9\s-]{2,80}?)(?:\?|\.|,| and | with | available| stock| price| pricing| quote| cost|$)",
@@ -358,12 +377,13 @@ def _extract_requested_product(query: str) -> str | None:
     for pattern in patterns:
         match = re.search(pattern, lowered, re.IGNORECASE)
         if match:
-            product = _clean_requested_product(match.group("product"))
+            product = _clean_requested_product_name(match.group("product"))
             return product.title() if product else None
     return None
 
 
-def _clean_requested_product(value: str) -> str:
+def _clean_requested_product_name(value: str) -> str:
+    """removes quantity/request wording around an unmatched product phrase."""
     product = " ".join(value.split()).strip(" -")
     product = re.sub(r"^(?:the|a|an)\s+", "", product, flags=re.IGNORECASE)
     product = re.sub(
@@ -382,7 +402,8 @@ def _clean_requested_product(value: str) -> str:
     return product.strip(" -")
 
 
-def _is_catalog_listing_request(query: str) -> bool:
+def _asks_for_catalog_listing(query: str) -> bool:
+    """detects broad browse/list intents where returning active products is useful."""
     lower = query.lower()
     return any(
         phrase in lower
@@ -395,6 +416,8 @@ def _is_catalog_listing_request(query: str) -> bool:
             "what products",
             "which products",
             "browse products",
+            "browse catalog",
+            "browse catalogue",
             "available products",
             "products in",
         )

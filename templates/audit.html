@@ -29,15 +29,15 @@
                         {% if action in ['approved','rejected','accepted','edited'] %}
                         {% set shown.value = true %}
                         {% if action == 'approved' %}
-                            {% set color = "var(--success, #28a745)" %}
+                            {% set colour = "var(--success, #28a745)" %}
                         {% elif action == 'rejected' %}
-                            {% set color = "var(--danger, #dc3545)" %}
+                            {% set colour = "var(--danger, #dc3545)" %}
                         {% elif action == 'edited' %}
-                            {% set color = "var(--primary, #007bff)" %}
+                            {% set colour = "var(--primary, #007bff)" %}
                         {% else %}
-                            {% set color = "var(--text-main, #333)" %}
+                            {% set colour = "var(--text-main, #333)" %}
                         {% endif %}
-                        <div class="audit-entry{% if default_collapsed %} collapsed{% endif %}" style="--audit-accent: {{ color }};">
+                        <div class="audit-entry{% if default_collapsed %} collapsed{% endif %}" style="--audit-accent: {{ colour }};">
                             <div class="audit-header">
                                 <div class="audit-header-copy">
                                     <div class="audit-title">{{ a.action|title }} — {{ a.draft_id }}</div>

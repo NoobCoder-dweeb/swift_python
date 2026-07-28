@@ -420,7 +420,7 @@ def _evaluate_case(
     draft: str,
     workflow: SalesWorkflowResult,
 ) -> list[str]:
-    """turns expected behavior into concrete regression signals."""
+    """turns expected behaviour into concrete regression signals."""
     issues: list[str] = []
     draft_lower = draft.lower()
 

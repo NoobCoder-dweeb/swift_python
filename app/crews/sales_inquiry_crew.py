@@ -489,7 +489,7 @@ def _run_external_agent_draft(
 
     The payload gives the external agent the cleaned email, extracted inquiry,
     approved product context, reviewer feedback, and non-negotiable drafting
-    constraints. The returned draft is never trusted blindly: it is normalized
+    constraints. The returned draft is never trusted blindly: it is normalised
     into a _CrewDraftResult and later checked by the local validator.
     """
     settings = get_app_settings()
@@ -511,11 +511,11 @@ def _run_external_agent_draft(
                 "invented product suggestions",
                 "invented stock",
                 "invented lead times",
-                "unpersisted catalog rows",
+                "unpersisted catalogue rows",
                 "credential disclosure",
                 "customer personal data",
                 "customer data extraction",
-                "unauthorized access guidance",
+                "unauthorised access guidance",
                 "security bypass guidance",
                 "subject line in response body",
             ],
@@ -579,9 +579,9 @@ def _finalize_token_usage(
     ai_draft: str,
 ) -> dict[str, Any]:
     """ensures every workflow exposes token usage for evaluation reports."""
-    normalized = _normalize_token_usage(token_usage)
-    if normalized.get("total_tokens", 0) > 0:
-        return normalized
+    normalised = _normalize_token_usage(token_usage)
+    if normalised.get("total_tokens", 0) > 0:
+        return normalised
 
     input_text = "\n".join(
         [
@@ -621,16 +621,16 @@ def _token_usage_from_object(item: Any) -> dict[str, Any]:
         for key in ("usage", "token_usage", "usage_metrics", "tokens"):
             nested = item.get(key)
             if isinstance(nested, dict):
-                normalized = _normalize_token_usage(nested)
-                if normalized.get("total_tokens", 0) > 0:
-                    return normalized
+                normalised = _normalize_token_usage(nested)
+                if normalised.get("total_tokens", 0) > 0:
+                    return normalised
         return {}
 
     for attribute in ("token_usage", "usage", "usage_metrics", "tokens"):
         value = getattr(item, attribute, None)
-        normalized = _normalize_token_usage(value)
-        if normalized.get("total_tokens", 0) > 0:
-            return normalized
+        normalised = _normalize_token_usage(value)
+        if normalised.get("total_tokens", 0) > 0:
+            return normalised
     return {}
 
 
@@ -693,14 +693,14 @@ def _merge_token_usage(*usages: dict[str, Any]) -> dict[str, Any]:
     found = False
     sources: list[str] = []
     for usage in usages:
-        normalized = _normalize_token_usage(usage)
-        if not normalized:
+        normalised = _normalize_token_usage(usage)
+        if not normalised:
             continue
         found = True
-        merged["input_tokens"] += int(normalized.get("input_tokens", 0) or 0)
-        merged["output_tokens"] += int(normalized.get("output_tokens", 0) or 0)
-        merged["total_tokens"] += int(normalized.get("total_tokens", 0) or 0)
-        source = str(normalized.get("token_count_source") or "provider_usage")
+        merged["input_tokens"] += int(normalised.get("input_tokens", 0) or 0)
+        merged["output_tokens"] += int(normalised.get("output_tokens", 0) or 0)
+        merged["total_tokens"] += int(normalised.get("total_tokens", 0) or 0)
+        source = str(normalised.get("token_count_source") or "provider_usage")
         sources.append(source)
     if not found:
         return {}
@@ -771,10 +771,10 @@ def _lookup_product_context_for_inquiry(
     """
     Select the product lookup tool that matches the classified inquiry.
 
-    Listing requests need a catalog search so the AI can mention multiple
+    Listing requests need a catalogue search so the AI can mention multiple
     persisted products. Product-specific pricing or availability requests use
     the single-product lookup path, keeping the draft grounded in the best
-    approved match instead of letting the model invent catalog facts.
+    approved match instead of letting the model invent catalogue facts.
     """
     if inquiry.inquiry_type == "listing":
         return processor.lookup_product_list_context(product_query)
@@ -858,11 +858,11 @@ def _product_reference_urls(product_context: ProductContext) -> list[str]:
 
 def _add_product_reference_url(references: list[str], product_context: Any) -> None:
     """
-    Add one product reference URL from a catalog-like object.
+    Add one product reference URL from a catalogue-like object.
 
     AI-facing product context can come from ProductContext or ProductOption
     instances. This helper reads their shared product, sku, and source_url
-    fields and falls back to a configured product-search URL when the catalog
+    fields and falls back to a configured product-search URL when the catalogue
     row does not include a direct source link.
     """
     product = str(getattr(product_context, "product", "") or "").strip()
@@ -875,7 +875,7 @@ def _add_product_reference_url(references: list[str], product_context: Any) -> N
 
 def _fallback_product_reference_url(query: str) -> str:
     """
-    Build a deterministic product reference when catalog data lacks a URL.
+    Build a deterministic product reference when catalogue data lacks a URL.
 
     The generated URL uses the configured product reference base and the product
     name or SKU. This keeps AI-generated replies anchored to a navigable product

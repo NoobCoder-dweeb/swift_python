@@ -62,6 +62,7 @@ async def test_email_ingestion_to_review_approval_records_audit(monkeypatch):
             assert approval_payload["status"] == "approved"
             assert approval_payload["audit"]["action"] == "approved"
             assert approval_payload["audit"]["approver"] == "John Doe"
+            assert approval_payload["audit"]["approver_username"] == "john"
 
             refreshed_queue = await client.get("/api/drafts/")
             assert refreshed_queue.status_code == 200
@@ -70,7 +71,9 @@ async def test_email_ingestion_to_review_approval_records_audit(monkeypatch):
             audit_response = await client.get("/api/audits/")
             assert audit_response.status_code == 200
             assert any(
-                item["draft_id"] == draft_id and item["action"] == "approved"
+                item["draft_id"] == draft_id
+                and item["action"] == "approved"
+                and item["approver_username"] == "john"
                 for item in audit_response.json()
             )
 
