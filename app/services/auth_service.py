@@ -10,8 +10,10 @@ from app.repositories.state_repository import UserRow, get_state_repository
 
 
 SESSION_USER_KEY = "swift_sales_officer"
-ALLOWED_LEVELS = {"sales person", "admin", "sales manager"}
+ALLOWED_LEVELS = {"sales officer", "admin", "sales manager"}
+LEGACY_LEVEL_ALIASES = {"sales person": "sales officer"}
 FULL_PAGE_ACCESS_ROLES = {"admin", "administrator", "sales manager"}
+ADMIN_ROLES = {"admin", "administrator"}
 
 
 @dataclass(frozen=True)
@@ -34,11 +36,17 @@ class SalesOfficerAccount:
         """distinguishes managers/admins from regular sales reviewers."""
         return role_can_view_all_pages(self.level)
 
+    @property
+    def is_admin(self) -> bool:
+        """returns true for accounts allowed to change security controls."""
+        return role_is_admin(self.level)
+
     def public_dict(self) -> dict[str, str | bool]:
         """returns fields safe for templates and session display."""
         payload = asdict(self)
         payload["role"] = self.level.title()
         payload["can_view_all_pages"] = self.can_view_all_pages
+        payload["is_admin"] = self.is_admin
         return payload
 
 
@@ -59,7 +67,7 @@ DEFAULT_USER_SEEDS: tuple[DefaultUserSeed, ...] = (
         "john",
         "john@project-swift.local",
         "swift123",
-        "sales person",
+        "sales officer",
         "John Doe",
         "JD",
     ),
@@ -67,7 +75,7 @@ DEFAULT_USER_SEEDS: tuple[DefaultUserSeed, ...] = (
         "aisha",
         "aisha@project-swift.local",
         "swift123",
-        "sales person",
+        "sales officer",
         "Aisha Sales",
         "AS",
     ),
@@ -75,7 +83,7 @@ DEFAULT_USER_SEEDS: tuple[DefaultUserSeed, ...] = (
         "mira",
         "mira@project-swift.local",
         "swift123",
-        "sales person",
+        "sales officer",
         "Mira Tan",
         "MT",
     ),
@@ -123,12 +131,18 @@ def verify_password(password: str, hashed_password: str) -> bool:
 def normalize_level(level: str | None) -> str:
     """keeps role gates tied to the supported database level values."""
     normalized = (level or "").strip().lower()
-    return normalized if normalized in ALLOWED_LEVELS else "sales person"
+    normalized = LEGACY_LEVEL_ALIASES.get(normalized, normalized)
+    return normalized if normalized in ALLOWED_LEVELS else "sales officer"
 
 
 def role_can_view_all_pages(role: str) -> bool:
     """returns true for roles allowed to view every UI page."""
     return (role or "").strip().lower() in FULL_PAGE_ACCESS_ROLES
+
+
+def role_is_admin(role: str) -> bool:
+    """returns true for roles allowed to administer security settings."""
+    return (role or "").strip().lower() in ADMIN_ROLES
 
 
 def list_accounts() -> list[dict[str, str | bool]]:

@@ -39,7 +39,11 @@ async def get_draft(draft_id: str):
 async def approve_draft(draft_id: str, request: Request):
     """records the sales officer decision and removes the draft from pending."""
     officer = require_sales_officer(request)
-    return draft_service.approve_draft(draft_id, approver=officer.name)
+    return draft_service.approve_draft(
+        draft_id,
+        approver=officer.name,
+        approver_username=officer.username,
+    )
 
 
 @router.patch("/{draft_id}", response_model=DraftResponse)
@@ -50,6 +54,7 @@ async def update_draft(draft_id: str, payload: DraftUpdatePayload, request: Requ
         draft_id,
         payload.ai_draft,
         approver=officer.name,
+        approver_username=officer.username,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Draft not found")
@@ -74,4 +79,5 @@ async def reject_draft(draft_id: str, request: Request, reason: str = ""):
         draft_id,
         rejection_reason,
         approver=officer.name,
+        approver_username=officer.username,
     )

@@ -542,8 +542,8 @@ def _thread_message_from_normalised(row: dict[str, Any]) -> dict[str, Any]:
     action = str(row.get('action') or kind)
     return {
         'message_id': row.get('message_id'),
-        'audit_id': row.get('audit_id'),
-        'draft_id': row.get('draft_id'),
+        'source_type': row.get('source_type'),
+        'source_id': row.get('source_id'),
         'version_id': row.get('version_id'),
         'kind': kind,
         'title': (
@@ -564,6 +564,7 @@ def _thread_message_from_normalised(row: dict[str, Any]) -> dict[str, Any]:
         'action': row.get('action'),
         'action_label': action.replace('_', ' ').title(),
         'approver': row.get('approver') or ('Customer' if kind == 'customer' else 'Sales Officer'),
+        'approver_username': row.get('approver_username'),
         'emailed_to': row.get('emailed_to'),
         'sent': bool(row.get('sent')),
         'customer_inquiry': str(row.get('body') or '') if kind == 'customer' else '',
@@ -577,8 +578,13 @@ def _is_current_draft_message(draft: Draft, message: dict[str, Any]) -> bool:
     """prevents the current pending draft email from appearing twice."""
     return (
         message.get('kind') == 'customer'
-        and str(message.get('draft_id') or '') == draft.draft_id
         and str(message.get('body') or '').strip() == draft.customer_inquiry.strip()
+        and _thread_subject_key(str(message.get('subject') or '')) == _thread_subject_key(
+            draft.subject
+        )
+        and _normalize_email_address(str(message.get('sender') or '')) == _normalize_email_address(
+            draft.sender
+        )
     )
 
 
@@ -807,6 +813,7 @@ def _thread_message(
         'action': audit.get('action'),
         'action_label': str(audit.get('action') or kind).replace('_', ' ').title(),
         'approver': audit.get('approver') or ('Customer' if kind == 'customer' else 'Sales Officer'),
+        'approver_username': audit.get('approver_username'),
         'emailed_to': audit.get('emailed_to'),
         'sent': bool(audit.get('sent')),
         'customer_inquiry': body if kind == 'customer' else '',
@@ -1032,7 +1039,12 @@ def get_audits() -> list[dict]:
     return enriched
 
 
-def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -> dict | None:
+def approve_draft(
+    draft_id: str,
+    approver: str,
+    emailed_to: str | None = None,
+    approver_username: str | None = None,
+) -> dict | None:
     """records approval once and removes the draft from the active queue."""
     draft_row = get_state_repository().get_draft(draft_id)
     draft = _row_to_draft(draft_row) if draft_row else None
@@ -1060,6 +1072,7 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
             'sender': draft.sender,
             'subject': draft.subject,
             'approver': approver,
+            'approver_username': approver_username,
             'action': 'approval_failed',
             'emailed_to': recipient,
             'sent': False,
@@ -1078,6 +1091,7 @@ def approve_draft(draft_id: str, approver: str, emailed_to: str | None = None) -
         'sender': draft.sender,
         'subject': draft.subject,
         'approver': approver,
+        'approver_username': approver_username,
         'action': 'approved',
         'timestamp': datetime.now().isoformat(),
         'emailed_to': recipient,
@@ -1135,7 +1149,12 @@ def _workflow_inquiry_type(workflow: dict[str, Any] | None) -> str | None:
     return str(inquiry_type) if inquiry_type else None
 
 
-def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason: str = '') -> dict | None:
+def reject_and_regenerate_draft(
+    draft_id: str,
+    requester: str,
+    rejection_reason: str = '',
+    requester_username: str | None = None,
+) -> dict | None:
     """
     records rejection feedback and keeps the draft available for another review.
     """
@@ -1160,6 +1179,7 @@ def reject_and_regenerate_draft(draft_id: str, requester: str, rejection_reason:
         'sender': draft.sender,
         'subject': draft.subject,
         'approver': requester,
+        'approver_username': requester_username,
         'action': 'rejected',
         'timestamp': datetime.now().isoformat(),
         'emailed_to': None,

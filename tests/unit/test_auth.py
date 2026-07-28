@@ -3,7 +3,7 @@ import httpx
 from app.repositories.state_repository import MemoryStateRepository
 from app.main import app
 from app.services import auth_service
-from app.services.auth_service import hash_password, verify_password
+from app.services.auth_service import hash_password, normalize_level, verify_password
 
 
 def test_memory_user_repository_stores_hashed_login_users():
@@ -14,7 +14,7 @@ def test_memory_user_repository_stores_hashed_login_users():
             "username": "Casey",
             "email": "casey@example.com",
             "hashed_password": hash_password("safe-password"),
-            "level": "sales person",
+            "level": "sales officer",
         }
     )
 
@@ -25,7 +25,12 @@ def test_memory_user_repository_stores_hashed_login_users():
     loaded = repository.get_user_by_username("CASEY")
     assert loaded is not None
     assert loaded["email"] == "casey@example.com"
-    assert loaded["level"] == "sales person"
+    assert loaded["level"] == "sales officer"
+
+
+def test_legacy_sales_person_role_normalizes_to_sales_officer():
+    """old stored role names should keep working after the role rename."""
+    assert normalize_level("sales person") == "sales officer"
 
 
 async def test_login_queries_database_user_rows(monkeypatch):
@@ -36,7 +41,7 @@ async def test_login_queries_database_user_rows(monkeypatch):
             "username": "db.sales",
             "email": "db.sales@example.com",
             "hashed_password": hash_password("database-password"),
-            "level": "sales person",
+            "level": "sales officer",
         }
     )
     monkeypatch.setattr(auth_service, "get_state_repository", lambda: repository)

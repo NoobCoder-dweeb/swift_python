@@ -203,6 +203,22 @@
     margin-top: 1.5rem;
 }
 
+.guardrail-list {
+    display: grid;
+    gap: 1rem;
+}
+
+.guardrail-card {
+    border: 1px solid var(--border);
+    background: var(--surface-raised);
+    border-radius: var(--radius-sm);
+    padding: 1rem;
+}
+
+.guardrail-card-header {
+    margin-bottom: 1rem;
+}
+
 @media (max-width: 900px) {
     .settings-layout {
         grid-template-columns: 1fr;

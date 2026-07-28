@@ -45,6 +45,19 @@ async def test_update_pending_draft_records_edited_audit():
         if item.get("draft_id") == draft.draft_id and item.get("action") == "edited"
     )
     assert audit["approver"] == "John Doe"
+    assert audit["approver_username"] == "john"
+
+    repository = get_state_repository()
+    thread = repository.find_thread(sender=draft.sender, subject=draft.subject)
+    assert thread is not None
+    messages = repository.list_thread_messages(thread["thread_id"])
+    officer_message = next(
+        item
+        for item in messages
+        if item.get("source_id") == audit["audit_id"] and item.get("kind") == "officer"
+    )
+    assert officer_message["approver"] == "John Doe"
+    assert officer_message["approver_username"] == "john"
 
 
 async def test_reject_regenerates_from_stored_data_with_reviewer_feedback():

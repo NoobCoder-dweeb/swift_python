@@ -23,11 +23,15 @@ from app.services.auth_service import (
     list_accounts,
     open_session,
     role_can_view_all_pages,
+    role_is_admin,
 )
 from app.services.settings_service import (
+    get_guardrail_settings,
     get_prompt_settings,
     get_user_theme,
+    reset_guardrail_settings,
     reset_prompt_settings,
+    save_guardrail_settings,
     save_prompt_settings,
     save_user_theme,
 )
@@ -148,6 +152,17 @@ def _require_all_pages_access(request: Request) -> None:
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="This page is available to admins and sales managers only.",
+    )
+
+
+def _require_admin_access(request: Request) -> None:
+    """blocks security configuration from non-admin reviewer accounts."""
+    account = current_account(request)
+    if account and role_is_admin(account.role):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Guardrail configuration is available to admins only.",
     )
 
 
@@ -361,18 +376,26 @@ if settings.ui_enabled:
 
     @app.get("/settings", name="settings_page")
     async def settings_page(request: Request):
-        """renders user theme settings and manager/admin prompt controls."""
+        """renders user theme, prompt, and admin-only guardrail settings."""
         redirect = _login_redirect(request)
         if redirect:
             return redirect
         account = current_account(request)
+        can_edit_prompts = account.can_view_all_pages if account else False
+        can_edit_guardrails = role_is_admin(account.role) if account else False
         return templates.TemplateResponse(
             request=request,
             name="settings.html",
             context=_template_context(
                 request,
                 prompt_settings=get_prompt_settings(),
-                can_edit_prompts=account.can_view_all_pages if account else False,
+                guardrail_settings=(
+                    get_guardrail_settings()
+                    if can_edit_guardrails
+                    else {"rules": [], "has_overrides": False}
+                ),
+                can_edit_prompts=can_edit_prompts,
+                can_edit_guardrails=can_edit_guardrails,
             ),
         )
 
@@ -410,6 +433,28 @@ if settings.ui_enabled:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
         _require_all_pages_access(request)
         return reset_prompt_settings()
+
+    @app.post("/api/settings/guardrails", name="save_guardrail_settings_route")
+    async def save_guardrail_settings_route(request: Request):
+        """stores shared guardrail regex rule overrides."""
+        redirect = _login_redirect(request)
+        if redirect:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        _require_admin_access(request)
+        payload = await request.json()
+        try:
+            return save_guardrail_settings(payload.get("rules", []))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/api/settings/guardrails/reset", name="reset_guardrail_settings_route")
+    async def reset_guardrail_settings_route(request: Request):
+        """resets shared guardrail rules to code defaults."""
+        redirect = _login_redirect(request)
+        if redirect:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED)
+        _require_admin_access(request)
+        return reset_guardrail_settings()
 
 
 def _wait_for_sse_events(timeout: float = 1.0) -> list[dict]:

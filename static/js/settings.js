@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initSettingsPanels();
     initThemeSettings();
     initPromptSettings();
+    initGuardrailSettings();
 });
 
 function initSettingsPanels() {
@@ -52,6 +53,49 @@ function setActiveThemeOption(theme) {
         option.classList.toggle('active', active);
         option.setAttribute('aria-pressed', active ? 'true' : 'false');
     });
+}
+
+function initGuardrailSettings() {
+    const form = document.getElementById('guardrailsForm');
+    const resetBtn = document.getElementById('resetGuardrailsBtn');
+    if (!form || form.dataset.canEdit !== 'true') return;
+
+    form.addEventListener('submit', async event => {
+        event.preventDefault();
+        showGuardrailAlert('Saving guardrail settings...', 'info');
+        try {
+            const response = await fetch('/api/settings/guardrails', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({rules: collectGuardrailRules()}),
+            });
+            if (!response.ok) throw new Error(await responseText(response));
+            setGuardrailStatus('Customised', true);
+            showGuardrailAlert('Guardrail settings saved.', 'success');
+        } catch (error) {
+            showGuardrailAlert(error.message || 'Guardrail settings could not be saved.', 'danger');
+        }
+    });
+
+    if (resetBtn) {
+        resetBtn.addEventListener('click', async () => {
+            if (!window.confirm('Reset guardrail rules to code defaults?')) return;
+            showGuardrailAlert('Resetting guardrail settings...', 'info');
+            try {
+                const response = await fetch('/api/settings/guardrails/reset', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                });
+                if (!response.ok) throw new Error(await responseText(response));
+                const payload = await response.json();
+                fillGuardrailRules(payload.rules || []);
+                setGuardrailStatus('Default', false);
+                showGuardrailAlert('Guardrail settings reset to code defaults.', 'success');
+            } catch (error) {
+                showGuardrailAlert(error.message || 'Guardrail settings could not be reset.', 'danger');
+            }
+        });
+    }
 }
 
 function initPromptSettings() {
@@ -134,8 +178,40 @@ function fillPromptGroups(groups) {
     });
 }
 
+function collectGuardrailRules() {
+    return Array.from(document.querySelectorAll('.guardrail-card')).map(card => ({
+        flag: card.querySelector('[name="flag"]')?.value || '',
+        patterns_text: card.querySelector('[name="patterns_text"]')?.value || '',
+    }));
+}
+
+function fillGuardrailRules(rules) {
+    document.querySelectorAll('.guardrail-card').forEach((card, index) => {
+        const rule = rules[index];
+        if (!rule) return;
+        const flag = card.querySelector('[name="flag"]');
+        const patterns = card.querySelector('[name="patterns_text"]');
+        if (flag) flag.value = rule.flag || '';
+        if (patterns) patterns.value = Array.isArray(rule.patterns)
+            ? rule.patterns.join('\n')
+            : '';
+    });
+}
+
 function showPromptAlert(message, tone) {
     const slot = document.getElementById('promptsAlert');
+    if (!slot) return;
+    const icon = tone === 'success' ? 'ph-check-circle' : tone === 'danger' ? 'ph-warning' : 'ph-info';
+    slot.innerHTML = `
+        <div class="alert alert-${escapeHtml(tone)}">
+            <i class="ph ${icon}"></i>
+            <div>${escapeHtml(message)}</div>
+        </div>
+    `;
+}
+
+function showGuardrailAlert(message, tone) {
+    const slot = document.getElementById('guardrailsAlert');
     if (!slot) return;
     const icon = tone === 'success' ? 'ph-check-circle' : tone === 'danger' ? 'ph-warning' : 'ph-info';
     slot.innerHTML = `
@@ -152,6 +228,13 @@ function setStatus(element, text) {
 
 function setPromptStatus(text, customised) {
     const status = document.getElementById('promptStatus');
+    if (!status) return;
+    status.textContent = text;
+    status.classList.toggle('settings-status-warning', customised);
+}
+
+function setGuardrailStatus(text, customised) {
+    const status = document.getElementById('guardrailStatus');
     if (!status) return;
     status.textContent = text;
     status.classList.toggle('settings-status-warning', customised);

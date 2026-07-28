@@ -144,8 +144,8 @@ class MultiAgentLLMConfig:
         """records which model handled each role for observability."""
         return {
             "supervisor": self.supervisor.model,
-            "sales": self.sales.model,
-            "draft": self.drafting.model,
+            "sales_processing": self.sales.model,
+            "email_drafting": self.drafting.model,
         }
 
 
@@ -1010,13 +1010,16 @@ def create_local_llm(config: LocalLLMConfig | None = None):
 
     config = config or LocalLLMConfig.from_env()
     model = _normalize_model_name(config.model, config.provider)
-    return llm_class(
-        model=model,
-        provider=config.provider,
-        base_url=config.base_url,
-        temperature=config.temperature,
-        timeout=config.timeout,
-    )
+    kwargs = {
+        "model": model,
+        "provider": config.provider,
+        "base_url": config.base_url,
+        "temperature": config.temperature,
+        "timeout": config.timeout,
+    }
+    if config.provider in {"ollama", "ollama_chat"}:
+        kwargs["api_base"] = config.base_url
+    return llm_class(**kwargs)
 
 
 def _normalize_model_name(model: str, provider: str) -> str:

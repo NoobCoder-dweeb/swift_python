@@ -377,13 +377,55 @@ class PostgresStateRepository:
             )
             conn.execute(
                 """
+                CREATE TABLE IF NOT EXISTS swift_users (
+                    username TEXT PRIMARY KEY,
+                    email TEXT NOT NULL UNIQUE,
+                    hashed_password TEXT NOT NULL,
+                    level TEXT NOT NULL CHECK (
+                        level IN ('sales officer', 'admin', 'sales manager')
+                    ),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_users
+                    DROP CONSTRAINT IF EXISTS swift_users_level_check
+                """
+            )
+            conn.execute(
+                """
+                UPDATE swift_users
+                SET level = 'sales officer'
+                WHERE level = 'sales person'
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_users
+                    ADD CONSTRAINT swift_users_level_check
+                    CHECK (level IN ('sales officer', 'admin', 'sales manager'))
+                """
+            )
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS swift_audits (
                     audit_id TEXT PRIMARY KEY,
                     draft_id TEXT,
                     action TEXT,
                     timestamp TEXT,
+                    approver_username TEXT REFERENCES swift_users(username),
                     payload JSONB NOT NULL
                 )
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_audits
+                    ADD COLUMN IF NOT EXISTS approver_username TEXT
+                    REFERENCES swift_users(username)
                 """
             )
             conn.execute(
@@ -450,20 +492,6 @@ class PostgresStateRepository:
             )
             conn.execute(
                 """
-                CREATE TABLE IF NOT EXISTS swift_users (
-                    username TEXT PRIMARY KEY,
-                    email TEXT NOT NULL UNIQUE,
-                    hashed_password TEXT NOT NULL,
-                    level TEXT NOT NULL CHECK (
-                        level IN ('sales person', 'admin', 'sales manager')
-                    ),
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-                )
-                """
-            )
-            conn.execute(
-                """
                 CREATE TABLE IF NOT EXISTS swift_threads (
                     thread_id TEXT PRIMARY KEY,
                     sender TEXT NOT NULL,
@@ -488,9 +516,8 @@ class PostgresStateRepository:
                     message_id TEXT PRIMARY KEY,
                     thread_id TEXT NOT NULL REFERENCES swift_threads(thread_id)
                         ON DELETE CASCADE,
-                    draft_id TEXT,
-                    email_id TEXT,
-                    audit_id TEXT,
+                    source_type TEXT NOT NULL CHECK (source_type IN ('email', 'audit')),
+                    source_id TEXT NOT NULL,
                     version_id TEXT,
                     kind TEXT NOT NULL CHECK (kind IN ('customer', 'officer')),
                     sender TEXT NOT NULL,
@@ -499,11 +526,62 @@ class PostgresStateRepository:
                     timestamp TEXT NOT NULL,
                     action TEXT,
                     approver TEXT,
+                    approver_username TEXT REFERENCES swift_users(username),
                     emailed_to TEXT,
                     sent BOOLEAN NOT NULL DEFAULT FALSE,
                     review_comment TEXT,
                     payload JSONB NOT NULL
                 )
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_thread_messages
+                    ADD COLUMN IF NOT EXISTS source_type TEXT
+                    CHECK (source_type IN ('email', 'audit'))
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_thread_messages
+                    ADD COLUMN IF NOT EXISTS source_id TEXT
+                """
+            )
+            conn.execute(
+                """
+                DO $$
+                BEGIN
+                    IF EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_name = 'swift_thread_messages'
+                            AND column_name = 'email_id'
+                    )
+                    OR EXISTS (
+                        SELECT 1
+                        FROM information_schema.columns
+                        WHERE table_name = 'swift_thread_messages'
+                            AND column_name = 'audit_id'
+                    ) THEN
+                        UPDATE swift_thread_messages
+                        SET
+                            source_type = CASE
+                                WHEN source_type IS NOT NULL THEN source_type
+                                WHEN email_id IS NOT NULL THEN 'email'
+                                WHEN audit_id IS NOT NULL THEN 'audit'
+                                ELSE source_type
+                            END,
+                            source_id = COALESCE(source_id, email_id, audit_id)
+                        WHERE source_type IS NULL OR source_id IS NULL;
+                    END IF;
+                END $$;
+                """
+            )
+            conn.execute(
+                """
+                ALTER TABLE swift_thread_messages
+                    ADD COLUMN IF NOT EXISTS approver_username TEXT
+                    REFERENCES swift_users(username)
                 """
             )
             conn.execute(
@@ -640,12 +718,15 @@ class PostgresStateRepository:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO swift_audits (audit_id, draft_id, action, timestamp, payload)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO swift_audits (
+                    audit_id, draft_id, action, timestamp, approver_username, payload
+                )
+                VALUES (%s, %s, %s, %s, %s, %s)
                 ON CONFLICT (audit_id) DO UPDATE SET
                     draft_id = EXCLUDED.draft_id,
                     action = EXCLUDED.action,
                     timestamp = EXCLUDED.timestamp,
+                    approver_username = EXCLUDED.approver_username,
                     payload = EXCLUDED.payload
                 """,
                 (
@@ -653,6 +734,7 @@ class PostgresStateRepository:
                     row.get("draft_id") or row.get("target_id"),
                     row.get("action"),
                     row.get("timestamp") or row.get("created_at"),
+                    row.get("approver_username"),
                     self._json(row),
                 ),
             )
@@ -842,20 +924,20 @@ class PostgresStateRepository:
             conn.execute(
                 """
                 INSERT INTO swift_thread_messages (
-                    message_id, thread_id, draft_id, email_id, audit_id, version_id,
+                    message_id, thread_id, source_type, source_id, version_id,
                     kind, sender, subject, body, timestamp, action, approver,
-                    emailed_to, sent, review_comment, payload
+                    approver_username, emailed_to, sent, review_comment, payload
                 )
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (message_id) DO UPDATE SET
-                    draft_id = EXCLUDED.draft_id,
-                    email_id = EXCLUDED.email_id,
-                    audit_id = EXCLUDED.audit_id,
+                    source_type = EXCLUDED.source_type,
+                    source_id = EXCLUDED.source_id,
                     version_id = EXCLUDED.version_id,
                     body = EXCLUDED.body,
                     timestamp = EXCLUDED.timestamp,
                     action = EXCLUDED.action,
                     approver = EXCLUDED.approver,
+                    approver_username = EXCLUDED.approver_username,
                     emailed_to = EXCLUDED.emailed_to,
                     sent = EXCLUDED.sent,
                     review_comment = EXCLUDED.review_comment,
@@ -864,9 +946,8 @@ class PostgresStateRepository:
                 (
                     row["message_id"],
                     row["thread_id"],
-                    row.get("draft_id"),
-                    row.get("email_id"),
-                    row.get("audit_id"),
+                    row["source_type"],
+                    row["source_id"],
                     row.get("version_id"),
                     row["kind"],
                     row["sender"],
@@ -875,6 +956,7 @@ class PostgresStateRepository:
                     row["timestamp"],
                     row.get("action"),
                     row.get("approver"),
+                    row.get("approver_username"),
                     row.get("emailed_to"),
                     bool(row.get("sent", False)),
                     row.get("review_comment"),
@@ -997,9 +1079,8 @@ def _thread_message_from_email(
     return {
         "message_id": f"{email_id}-customer",
         "thread_id": thread_id,
-        "draft_id": email.get("draft_id"),
-        "email_id": email_id,
-        "audit_id": None,
+        "source_type": "email",
+        "source_id": email_id,
         "version_id": None,
         "kind": "customer",
         "sender": str(email.get("sender") or ""),
@@ -1008,6 +1089,7 @@ def _thread_message_from_email(
         "timestamp": str(email.get("created_at") or email.get("updated_at") or ""),
         "action": None,
         "approver": None,
+        "approver_username": None,
         "emailed_to": None,
         "sent": False,
         "review_comment": None,
@@ -1041,9 +1123,8 @@ def _thread_messages_from_audit(
             {
                 "message_id": f"{audit_id}-customer",
                 "thread_id": thread_id,
-                "draft_id": audit.get("draft_id"),
-                "email_id": None,
-                "audit_id": audit_id,
+                "source_type": "audit",
+                "source_id": audit_id,
                 "version_id": audit.get("version_id"),
                 "kind": "customer",
                 "sender": sender,
@@ -1052,6 +1133,7 @@ def _thread_messages_from_audit(
                 "timestamp": timestamp,
                 "action": action,
                 "approver": audit.get("approver"),
+                "approver_username": audit.get("approver_username"),
                 "emailed_to": audit.get("emailed_to"),
                 "sent": bool(audit.get("sent", False)),
                 "review_comment": None,
@@ -1065,9 +1147,8 @@ def _thread_messages_from_audit(
             {
                 "message_id": f"{audit_id}-officer",
                 "thread_id": thread_id,
-                "draft_id": audit.get("draft_id"),
-                "email_id": None,
-                "audit_id": audit_id,
+                "source_type": "audit",
+                "source_id": audit_id,
                 "version_id": audit.get("version_id"),
                 "kind": "officer",
                 "sender": approver,
@@ -1076,6 +1157,7 @@ def _thread_messages_from_audit(
                 "timestamp": timestamp,
                 "action": action,
                 "approver": approver,
+                "approver_username": audit.get("approver_username"),
                 "emailed_to": audit.get("emailed_to"),
                 "sent": bool(audit.get("sent", False)),
                 "review_comment": audit.get("review_comment"),

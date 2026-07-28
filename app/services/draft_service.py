@@ -90,6 +90,7 @@ class DraftService:
         ai_draft: str,
         *,
         approver: str = "Sales Officer",
+        approver_username: str | None = None,
     ):
         """persists manual draft edits and records the change in an audit log."""
         row = self.repository.get_draft(draft_id)
@@ -109,6 +110,7 @@ class DraftService:
             "sender": row.get("sender"),
             "subject": row.get("subject"),
             "approver": approver,
+            "approver_username": approver_username,
             "action": "edited",
             "timestamp": datetime.now().isoformat(),
             "emailed_to": None,
@@ -141,9 +143,19 @@ class DraftService:
             status=row["status"],
         )
 
-    def approve_draft(self, draft_id: str, *, approver: str = "Sales Officer"):
+    def approve_draft(
+        self,
+        draft_id: str,
+        *,
+        approver: str = "Sales Officer",
+        approver_username: str | None = None,
+    ):
         """turns a pending draft into an immutable approval audit."""
-        audit = approve_pending_draft(draft_id, approver=approver)
+        audit = approve_pending_draft(
+            draft_id,
+            approver=approver,
+            approver_username=approver_username,
+        )
         if not audit:
             return {
                 "success": False,
@@ -182,6 +194,7 @@ class DraftService:
         reason: str = "",
         *,
         approver: str = "Sales Officer",
+        approver_username: str | None = None,
     ):
         """reruns the sales workflow with reviewer feedback before requeueing."""
         row = self.repository.get_draft(draft_id)
@@ -243,6 +256,7 @@ class DraftService:
             "sender": row.get("sender"),
             "subject": row.get("subject"),
             "approver": approver,
+            "approver_username": approver_username,
             "action": "rejected",
             "timestamp": now,
             "emailed_to": None,

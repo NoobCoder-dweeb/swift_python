@@ -11,9 +11,14 @@ from app.crews.agent_config import (
     reset_agent_prompt_config_cache,
 )
 from app.repositories.state_repository import get_state_repository
+from app.services.inquiry_guardrails import (
+    compile_guardrail_payload,
+    default_guardrail_payload,
+)
 
 
 PROMPT_SETTING_KEY = "agent_prompt_overrides"
+GUARDRAIL_SETTING_KEY = "guardrail_overrides"
 THEME_SETTING_PREFIX = "user_theme:"
 
 PROMPT_GROUPS = {
@@ -93,6 +98,42 @@ def reset_prompt_settings() -> dict[str, Any]:
     return get_prompt_settings()
 
 
+def get_guardrail_settings() -> dict[str, Any]:
+    """returns default guardrail regex rules plus any stored overrides."""
+    overrides = _stored_guardrail_overrides()
+    rules = overrides or default_guardrail_payload()
+    return {
+        "rules": deepcopy(rules),
+        "has_overrides": bool(overrides),
+    }
+
+
+def save_guardrail_settings(rules: Any) -> dict[str, Any]:
+    """validates and stores editable guardrail regex rules."""
+    compiled = compile_guardrail_payload(_guardrail_payload_from_rules(rules))
+    payload = [
+        {
+            "flag": rule.flag,
+            "patterns": [pattern.pattern for pattern in rule.patterns],
+        }
+        for rule in compiled
+    ]
+    get_state_repository().upsert_setting(
+        {
+            "key": GUARDRAIL_SETTING_KEY,
+            "value": payload,
+            "updated_at": _timestamp(),
+        }
+    )
+    return get_guardrail_settings()
+
+
+def reset_guardrail_settings() -> dict[str, Any]:
+    """removes guardrail overrides so code defaults become authoritative."""
+    get_state_repository().delete_setting(GUARDRAIL_SETTING_KEY)
+    return get_guardrail_settings()
+
+
 def _theme_key(username: str | None) -> str:
     normalized = (username or "").strip().lower()
     return f"{THEME_SETTING_PREFIX}{normalized}" if normalized else ""
@@ -102,6 +143,12 @@ def _stored_prompt_overrides() -> dict[str, Any]:
     row = get_state_repository().get_setting(PROMPT_SETTING_KEY)
     value = row.get("value") if row else None
     return deepcopy(value) if isinstance(value, dict) else {}
+
+
+def _stored_guardrail_overrides() -> list[dict[str, Any]]:
+    row = get_state_repository().get_setting(GUARDRAIL_SETTING_KEY)
+    value = row.get("value") if row else None
+    return deepcopy(value) if isinstance(value, list) else []
 
 
 def _default_prompt_payload() -> dict[str, Any]:
@@ -189,6 +236,27 @@ def _prompt_payload_from_groups(groups: dict[str, Any]) -> dict[str, Any]:
             "description": description,
             "expected_output": expected_output,
         }
+    return payload
+
+
+def _guardrail_payload_from_rules(rules: Any) -> list[dict[str, Any]]:
+    if not isinstance(rules, list):
+        raise ValueError("Guardrail rules must be a list.")
+    payload: list[dict[str, Any]] = []
+    for index, rule in enumerate(rules):
+        if not isinstance(rule, dict):
+            raise ValueError(f"Guardrail rule {index + 1} must be an object.")
+        flag = _required_text(rule.get("flag"), f"Guardrail rule {index + 1} flag")
+        patterns_text = _required_text(
+            rule.get("patterns_text"),
+            f"Guardrail rule {flag} patterns",
+        )
+        patterns = [
+            line.strip()
+            for line in patterns_text.splitlines()
+            if line.strip()
+        ]
+        payload.append({"flag": flag, "patterns": patterns})
     return payload
 
 

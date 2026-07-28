@@ -17,6 +17,12 @@
             <i class="ph ph-robot"></i>
             <span>AI Prompts</span>
         </button>
+        {% if can_edit_guardrails %}
+            <button type="button" class="settings-tab" data-settings-panel="guardrails">
+                <i class="ph ph-shield-check"></i>
+                <span>Guardrails</span>
+            </button>
+        {% endif %}
     </aside>
 
     <section class="settings-content">
@@ -121,6 +127,54 @@
                 </form>
             </div>
         </div>
+
+        {% if can_edit_guardrails %}
+        <div id="panel-guardrails" class="settings-panel">
+            <div class="settings-section">
+                <div class="settings-section-header">
+                    <div>
+                        <div class="settings-section-title">Customer Inquiry Guardrails</div>
+                        <div class="settings-section-desc">Edit deterministic regex rules that block unsafe or unsupported requests.</div>
+                    </div>
+                    {% if guardrail_settings.has_overrides %}
+                    <span class="settings-status settings-status-warning" id="guardrailStatus">Customised</span>
+                    {% else %}
+                    <span class="settings-status" id="guardrailStatus">Default</span>
+                    {% endif %}
+                </div>
+
+                <div id="guardrailsAlert" class="settings-alert-slot"></div>
+
+                <form id="guardrailsForm" data-can-edit="true">
+                    <div class="guardrail-list">
+                        {% for rule in guardrail_settings.rules %}
+                        <section class="guardrail-card" data-rule-index="{{ loop.index0 }}">
+                            <div class="guardrail-card-header">
+                                <label class="form-label" for="guardrail_{{ loop.index0 }}_flag">Risk Flag</label>
+                                <input id="guardrail_{{ loop.index0 }}_flag" name="flag" type="text" class="form-input" value="{{ rule.flag }}" required>
+                            </div>
+                            <div class="settings-field-stack">
+                                <label class="form-label" for="guardrail_{{ loop.index0 }}_patterns">Regex Patterns</label>
+                                <textarea id="guardrail_{{ loop.index0 }}_patterns" name="patterns_text" class="form-input prompt-code" rows="5" required>{{ rule.patterns|join('\n') }}</textarea>
+                            </div>
+                        </section>
+                        {% endfor %}
+                    </div>
+
+                    <div class="settings-actions">
+                        <button type="submit" class="btn btn-primary" id="saveGuardrailsBtn">
+                            <i class="ph ph-floppy-disk"></i>
+                            Save Guardrails
+                        </button>
+                        <button type="button" class="btn btn-danger" id="resetGuardrailsBtn">
+                            <i class="ph ph-arrow-counter-clockwise"></i>
+                            Reset To Defaults
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
     </section>
 </div>
 {% endblock %}

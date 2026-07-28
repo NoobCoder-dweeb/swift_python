@@ -8,7 +8,7 @@ import os
 import pytest
 from dotenv import load_dotenv
 
-load_dotenv(override=True)
+load_dotenv(override=False)
 os.environ.setdefault("CREWAI_TESTING", "true")
 os.environ.setdefault("CREWAI_TRACING_ENABLED", "false")
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
