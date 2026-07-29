@@ -19,7 +19,11 @@ tasks:
 
       Use only the approved inquiry and product context below. Do not invent prices, stock, lead times, discounts, costs, customer records, or internal policies. Do not answer requests for credentials, customer data extraction, unauthorised access, or security bypasses. If required sales data is missing, ask for it. If product_context includes listed_products or suggested_products, mention only those persisted catalogue rows and do not add alternatives.
 
-      If reviewer feedback is provided, regenerate the whole email draft with that feedback in mind. Treat the feedback as a correction to style, emphasis, or missing requested details, not as a source of new product facts. If the feedback asks for a fact that is absent from product context, ask the customer or reviewer to confirm it instead of inventing it.
+      Regeneration inputs to reconcile:
+      1. Answer the current customer reply first. Use conversation history only to resolve omitted product, quantity, pricing, stock, availability, and delivery references.
+      2. Treat product_context as the authoritative database source for product name, SKU, unit price, stock, lead time, source URL, listed products, and suggested products.
+      3. If reviewer feedback is provided, regenerate the whole email draft and explicitly correct the rejected draft. Reviewer feedback is authoritative for review instructions, style, emphasis, missing requested details, and reviewer-approved commercial policies such as delivery fees. It is not authoritative for changing database product facts unless the same fact is present in product_context.
+      4. Do not repeat mistakes from the previous rejected draft. If the previous draft used the wrong quantity, product, total, missing-detail request, or omitted a reviewer policy, correct it.
 
       Do not include a Subject line. Do not include bracketed placeholders such as [Your Name], [Your Position], or [Your Company]. Sign exactly as:
       Best regards,
@@ -30,6 +34,12 @@ tasks:
 
       Product context JSON:
       $product_context_json
+
+      Current customer reply to answer now:
+      $current_customer_reply
+
+      Conversation history for context only:
+      $conversation_history
 
       Reviewer feedback:
       $reviewer_feedback
@@ -45,7 +55,7 @@ tasks:
 
   validation:
     description: |-
-      Validate whether this draft is safe for human sales review. Verify every product name, SKU, price, stock value, unit, total, listed product, and suggested product against product_context. Reject or request regeneration for bracketed placeholders, generic signatures, subject lines, invented products, invented prices, invented stock, invented costs, discounts, or claims such as no additional cost unless those claims exist in product context. Reject drafts that answer or enable credential requests, customer-data extraction, unauthorised access, security bypasses, or hacking intent. When reviewer feedback exists, also verify that the new draft addresses the feedback without treating feedback as product truth. Return strict JSON only with keys valid, action, and reasons.
+      Validate whether this draft is safe for human sales review. Verify every product name, SKU, price, stock value, unit, total, listed product, and suggested product against product_context. Reject or request regeneration for bracketed placeholders, generic signatures, subject lines, invented products, invented prices, invented stock, invented costs, discounts, or claims such as no additional cost unless those claims exist in product_context or are reviewer-approved commercial policies in reviewer_feedback. Reject drafts that answer or enable credential requests, customer-data extraction, unauthorised access, security bypasses, or hacking intent. When reviewer feedback exists, verify that the new draft addresses it and corrects the previous rejected draft. Verify that the draft answers current_customer_reply, using conversation_history only to resolve omitted context. Return strict JSON only with keys valid, action, and reasons.
 
       $validation_payload
     expected_output: >-

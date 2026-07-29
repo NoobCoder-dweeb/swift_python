@@ -166,18 +166,21 @@ def run_sales_inquiry_workflow(
 
     feedback_inquiry_type = _current_reply_inquiry_type(reviewer_feedback or "")
     feedback_quantity = _feedback_quantity_override(reviewer_feedback or "")
-    if feedback_inquiry_type or feedback_quantity:
+    feedback_delivery = _feedback_delivery_override(reviewer_feedback or "")
+    if feedback_inquiry_type or feedback_quantity or feedback_delivery:
         inquiry_type = feedback_inquiry_type or inquiry.inquiry_type
         quantity = feedback_quantity or inquiry.quantity
+        requested_delivery = feedback_delivery or inquiry.requested_delivery
         inquiry = inquiry.model_copy(
             update={
                 "inquiry_type": inquiry_type,
                 "quantity": quantity,
+                "requested_delivery": requested_delivery,
                 "missing_information": processor._missing_information(
                     inquiry_type=inquiry_type,
                     product_name=inquiry.product_name,
                     quantity=quantity,
-                    requested_delivery=inquiry.requested_delivery,
+                    requested_delivery=requested_delivery,
                 ),
             }
         )
@@ -265,7 +268,11 @@ def run_sales_inquiry_workflow(
             reviewer_feedback=reviewer_feedback,
         )
 
-    validation = drafter.validate_draft(ai_draft, product_context)
+    validation = drafter.validate_draft(
+        ai_draft,
+        product_context,
+        reviewer_feedback=reviewer_feedback,
+    )
     if inquiry.inquiry_type == "unsupported":
         validation = DraftValidationResult(
             valid=False,
@@ -301,7 +308,11 @@ def run_sales_inquiry_workflow(
             product_context,
             reviewer_feedback=reviewer_feedback,
         )
-        validation = drafter.validate_draft(ai_draft, product_context)
+        validation = drafter.validate_draft(
+            ai_draft,
+            product_context,
+            reviewer_feedback=reviewer_feedback,
+        )
         if not validation.valid:
             chokeholds.extend(validation.reasons)
 
@@ -410,6 +421,8 @@ def _run_crewai_draft(
             product_context=product_context,
             reviewer_feedback=reviewer_feedback,
             previous_draft=previous_draft,
+            current_customer_reply=_current_reply_segment(inquiry.body),
+            conversation_history=_conversation_history_segment(inquiry.body),
         )
 
         crew_class, process_class = _crewai_workflow_classes()
@@ -443,6 +456,8 @@ def _run_crewai_draft(
                 draft=draft,
                 reviewer_feedback=reviewer_feedback,
                 previous_draft=previous_draft,
+                current_customer_reply=_current_reply_segment(inquiry.body),
+                conversation_history=_conversation_history_segment(inquiry.body),
             )
             supervisor_agents: list[Any] = [supervisor_agent]
             supervisor_tasks: list[Any] = [validation_task]
@@ -914,6 +929,17 @@ def _current_reply_segment(body: str) -> str:
     return current or body
 
 
+def _conversation_history_segment(body: str) -> str:
+    """separates prior thread messages from the current reply for CrewAI prompts."""
+    marker = "Current customer reply to answer now:"
+    if marker not in body:
+        return ""
+    current_and_history = body.rsplit(marker, 1)[-1].strip()
+    if "\n\n" not in current_and_history:
+        return ""
+    return current_and_history.split("\n\n", 1)[-1].strip()
+
+
 def _current_reply_inquiry_type(body: str) -> str | None:
     """lets the newest reply decide whether the answer is price, stock, or both."""
     lower = body.lower()
@@ -993,6 +1019,24 @@ def _feedback_quantity_override(feedback: str) -> int | None:
         if int(match.group("quantity").replace(",", "")) > 0
     ]
     return matches[-1] if matches else None
+
+
+def _feedback_delivery_override(feedback: str) -> str | None:
+    """extracts explicit reviewer corrections for requested delivery."""
+    if not feedback:
+        return None
+    patterns = (
+        r"requested\s+delivery\s+(?:is|=|:)\s*[\"']?(?P<delivery>[^\"'.\n]+)",
+        r"delivery\s+(?:is|=|:)\s*[\"']?(?P<delivery>[^\"'.\n]+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, feedback, re.IGNORECASE)
+        if not match:
+            continue
+        delivery = match.group("delivery").strip(" \"'")
+        delivery = re.sub(r"\s+", " ", delivery).strip()
+        return delivery or None
+    return None
 
 
 def _crewai_workflow_classes() -> tuple[Any, Any]:

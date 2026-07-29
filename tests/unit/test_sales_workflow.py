@@ -14,6 +14,7 @@ from app.crews.agents import (
     SalesProcessingAgent,
     create_local_llm,
 )
+from app.crews.agent_config import get_task_prompt
 from app.crews.workflow_models import ProductContext, ProductOption
 from app.core.config import reset_app_settings
 from app.main import app
@@ -90,6 +91,81 @@ def test_sales_workflow_regeneration_uses_feedback_without_inventing_facts():
     assert "600 units" not in result.ai_draft
     assert result.validation.valid is True
     assert any("Reviewer feedback applied" in note for note in result.learning_notes)
+
+
+def test_sales_workflow_regeneration_applies_delivery_fee_feedback():
+    """reviewer pricing policies should become deterministic regeneration guidance."""
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Product X price",
+            body="Can I get pricing for 5 units of Product X?",
+        ),
+        reviewer_feedback="If the total value is less than RM1000, delivery fee is RM100",
+        previous_draft="Old draft omitted the delivery fee policy.",
+        draft_id="DFT-DELIVERY-FEE-001",
+        use_crewai=False,
+    )
+
+    assert result.draft_id == "DFT-DELIVERY-FEE-001"
+    assert "total price for 5 units is RM 600.00" in result.ai_draft
+    assert "- Delivery fee: RM 100.00" in result.ai_draft
+    assert "- Estimated total including delivery: RM 700.00" in result.ai_draft
+    assert "below RM 1000.00" in result.ai_draft
+    assert result.validation.valid is True
+
+
+def test_sales_workflow_regeneration_applies_requested_delivery_feedback():
+    """reviewer feedback can fill requested delivery instead of asking again."""
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Product X quote and stock",
+            body="Can you quote 5 units of Product X?",
+        ),
+        reviewer_feedback=(
+            'If the total value is less than RM1000, requested delivery is '
+            '"non-urgent delivery"'
+        ),
+        previous_draft="Old draft asked for requested delivery again.",
+        draft_id="DFT-REQUESTED-DELIVERY-001",
+        use_crewai=False,
+    )
+
+    assert result.inquiry.requested_delivery == "non-urgent delivery"
+    assert "requested_delivery" not in result.inquiry.missing_information
+    assert "Requested delivery preference: non-urgent delivery." in result.ai_draft
+    assert "Please confirm the missing details: requested delivery" not in result.ai_draft
+    assert result.validation.valid is True
+
+
+def test_crewai_regeneration_prompt_prioritizes_history_db_and_feedback():
+    """CrewAI regeneration must see each correction input as an explicit section."""
+    prompt = get_task_prompt("draft_response")
+    rendered = prompt.render_description(
+        inquiry_json='{"product_name": "Product X", "quantity": 50}',
+        product_context_json='{"product": "Product X", "price": 18.44, "stock_availability": 74}',
+        current_customer_reply="I would like for 50 units",
+        conversation_history=(
+            "Company Approved response: The approved reference price is RM 18.44 "
+            "per unit. Current available stock is 74 units."
+        ),
+        reviewer_feedback=(
+            "If the total value is less than RM1000, delivery fee is RM100"
+        ),
+        previous_draft="Rejected draft omitted the delivery fee.",
+    )
+
+    assert "Answer the current customer reply first" in rendered
+    assert "product_context as the authoritative database source" in rendered
+    assert "reviewer-approved commercial policies such as delivery fees" in rendered
+    assert "Do not repeat mistakes from the previous rejected draft" in rendered
+    assert "Current customer reply to answer now:" in rendered
+    assert "I would like for 50 units" in rendered
+    assert "Conversation history for context only:" in rendered
+    assert "approved reference price is RM 18.44" in rendered
+    assert "If the total value is less than RM1000" in rendered
+    assert "Rejected draft omitted the delivery fee" in rendered
 
 
 def test_sales_workflow_blocks_prompt_injection_and_personal_data_request():
