@@ -96,6 +96,12 @@ class LocalLLMConfig:
 
 
 @dataclass(frozen=True)
+class _DeliveryFeePolicy:
+    threshold: float
+    fee: float
+
+
+@dataclass(frozen=True)
 class MultiAgentLLMConfig:
     """groups role-specific LLMs so one model is not reused accidentally."""
 
@@ -607,6 +613,7 @@ class EmailDraftingAgent:
             token in feedback_lower
             for token in ("lead time", "timeline", "delivery", "ship", "shipment")
         )
+        delivery_fee_policy = _delivery_fee_policy_from_feedback(feedback)
         avoid_price = any(
             token in feedback_lower
             for token in ("remove price", "without price", "no price", "do not mention price")
@@ -653,6 +660,24 @@ class EmailDraftingAgent:
                         f"- Total: {context.currency} {total_price:.2f}",
                     ]
                 )
+                if (
+                    delivery_fee_policy
+                    and total_price < delivery_fee_policy.threshold
+                ):
+                    total_with_delivery = total_price + delivery_fee_policy.fee
+                    lines.extend(
+                        [
+                            f"- Delivery fee: {context.currency} "
+                            f"{delivery_fee_policy.fee:.2f}",
+                            f"- Estimated total including delivery: "
+                            f"{context.currency} {total_with_delivery:.2f}",
+                        ]
+                    )
+                    lines.append(
+                        f"Because the order total is below {context.currency} "
+                        f"{delivery_fee_policy.threshold:.2f}, a delivery fee of "
+                        f"{context.currency} {delivery_fee_policy.fee:.2f} applies."
+                    )
                 lines.append(
                     f"This is calculated because the approved reference price is "
                     f"{context.currency} {context.price:.2f} per unit, so "
@@ -690,6 +715,10 @@ class EmailDraftingAgent:
             )
 
         if inquiry:
+            if inquiry.requested_delivery:
+                lines.append(
+                    f"Requested delivery preference: {inquiry.requested_delivery}."
+                )
             if inquiry.quantity and context.stock_availability is not None:
                 if requested_type not in {"availability", "mixed"}:
                     pass
@@ -721,7 +750,10 @@ class EmailDraftingAgent:
         return "\n".join(lines)
 
     def validate_draft(
-        self, draft: str, info: dict[str, Any] | ProductContext | None = None
+        self,
+        draft: str,
+        info: dict[str, Any] | ProductContext | None = None,
+        reviewer_feedback: str | None = None,
     ) -> DraftValidationResult:
         """catches unsafe, incomplete, or placeholder-filled drafts before review."""
         reasons: list[str] = []
@@ -773,7 +805,15 @@ class EmailDraftingAgent:
                 if isinstance(info, ProductContext)
                 else ProductContext.model_validate(info)
             )
-            reasons.extend(_find_unapproved_fact_claims(draft, context))
+            reasons.extend(
+                _find_unapproved_fact_claims(
+                    draft,
+                    context,
+                    delivery_fee_policy=_delivery_fee_policy_from_feedback(
+                        reviewer_feedback or ""
+                    ),
+                )
+            )
 
         if reasons:
             return DraftValidationResult(
@@ -813,6 +853,36 @@ def _format_product_option_line(item: ProductOption) -> str:
     return f"- {item.product}{sku}: {price} per {item.unit_of_measure or 'unit'}, {stock}{category}."
 
 
+def _delivery_fee_policy_from_feedback(feedback: str) -> _DeliveryFeePolicy | None:
+    """extracts simple reviewer-approved delivery fee rules from rejection notes."""
+    lower = (feedback or "").lower()
+    if "delivery" not in lower or "fee" not in lower:
+        return None
+
+    threshold_match = re.search(
+        r"(?:less than|below|under)\s*(?:rm|myr)?\s*(?P<threshold>\d[\d,]*(?:\.\d{1,2})?)",
+        feedback,
+        re.IGNORECASE,
+    )
+    fee_match = re.search(
+        r"delivery\s+fee\s+(?:is|of|=|:)?\s*(?:rm|myr)?\s*(?P<fee>\d[\d,]*(?:\.\d{1,2})?)",
+        feedback,
+        re.IGNORECASE,
+    )
+    if not threshold_match or not fee_match:
+        return None
+
+    threshold = _parse_money_amount(threshold_match.group("threshold"))
+    fee = _parse_money_amount(fee_match.group("fee"))
+    if threshold <= 0 or fee <= 0:
+        return None
+    return _DeliveryFeePolicy(threshold=threshold, fee=fee)
+
+
+def _parse_money_amount(value: str) -> float:
+    return float(value.replace(",", ""))
+
+
 def _detect_word_quantity(lower_text: str) -> int | None:
     dozen_match = re.search(
         r"\b(?P<count>a|an|half|one|two|three|four|five|six|seven|eight|nine|ten)?\s*dozen\b",
@@ -847,6 +917,8 @@ def _parse_number_words(value: str) -> int | None:
 def _find_unapproved_fact_claims(
     draft: str,
     context: ProductContext,
+    *,
+    delivery_fee_policy: _DeliveryFeePolicy | None = None,
 ) -> list[str]:
     """rejects regenerated drafts that drift from approved product data."""
     reasons: list[str] = []
@@ -864,7 +936,12 @@ def _find_unapproved_fact_claims(
                 quantity_match.group("quantity") or quantity_match.group("requested")
             )
             if quantity > 0:
-                allowed_prices.add(quantity * context.price)
+                subtotal = quantity * context.price
+                allowed_prices.add(subtotal)
+                if delivery_fee_policy and subtotal < delivery_fee_policy.threshold:
+                    allowed_prices.add(delivery_fee_policy.fee)
+                    allowed_prices.add(delivery_fee_policy.threshold)
+                    allowed_prices.add(subtotal + delivery_fee_policy.fee)
     for option in catalog_options:
         if option.price is not None:
             allowed_prices.add(option.price)
@@ -879,7 +956,12 @@ def _find_unapproved_fact_claims(
                     or quantity_match.group("requested")
                 )
                 if quantity > 0:
-                    allowed_prices.add(quantity * option.price)
+                    subtotal = quantity * option.price
+                    allowed_prices.add(subtotal)
+                    if delivery_fee_policy and subtotal < delivery_fee_policy.threshold:
+                        allowed_prices.add(delivery_fee_policy.fee)
+                        allowed_prices.add(delivery_fee_policy.threshold)
+                        allowed_prices.add(subtotal + delivery_fee_policy.fee)
     for note in context.notes:
         allowed_prices.update(
             float(group)
@@ -952,7 +1034,14 @@ def _find_unapproved_fact_claims(
             continue
         label = stripped[2:].split(":", 1)[0]
         label = re.sub(r"\s*\([^)]*\)\s*$", "", label).strip().lower()
-        if label in {"product", "units requested", "price per unit", "total"}:
+        if label in {
+            "product",
+            "units requested",
+            "price per unit",
+            "total",
+            "delivery fee",
+            "estimated total including delivery",
+        }:
             continue
         if label and allowed_products and label not in allowed_products:
             reasons.append("contains_unapproved_product_reference")

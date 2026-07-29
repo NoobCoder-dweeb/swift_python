@@ -50,6 +50,8 @@ def create_draft_response_task(
     product_context: ProductContext,
     reviewer_feedback: str | None = None,
     previous_draft: str | None = None,
+    current_customer_reply: str | None = None,
+    conversation_history: str | None = None,
 ):
     """gives the drafting agent explicit facts and boundaries for the reply."""
     _configure_crewai_storage()
@@ -57,11 +59,15 @@ def create_draft_response_task(
     prompt = get_task_prompt("draft_response")
     feedback = (reviewer_feedback or "").strip()
     prior = (previous_draft or "").strip()
+    current_reply = (current_customer_reply or inquiry.body or "").strip()
+    history = (conversation_history or "").strip()
 
     return task_class(
         description=prompt.render_description(
             inquiry_json=inquiry.model_dump_json(indent=2),
             product_context_json=product_context.model_dump_json(indent=2),
+            current_customer_reply=current_reply or "None",
+            conversation_history=history or "None",
             reviewer_feedback=feedback or "None",
             previous_draft=prior or "None",
         ),
@@ -77,6 +83,8 @@ def create_validation_task(
     draft: str,
     reviewer_feedback: str | None = None,
     previous_draft: str | None = None,
+    current_customer_reply: str | None = None,
+    conversation_history: str | None = None,
 ):
     """asks a separate agent to catch unsafe claims before human review."""
     _configure_crewai_storage()
@@ -86,6 +94,8 @@ def create_validation_task(
     payload = {
         "inquiry": inquiry.model_dump(),
         "product_context": product_context.model_dump(),
+        "current_customer_reply": current_customer_reply or inquiry.body,
+        "conversation_history": conversation_history or "",
         "reviewer_feedback": reviewer_feedback or "",
         "previous_draft": previous_draft or "",
         "draft": draft,
