@@ -245,9 +245,10 @@ Generate test results
 
 ## Agent evaluation with DeepEval
 
-The benchmark goldens live in `data/sales_workflow_goldens.json`. They cover
-localized Malaysia sales inquiries and define the raw trigger, expected tool
-sequence, and expected database/ERP-ready output fields.
+The benchmark goldens live in `data/sales_workflow_goldens.json`. The dataset is
+balanced across 15 valid sales cases, 15 incorrect/ambiguous inputs, and 15
+adversarial security cases. Security cases must expect a blocked result. Dataset
+loading fails if category balance, IDs, metadata, or required fields drift.
 
 Install the optional evaluation dependency:
 
@@ -308,7 +309,9 @@ This writes:
 | --- | --- |
 | `sales_eval_case_metrics.csv` | Per-golden raw inputs, expected/actual output JSON, manual processing, SLM/deterministic workflow, and optional LLM/CrewAI metrics, including composite accuracy and token-consumption fields. |
 | `sales_eval_aggregate_metrics.csv` | Mean, median, standard deviation, standard error, 95% CI, min, max, and token totals by processing mode. |
+| `sales_eval_category_metrics.csv` | The same statistics split into valid, incorrect, and security cohorts so aggregate scores cannot hide weak safety behavior. |
 | `sales_eval_pairwise_comparison.csv` | Manual-vs-SLM/LLM deltas for accuracy, tool quality, latency, review time, automation savings, and token consumption. |
+| `sales_eval_slm_llm_comparison.csv` | Matched per-case SLM-to-LLM deltas, including response/policy quality, so shared deterministic fields do not dominate the model comparison. |
 
 Add `--include-llm` when the CrewAI/LLM backend is configured:
 
@@ -323,25 +326,35 @@ configured and override the CrewAI provider for the export:
 SWIFT_LOCAL_LLM_PROVIDER=gemini \
 SWIFT_LOCAL_LLM_BASE_URL= \
 SWIFT_ALLOW_SHARED_LLM_MODELS=1 \
-SWIFT_SUPERVISOR_LLM_MODEL=gemini-2.0-flash-001 \
-SWIFT_SALES_LLM_MODEL=gemini-2.0-flash-001 \
-SWIFT_DRAFT_LLM_MODEL=gemini-2.0-flash-001 \
+SWIFT_SUPERVISOR_LLM_MODEL=gemini-3.5-flash-lite \
+SWIFT_SALES_LLM_MODEL=gemini-3.5-flash-lite \
+SWIFT_DRAFT_LLM_MODEL=gemini-3.5-flash-lite \
 .venv/bin/python scripts/export_sales_eval_results.py \
   --output-dir reports/evaluation \
   --include-llm \
   --raw-only
 ```
 
-If the Gemini API returns `429 RESOURCE_EXHAUSTED`, the generated LLM rows are
-fallback rows rather than successful CrewAI rows. The plotting helper excludes
-those fallback rows from LLM comparisons unless `execution_mode` is `crewai` or
-`external`.
+LLM calls retry up to `SWIFT_LLM_MAX_ATTEMPTS` (default `5`). Empty responses,
+provider errors, and validation-triggered regeneration stay on the configured AI
+backend. Exhaustion raises an error and aborts the evaluation; an LLM row is never
+replaced with deterministic output. Plotting also rejects any contaminated LLM row.
+Provider `RetryInfo` delays are honored. For rate-limited benchmarks, set
+`SWIFT_EVAL_LLM_CASE_DELAY_SECONDS` to pace cases (for example, `12` for a
+15-request/minute account where each case makes roughly three model calls).
+
+If only golden labels change, rescore the saved model outputs without spending
+API quota again:
+
+```bash
+.venv/bin/python scripts/rescore_sales_eval_results.py
+```
 
 The harness is organised around the four pillars of agent evaluation:
 
 | Pillar | What is measured |
 | --- | --- |
-| Task success | Composite accuracy, field-level precision, recall, and F1 for structured workflow output, plus DeepEval `GEval` task completion when `SWIFT_EVAL_ENABLE_G_EVAL=1`. |
+| Task success | Composite accuracy, field-level precision/recall/F1, response coverage, and explicit policy-compliance scoring for secure blocking, risk flags, and forbidden content; plus DeepEval `GEval` when enabled. |
 | Tool quality | DeepEval `ToolCorrectnessMetric`, deterministic tool precision/recall/F1, exact sequence matching, and extracted argument accuracy. |
 | Coordination | Supervisor routing precision when CrewAI mode is enabled, duplicate tool-call detection, tool-call count, chokehold count, blocked status, and human-review routing. |
 | Cost and performance | Per-case latency, estimated manual/review minutes, automation time saved, input/output/total token consumption, token-count source labels, and aggregate p50/p95-ready CSV statistics. |

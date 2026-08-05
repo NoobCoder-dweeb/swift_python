@@ -19,6 +19,7 @@ def test_memory_user_repository_stores_hashed_login_users():
     )
 
     assert stored["username"] == "casey"
+    assert stored["user_id"]
     assert stored["hashed_password"] != "safe-password"
     assert verify_password("safe-password", stored["hashed_password"])
 
@@ -26,11 +27,65 @@ def test_memory_user_repository_stores_hashed_login_users():
     assert loaded is not None
     assert loaded["email"] == "casey@example.com"
     assert loaded["level"] == "sales officer"
+    assert repository.get_user_by_id(stored["user_id"]) == loaded
+
+
+def test_user_uuid_survives_username_updates():
+    """mutable login attributes must not replace the user's identity."""
+    repository = MemoryStateRepository()
+    original = repository.upsert_user(
+        {
+            "username": "stable.user",
+            "email": "stable@example.com",
+            "hashed_password": hash_password("safe-password"),
+            "level": "sales officer",
+        }
+    )
+    updated = repository.upsert_user(
+        {
+            "username": "stable.user",
+            "email": "updated@example.com",
+            "hashed_password": original["hashed_password"],
+            "level": "sales manager",
+        }
+    )
+
+    assert updated["user_id"] == original["user_id"]
+    assert (
+        repository.get_user_by_id(original["user_id"])["email"] == "updated@example.com"
+    )
 
 
 def test_legacy_sales_person_role_normalizes_to_sales_officer():
     """old stored role names should keep working after the role rename."""
     assert normalize_level("sales person") == "sales officer"
+
+
+def test_blank_or_malformed_session_identity_does_not_query_uuid_column(monkeypatch):
+    """stale pre-migration cookies must redirect instead of causing a UUID error."""
+    repository = MemoryStateRepository()
+    monkeypatch.setattr(auth_service, "get_state_repository", lambda: repository)
+
+    assert auth_service.get_account("") is None
+    assert auth_service.get_account("not-a-uuid-or-known-user") is None
+
+
+def test_legacy_username_session_still_resolves_after_uuid_migration(monkeypatch):
+    repository = MemoryStateRepository()
+    stored = repository.upsert_user(
+        {
+            "username": "legacy.user",
+            "email": "legacy@example.com",
+            "hashed_password": hash_password("safe-password"),
+            "level": "sales officer",
+        }
+    )
+    monkeypatch.setattr(auth_service, "get_state_repository", lambda: repository)
+
+    account = auth_service.get_account("legacy.user")
+
+    assert account is not None
+    assert account.user_id == stored["user_id"]
 
 
 async def test_login_queries_database_user_rows(monkeypatch):

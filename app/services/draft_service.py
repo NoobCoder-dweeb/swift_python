@@ -75,7 +75,11 @@ class DraftService:
         row = self.repository.get_draft(draft_id)
         if row:
             return next(
-                (draft.to_dict() for draft in get_drafts() if draft.draft_id == draft_id),
+                (
+                    draft.to_dict()
+                    for draft in get_drafts()
+                    if draft.draft_id == draft_id
+                ),
                 {
                     **row,
                     "customer_inquiry": row["body"],
@@ -90,6 +94,7 @@ class DraftService:
         ai_draft: str,
         *,
         approver: str = "Sales Officer",
+        approver_user_id: str | None = None,
         approver_username: str | None = None,
     ):
         """persists manual draft edits and records the change in an audit log."""
@@ -110,6 +115,7 @@ class DraftService:
             "sender": row.get("sender"),
             "subject": row.get("subject"),
             "approver": approver,
+            "approver_user_id": approver_user_id,
             "approver_username": approver_username,
             "action": "edited",
             "timestamp": datetime.now().isoformat(),
@@ -148,12 +154,14 @@ class DraftService:
         draft_id: str,
         *,
         approver: str = "Sales Officer",
+        approver_user_id: str | None = None,
         approver_username: str | None = None,
     ):
         """turns a pending draft into an immutable approval audit."""
         audit = approve_pending_draft(
             draft_id,
             approver=approver,
+            approver_user_id=approver_user_id,
             approver_username=approver_username,
         )
         if not audit:
@@ -194,6 +202,7 @@ class DraftService:
         reason: str = "",
         *,
         approver: str = "Sales Officer",
+        approver_user_id: str | None = None,
         approver_username: str | None = None,
     ):
         """reruns the sales workflow with reviewer feedback before requeueing."""
@@ -256,6 +265,7 @@ class DraftService:
             "sender": row.get("sender"),
             "subject": row.get("subject"),
             "approver": approver,
+            "approver_user_id": approver_user_id,
             "approver_username": approver_username,
             "action": "rejected",
             "timestamp": now,
@@ -291,7 +301,10 @@ class DraftService:
         }
         try:
             publish_event(
-                {"type": "regenerated", "payload": {"draft": regenerated, "audit": audit}}
+                {
+                    "type": "regenerated",
+                    "payload": {"draft": regenerated, "audit": audit},
+                }
             )
         except Exception:
             pass
@@ -339,7 +352,4 @@ def _body_with_conversation_context(body: str, conversation_context: str) -> str
     current = (body or "").strip()
     if not context:
         return current
-    return (
-        f"Current customer reply to answer now: {current}\n\n"
-        f"{context}"
-    )
+    return f"Current customer reply to answer now: {current}\n\n{context}"

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from importlib import import_module
+import os
 import re
 import time
+import math
 from typing import Any
 from urllib.parse import quote_plus, urlparse
 from uuid import uuid4
@@ -43,6 +45,10 @@ except Exception as exc:  # pragma: no cover - depends on optional runtime insta
     _CREWAI_WORKFLOW_IMPORT_ERROR = exc
 else:
     _CREWAI_WORKFLOW_IMPORT_ERROR = None
+
+
+class AgentBackendError(RuntimeError):
+    """prevents an AI-configured run from being mislabeled deterministic."""
 
 
 def run_sales_inquiry_crew(
@@ -217,50 +223,40 @@ def run_sales_inquiry_workflow(
     )
 
     if agent_backend == "external":
-        external_result = _run_external_agent_draft(
-            email=cleaned_email,
-            inquiry=inquiry,
-            product_context=product_context,
-            reviewer_feedback=reviewer_feedback,
-            previous_draft=previous_draft,
-            draft_id=draft_id,
-        )
-        if external_result.draft:
-            ai_draft = external_result.draft
-            execution_mode = "external"
-            agent_models = external_result.agent_models
-            supervisor_review = external_result.supervisor_review
-            token_usage = external_result.token_usage
-        else:
-            ai_draft = drafter.generate_response(
-                inquiry,
-                product_context,
+        external_result = _retry_agent_draft(
+            "external",
+            lambda: _run_external_agent_draft(
+                email=cleaned_email,
+                inquiry=inquiry,
+                product_context=product_context,
                 reviewer_feedback=reviewer_feedback,
-            )
-            chokeholds.append(external_result.error or "external_agent_failed")
+                previous_draft=previous_draft,
+                draft_id=draft_id,
+            ),
+        )
+        ai_draft = external_result.draft or ""
+        execution_mode = "external"
+        agent_models = external_result.agent_models
+        supervisor_review = external_result.supervisor_review
+        token_usage = external_result.token_usage
     elif agent_backend == "crewai":
-        crew_result = _run_crewai_draft(
-            inquiry=inquiry,
-            product_context=product_context,
-            reviewer_feedback=reviewer_feedback,
-            previous_draft=previous_draft,
-            llm_config=llm_config,
-            crew_llm_config=crew_llm_config,
-            verbose=verbose,
-        )
-        if crew_result.draft:
-            ai_draft = crew_result.draft
-            execution_mode = "crewai"
-            agent_models = crew_result.agent_models
-            supervisor_review = crew_result.supervisor_review
-            token_usage = crew_result.token_usage
-        else:
-            ai_draft = drafter.generate_response(
-                inquiry,
-                product_context,
+        crew_result = _retry_agent_draft(
+            "crewai",
+            lambda: _run_crewai_draft(
+                inquiry=inquiry,
+                product_context=product_context,
                 reviewer_feedback=reviewer_feedback,
-            )
-            chokeholds.append(crew_result.error or "crewai_execution_failed")
+                previous_draft=previous_draft,
+                llm_config=llm_config,
+                crew_llm_config=crew_llm_config,
+                verbose=verbose,
+            ),
+        )
+        ai_draft = crew_result.draft or ""
+        execution_mode = "crewai"
+        agent_models = crew_result.agent_models
+        supervisor_review = crew_result.supervisor_review
+        token_usage = crew_result.token_usage
     else:
         ai_draft = drafter.generate_response(
             inquiry,
@@ -287,7 +283,9 @@ def run_sales_inquiry_workflow(
         )
 
     if supervisor_review and not supervisor_review.valid:
-        chokeholds.extend(f"supervisor_{reason}" for reason in supervisor_review.reasons)
+        chokeholds.extend(
+            f"supervisor_{reason}" for reason in supervisor_review.reasons
+        )
         if supervisor_review.action == "reject":
             validation = DraftValidationResult(
                 valid=False,
@@ -303,11 +301,45 @@ def run_sales_inquiry_workflow(
 
     if not validation.valid and validation.action == "regenerate":
         chokeholds.extend(validation.reasons)
-        ai_draft = drafter.generate_response(
-            inquiry,
-            product_context,
-            reviewer_feedback=reviewer_feedback,
+        retry_feedback = _validation_retry_feedback(
+            reviewer_feedback,
+            validation.reasons,
         )
+        if agent_backend == "crewai":
+            retry_result = _retry_agent_draft(
+                "crewai",
+                lambda: _run_crewai_draft(
+                    inquiry=inquiry,
+                    product_context=product_context,
+                    reviewer_feedback=retry_feedback,
+                    previous_draft=ai_draft,
+                    llm_config=llm_config,
+                    crew_llm_config=crew_llm_config,
+                    verbose=verbose,
+                ),
+            )
+            ai_draft = retry_result.draft or ""
+            token_usage = _merge_token_usage(token_usage, retry_result.token_usage)
+        elif agent_backend == "external":
+            retry_result = _retry_agent_draft(
+                "external",
+                lambda: _run_external_agent_draft(
+                    email=cleaned_email,
+                    inquiry=inquiry,
+                    product_context=product_context,
+                    reviewer_feedback=retry_feedback,
+                    previous_draft=ai_draft,
+                    draft_id=draft_id,
+                ),
+            )
+            ai_draft = retry_result.draft or ""
+            token_usage = _merge_token_usage(token_usage, retry_result.token_usage)
+        else:
+            ai_draft = drafter.generate_response(
+                inquiry,
+                product_context,
+                reviewer_feedback=reviewer_feedback,
+            )
         validation = drafter.validate_draft(
             ai_draft,
             product_context,
@@ -351,7 +383,7 @@ def run_sales_inquiry_workflow(
 
 
 class _CrewDraftResult:
-    """carries optional CrewAI output without throwing away fallback context."""
+    """carries an AI attempt result and retry diagnostics."""
 
     def __init__(
         self,
@@ -360,6 +392,7 @@ class _CrewDraftResult:
         agent_models: dict[str, str] | None = None,
         supervisor_review: DraftValidationResult | None = None,
         token_usage: dict[str, Any] | None = None,
+        retry_after_seconds: float | None = None,
     ) -> None:
         """stores both success and failure details for workflow reporting."""
         self.draft = draft
@@ -367,6 +400,7 @@ class _CrewDraftResult:
         self.agent_models = agent_models or {}
         self.supervisor_review = supervisor_review
         self.token_usage = token_usage or {}
+        self.retry_after_seconds = retry_after_seconds
 
 
 def _run_crewai_draft(
@@ -384,8 +418,8 @@ def _run_crewai_draft(
 
     The sales and drafting agents receive only validated inquiry data and
     approved product context, while a separate supervisor agent may review the
-    output. Any CrewAI failure is captured as a result error so the caller can
-    fall back to deterministic drafting without losing audit context.
+    output. Failures are returned to the retry controller; AI-configured runs
+    never substitute a deterministic draft.
     """
     try:
         multi_config = crew_llm_config or MultiAgentLLMConfig.from_env(
@@ -487,7 +521,42 @@ def _run_crewai_draft(
             token_usage=token_usage,
         )
     except Exception as exc:
-        return _CrewDraftResult(error=_format_crewai_error(exc))
+        return _CrewDraftResult(
+            error=_format_crewai_error(exc),
+            retry_after_seconds=_provider_retry_after_seconds(exc),
+        )
+
+
+def _retry_agent_draft(backend: str, operation: Any) -> _CrewDraftResult:
+    """retries empty/failed AI calls and raises rather than changing modes."""
+    attempts = max(1, int(os.getenv("SWIFT_LLM_MAX_ATTEMPTS", "5") or "5"))
+    errors: list[str] = []
+    for attempt in range(1, attempts + 1):
+        result = operation()
+        if result.draft and result.draft.strip():
+            return result
+        errors.append(result.error or f"{backend}_returned_empty_draft")
+        if attempt < attempts:
+            default_delay = min(0.25 * attempt, 1.0)
+            provider_delay = result.retry_after_seconds or 0.0
+            max_delay = max(
+                1.0,
+                float(os.getenv("SWIFT_LLM_RETRY_MAX_SECONDS", "65") or "65"),
+            )
+            time.sleep(min(max(default_delay, provider_delay), max_delay))
+    detail = "; ".join(errors[-3:])
+    raise AgentBackendError(
+        f"{backend} failed to return a draft after {attempts} attempts: {detail}"
+    )
+
+
+def _validation_retry_feedback(
+    reviewer_feedback: str | None,
+    reasons: list[str],
+) -> str:
+    """turns local validation failures into explicit LLM retry guidance."""
+    guidance = "Correct these validation failures: " + ", ".join(reasons)
+    return f"{reviewer_feedback}\n{guidance}".strip() if reviewer_feedback else guidance
 
 
 def _run_external_agent_draft(
@@ -556,10 +625,7 @@ def _run_external_agent_draft(
         return _CrewDraftResult(error="external_agent_returned_non_object")
 
     draft = str(
-        data.get("ai_draft")
-        or data.get("draft")
-        or data.get("response")
-        or ""
+        data.get("ai_draft") or data.get("draft") or data.get("response") or ""
     ).strip()
     if not draft:
         return _CrewDraftResult(error="external_agent_returned_empty_draft")
@@ -778,6 +844,26 @@ def _format_crewai_error(exc: Exception) -> str:
     return f"crewai_error:{exc.__class__.__name__}:{detail[:240]}"
 
 
+def _provider_retry_after_seconds(exc: Exception) -> float | None:
+    """extracts Gemini-style retry guidance before error text is truncated."""
+    detail = " ".join(str(exc).split())
+    seconds_match = re.search(
+        r"(?:retry in|retryDelay['\"=: ]+)\s*(\d+(?:\.\d+)?)\s*s(?:ec(?:ond)?s?)?",
+        detail,
+        flags=re.IGNORECASE,
+    )
+    if seconds_match:
+        return float(math.ceil(float(seconds_match.group(1)))) + 0.5
+    milliseconds_match = re.search(
+        r"retry in\s*(\d+(?:\.\d+)?)\s*ms",
+        detail,
+        flags=re.IGNORECASE,
+    )
+    if milliseconds_match:
+        return math.ceil(float(milliseconds_match.group(1))) / 1000 + 0.5
+    return None
+
+
 def _lookup_product_context_for_inquiry(
     processor: SalesProcessingAgent,
     inquiry: InquiryDetails,
@@ -906,8 +992,10 @@ def _fallback_product_reference_url(query: str) -> str:
     if parsed.netloc == "safetyware.com" and parsed.path.rstrip("/") == "/products":
         return base_url
 
-    separator = "" if base_url.endswith(("=", "?", "&")) else (
-        "&" if "?" in base_url else "?q="
+    separator = (
+        ""
+        if base_url.endswith(("=", "?", "&"))
+        else ("&" if "?" in base_url else "?q=")
     )
     return f"{base_url}{separator}{quote_plus(query)}"
 
@@ -1007,7 +1095,9 @@ def _feedback_quantity_override(feedback: str) -> int | None:
     quantity found so downstream drafting uses the intended customer amount.
     """
     lower = feedback.lower()
-    if not any(token in lower for token in ("want", "compute", "total", "price", "pricing")):
+    if not any(
+        token in lower for token in ("want", "compute", "total", "price", "pricing")
+    ):
         return None
     matches = [
         int(match.group("quantity").replace(",", ""))
@@ -1043,7 +1133,9 @@ def _crewai_workflow_classes() -> tuple[Any, Any]:
     """returns concrete CrewAI orchestration classes before they are used."""
     if _crewai is not None:
         return _crewai.Crew, _crewai.Process
-    raise RuntimeError("CrewAI workflow import failed.") from _crewai_workflow_import_error()
+    raise RuntimeError(
+        "CrewAI workflow import failed."
+    ) from _crewai_workflow_import_error()
 
 
 def _crewai_workflow_import_error() -> Exception:
@@ -1068,7 +1160,9 @@ def _build_learning_notes(
             "remained the factual source."
         )
     if validation.reasons:
-        notes.extend(f"Supervisor/validator noted: {reason}" for reason in validation.reasons)
+        notes.extend(
+            f"Supervisor/validator noted: {reason}" for reason in validation.reasons
+        )
     return _dedupe(notes)
 
 

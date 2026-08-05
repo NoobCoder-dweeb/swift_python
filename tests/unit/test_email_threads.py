@@ -3,7 +3,10 @@ from datetime import datetime
 import httpx
 
 from app.main import app
-from app.repositories.state_repository import PostgresStateRepository, get_state_repository
+from app.repositories.state_repository import (
+    PostgresStateRepository,
+    get_state_repository,
+)
 from app.schemas.draft import EmailPayload
 from app.services.draft_service import DraftService
 from data import add_generated_draft, get_drafts
@@ -75,7 +78,34 @@ def test_follow_up_draft_includes_prior_approved_thread_response():
     )
     assert payload["thread_history"][2]["is_current"] is True
     assert payload["product_reference"]["product"] == "Safety Helmet"
-    assert payload["product_reference"]["url"] == "https://safetyware.com/product/safety-helmet/"
+    assert (
+        payload["product_reference"]["url"]
+        == "https://safetyware.com/product/safety-helmet/"
+    )
+
+
+def test_repeated_audits_do_not_copy_the_customer_message():
+    """one inquiry remains one canonical customer message across reviews."""
+    repository = get_state_repository()
+    base = {
+        "draft_id": "DFT-CANONICAL-CUSTOMER",
+        "sender": "canonical@example.com",
+        "subject": "Canonical message",
+        "timestamp": datetime.now().isoformat(),
+        "customer_inquiry": "Please quote 10 helmets.",
+        "ai_draft": "The unit price is RM 25.00.",
+        "approver": "John Doe",
+    }
+    repository.insert_audit({**base, "audit_id": "AUD-CANONICAL-1", "action": "edited"})
+    repository.insert_audit(
+        {**base, "audit_id": "AUD-CANONICAL-2", "action": "approved"}
+    )
+
+    thread = repository.find_thread(sender=base["sender"], subject=base["subject"])
+    messages = repository.list_thread_messages(thread["thread_id"])
+
+    assert len([message for message in messages if message["kind"] == "customer"]) == 1
+    assert len([message for message in messages if message["kind"] == "officer"]) == 2
 
 
 def test_postgres_thread_upsert_returns_persisted_conflict_thread_id(monkeypatch):
@@ -278,6 +308,7 @@ async def test_thread_context_does_not_overanswer_pricing_only_follow_up():
 
 async def test_listing_follow_up_quotes_selected_product(monkeypatch):
     """a customer selecting one listed product should not receive the list again."""
+
     class BookletsProductClient:
         def get_product(self, query):
             assert "Booklets" in query

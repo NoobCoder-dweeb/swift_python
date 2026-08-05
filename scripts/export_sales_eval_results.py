@@ -14,12 +14,14 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from tests.evaluation.sales_eval_harness import (
     DEFAULT_EVAL_OUTPUT_DIR,
+    aggregate_category_rows,
     aggregate_case_rows,
     evaluate_goldens,
     evaluation_record_to_row,
     load_goldens,
     manual_baseline_row,
     pairwise_comparison_rows,
+    slm_llm_comparison_rows,
     write_csv_table,
 )
 
@@ -59,11 +61,23 @@ def main() -> None:
     write_csv_table(output_dir / "sales_eval_case_metrics.csv", rows)
     if not args.raw_only:
         aggregate_rows = aggregate_case_rows(rows)
+        category_rows = aggregate_category_rows(rows)
         comparison_rows = pairwise_comparison_rows(aggregate_rows)
+        model_comparison_rows = slm_llm_comparison_rows(rows)
         write_csv_table(output_dir / "sales_eval_aggregate_metrics.csv", aggregate_rows)
-        write_csv_table(output_dir / "sales_eval_pairwise_comparison.csv", comparison_rows)
+        write_csv_table(output_dir / "sales_eval_category_metrics.csv", category_rows)
+        write_csv_table(
+            output_dir / "sales_eval_pairwise_comparison.csv", comparison_rows
+        )
+        if model_comparison_rows:
+            write_csv_table(
+                output_dir / "sales_eval_slm_llm_comparison.csv",
+                model_comparison_rows,
+            )
 
-    output_mode = "raw case rows" if args.raw_only else "case, aggregate, and comparison rows"
+    output_mode = (
+        "raw case rows" if args.raw_only else "case, aggregate, and comparison rows"
+    )
     print(f"Wrote {len(rows)} {output_mode} to {output_dir}")
 
 

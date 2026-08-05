@@ -10,6 +10,7 @@ from typing import Iterable
 
 SCORE_METRICS = (
     ("accuracy", "Accuracy"),
+    ("response_policy_accuracy", "Response/policy"),
     ("field_f1", "Field F1"),
     ("product_fact_accuracy", "Product facts"),
     ("required_response_coverage", "Response terms"),
@@ -26,9 +27,13 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     _write_metric_comparison(output_dir / "figure_1_metric_scores.svg", report_rows)
-    _write_module_accuracy(output_dir / "figure_2_slm_accuracy_by_module.svg", report_rows)
+    _write_module_accuracy(
+        output_dir / "figure_2_slm_accuracy_by_module.svg", report_rows
+    )
     _write_efficiency_chart(output_dir / "figure_3_review_time_saved.svg", report_rows)
-    _write_markdown_summary(output_dir / "results_discussion_summary.md", rows, report_rows)
+    _write_markdown_summary(
+        output_dir / "results_discussion_summary.md", rows, report_rows
+    )
 
     print(f"Wrote figures and summary to {output_dir}")
 
@@ -109,8 +114,14 @@ def _write_efficiency_chart(path: Path, rows: list[dict[str, str]]) -> None:
     modes = [mode for mode in ("manual", "slm", "llm") if _mode_rows(rows, mode)]
     data = {
         mode: [
-            _mean(_float(row["estimated_review_minutes"]) for row in _mode_rows(rows, mode)),
-            _mean(_float(row["automation_time_saved_pct"]) for row in _mode_rows(rows, mode)),
+            _mean(
+                _float(row["estimated_review_minutes"])
+                for row in _mode_rows(rows, mode)
+            ),
+            _mean(
+                _float(row["automation_time_saved_pct"])
+                for row in _mode_rows(rows, mode)
+            ),
         ]
         for mode in modes
     }
@@ -136,7 +147,6 @@ def _write_markdown_summary(
     report_modes = [
         mode for mode in ("manual", "slm", "llm") if _mode_rows(report_rows, mode)
     ]
-    excluded_rows = len(rows) - len(report_rows)
     lines = [
         "# Sales Evaluation Results Summary",
         "",
@@ -148,17 +158,13 @@ def _write_markdown_summary(
         "- Source file: `reports/evaluation/sales_eval_case_metrics.csv`",
         f"- Reportable plotted rows: {len(report_rows)}",
     ]
-    if excluded_rows:
-        lines.append(
-            f"- Excluded fallback/error LLM rows from plotted comparisons: {excluded_rows}"
-        )
     lines.extend(
         [
-        "",
-        "## Core Results",
-        "",
-        "| Mode | n | Accuracy | Field F1 | Product facts | Response terms | Tool F1 | Argument accuracy | Exact fields | Exact tools | Review min | Time saved | Tokens |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "",
+            "## Core Results",
+            "",
+            "| Mode | n | Accuracy | Response/policy | Field F1 | Product facts | Response terms | Tool F1 | Argument accuracy | Exact fields | Exact tools | Review min | Time saved | Tokens |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         ]
     )
     for mode in report_modes:
@@ -170,11 +176,14 @@ def _write_markdown_summary(
                     mode.upper(),
                     str(len(mode_rows)),
                     _fmt(_mean(_float(row["accuracy"]) for row in mode_rows)),
-                    _fmt(_mean(_float(row["field_f1"]) for row in mode_rows)),
                     _fmt(
                         _mean(
-                            _float(row["product_fact_accuracy"]) for row in mode_rows
+                            _float(row["response_policy_accuracy"]) for row in mode_rows
                         )
+                    ),
+                    _fmt(_mean(_float(row["field_f1"]) for row in mode_rows)),
+                    _fmt(
+                        _mean(_float(row["product_fact_accuracy"]) for row in mode_rows)
                     ),
                     _fmt(
                         _mean(
@@ -183,15 +192,12 @@ def _write_markdown_summary(
                         )
                     ),
                     _fmt(_mean(_float(row["tool_f1"]) for row in mode_rows)),
-                    _fmt(
-                        _mean(_float(row["argument_accuracy"]) for row in mode_rows)
-                    ),
+                    _fmt(_mean(_float(row["argument_accuracy"]) for row in mode_rows)),
                     _pct(_rate(row["field_exact_match"] for row in mode_rows)),
                     _pct(_rate(row["tool_exact_sequence"] for row in mode_rows)),
                     _fmt(
                         _mean(
-                            _float(row["estimated_review_minutes"])
-                            for row in mode_rows
+                            _float(row["estimated_review_minutes"]) for row in mode_rows
                         )
                     ),
                     _pct(
@@ -209,7 +215,6 @@ def _write_markdown_summary(
 
     slm_rows = _mode_rows(rows, "slm")
     llm_rows = _mode_rows(report_rows, "llm")
-    llm_fallback_count = len(_mode_rows(rows, "llm")) - len(llm_rows)
     if slm_rows:
         lowest = _lowest_modules(slm_rows)
         lines.extend(
@@ -298,7 +303,7 @@ def _write_markdown_summary(
                 (
                     "The study should be interpreted as a controlled workflow "
                     "evaluation rather than a live production measurement. The "
-                    "automated SLM and LLM rows used golden product facts in this "
+                    "automated rows used golden product facts in this "
                     "run, while manual rows are treated as the human-verified "
                     "baseline; this helps isolate workflow behaviour but may "
                     "overstate performance compared with noisy live catalogue data."
@@ -321,17 +326,7 @@ def _write_markdown_summary(
                     "assumption and should be validated with real review logs."
                 ),
                 "",
-                (
-                    "CrewAI/LLM orchestration also adds a clear cost and reliability "
-                    "trade-off. In this run, reportable LLM rows used about "
-                    f"{_fmt(_mean(_float(row['total_tokens']) for row in llm_rows)) if llm_rows else 'many more'} "
-                    "tokens per case versus "
-                    f"{_fmt(_mean(_float(row['total_tokens']) for row in slm_rows))} "
-                    "for the deterministic/SLM path, and "
-                    f"{llm_fallback_count} LLM {_plural('case', llm_fallback_count)} "
-                    "fell back to deterministic execution. That makes the CrewAI path more "
-                    "expensive and more sensitive to local model availability."
-                ),
+                _llm_cost_limitation(llm_rows, slm_rows),
             ]
         )
 
@@ -352,14 +347,39 @@ def _mode_rows(rows: list[dict[str, str]], mode: str) -> list[dict[str, str]]:
     return [row for row in rows if row["processing_mode"] == mode]
 
 
+def _llm_cost_limitation(
+    llm_rows: list[dict[str, str]],
+    slm_rows: list[dict[str, str]],
+) -> str:
+    slm_tokens = _fmt(_mean(_float(row["total_tokens"]) for row in slm_rows))
+    if not llm_rows:
+        return (
+            "No LLM cost or quality claim is made for this run because no configured "
+            "LLM backend completed the dataset. Failed LLM calls abort the export "
+            "instead of being replaced with deterministic output. The deterministic/"
+            f"SLM path used an estimated {slm_tokens} tokens per case."
+        )
+    llm_tokens = _fmt(_mean(_float(row["total_tokens"]) for row in llm_rows))
+    return (
+        "CrewAI/LLM orchestration adds a cost and reliability trade-off. Reportable "
+        f"LLM rows used {llm_tokens} tokens per case versus {slm_tokens} for the "
+        "deterministic/SLM path. Failed LLM calls abort the export instead of being "
+        "replaced with deterministic output."
+    )
+
+
 def _reportable_rows(rows: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Excludes failed LLM attempts that fell back to deterministic execution."""
-    return [
+    """rejects contaminated LLM cohorts instead of silently excluding rows."""
+    contaminated = [
         row
         for row in rows
-        if row["processing_mode"] != "llm"
-        or row.get("execution_mode") in {"crewai", "external"}
+        if row["processing_mode"] == "llm"
+        and row.get("execution_mode") not in {"crewai", "external"}
     ]
+    if contaminated:
+        ids = ", ".join(row.get("golden_id", "unknown") for row in contaminated[:5])
+        raise ValueError(f"LLM rows contain non-LLM execution modes: {ids}")
+    return rows
 
 
 def _lowest_modules(rows: list[dict[str, str]]) -> list[tuple[str, float, int]]:
@@ -557,7 +577,9 @@ def _rate(values: Iterable[str]) -> float:
     if not materialized:
         return 0.0
     truthy = {"true", "1", "yes"}
-    return sum(str(value).lower() in truthy for value in materialized) / len(materialized)
+    return sum(str(value).lower() in truthy for value in materialized) / len(
+        materialized
+    )
 
 
 def _fmt(value: float) -> str:
