@@ -6,6 +6,7 @@ from email.message import EmailMessage
 from email.utils import formataddr
 
 from app.core.config import AppSettings, get_app_settings
+from app.services.draft_content import normalize_email_draft
 
 
 @dataclass(frozen=True)
@@ -92,7 +93,7 @@ def _send_customer_email(
     if settings.smtp_reply_to_email:
         message["Reply-To"] = settings.smtp_reply_to_email
     message["Subject"] = _reply_subject(subject)
-    message.set_content(body)
+    message.set_content(normalize_email_draft(body))
 
     try:
         with smtplib.SMTP(

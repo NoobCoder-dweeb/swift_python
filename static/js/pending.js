@@ -22,11 +22,13 @@
   async function fetchDrafts(){
     try{
       const res = await fetch(`/api/drafts?order=${encodeURIComponent(sortOrder)}`);
+      if(!res.ok) return null;
       const drafts = await res.json();
+      if(!Array.isArray(drafts)) return null;
       setNotification(drafts.length > 0);
       return drafts;
     }catch(e){
-      return [];
+      return null;
     }
   }
 
@@ -65,7 +67,7 @@
           <span class="draft-sender">From: ${escapeHtml(d.sender)} • ${escapeHtml(d.created_display || d.created)}</span>
         </div>
         <div class="draft-actions">
-          <button class="expand-btn" type="button" aria-expanded="true"><i class="ph ph-caret-up"></i></button>
+          <button class="expand-btn" type="button" aria-label="Collapse draft" aria-expanded="true"><i class="ph ph-caret-up"></i></button>
           <button class="btn btn-primary approve-btn" data-draft-id="${d.draft_id}">Approve</button>
           <button class="btn btn-secondary reject-btn" data-draft-id="${d.draft_id}">Reject</button>
           <button class="btn btn-secondary edit-btn" type="button" data-draft-id="${d.draft_id}">Edit</button>
@@ -80,7 +82,7 @@
           <div class="draft-section-label">AI Response Draft</div>
           <div class="email-meta">
             <div><strong>To:</strong> ${escapeHtml(d.sender)}</div>
-            <div><strong>Subject:</strong> ${escapeHtml(replySubject(d.subject))}</div>
+            <div><strong>Subject:</strong> ${escapeHtml(d.reply_subject || replySubject(d.subject))}</div>
           </div>
           <div class="draft-section-content">${formatMultiline(d.ai_draft)}</div>
         </div>
@@ -112,17 +114,53 @@
     return document.getElementById('draftList');
   }
 
+  function findDraftCard(id){
+    return Array.from(document.querySelectorAll('.draft-card')).find(
+      card => card.dataset.draftId === String(id)
+    ) || null;
+  }
+
+  function updateEmptyState(){
+    if(!draftContainer) return;
+    const list = document.getElementById('draftList');
+    const empty = draftContainer.querySelector('[data-role="draft-empty"]');
+    const hasDrafts = Boolean(list && list.querySelector('.draft-card'));
+    if(hasDrafts){
+      if(empty) empty.remove();
+      return;
+    }
+    if(list) list.remove();
+    if(!empty){
+      draftContainer.insertAdjacentHTML(
+        'beforeend',
+        '<div class="card" data-role="draft-empty">No drafts pending.</div>'
+      );
+    }
+    setNotification(false);
+  }
+
   function insertDraftCard(node){
     const list = ensureDraftList();
     if(!list || !node) return;
+    const existing = findDraftCard(node.dataset.draftId);
+    if(existing) existing.remove();
     if(sortOrder === 'asc'){
       list.insertAdjacentElement('beforeend', node);
     }else{
       list.insertAdjacentElement('afterbegin', node);
     }
+    const empty = draftContainer && draftContainer.querySelector('[data-role="draft-empty"]');
+    if(empty) empty.remove();
   }
 
-  function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  function escapeHtml(s){
+    return String(s ?? '')
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#39;');
+  }
   function formatMultiline(s){ return escapeHtml(s).replace(/\n/g, '<br>'); }
 
   function renderCustomerEmail(d){
@@ -213,16 +251,19 @@
   }
 
   function getRejectionReason(id){
-    const input = document.querySelector(`[data-feedback-for='${id}']`);
+    const card = findDraftCard(id);
+    const input = card ? card.querySelector('.feedback-input') : null;
     return input ? input.value.trim() : '';
   }
 
   function getFeedbackPanel(id){
-    return document.querySelector(`.draft-card[data-draft-id='${id}'] .draft-feedback`);
+    const card = findDraftCard(id);
+    return card ? card.querySelector('.draft-feedback') : null;
   }
 
   function getFeedbackError(id){
-    return document.querySelector(`[data-feedback-error-for='${id}']`);
+    const card = findDraftCard(id);
+    return card ? card.querySelector('.feedback-error') : null;
   }
 
   function showFeedbackPanel(id){
@@ -232,7 +273,8 @@
   }
 
   function setFeedbackError(id, message=''){
-    const input = document.querySelector(`[data-feedback-for='${id}']`);
+    const card = findDraftCard(id);
+    const input = card ? card.querySelector('.feedback-input') : null;
     const error = getFeedbackError(id);
     if(input) input.classList.toggle('has-error', Boolean(message));
     if(!error) return;
@@ -279,6 +321,7 @@
     const btn = card.querySelector('.expand-btn');
     if(!btn) return;
     btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    btn.setAttribute('aria-label', expanded ? 'Collapse draft' : 'Expand draft');
     btn.innerHTML = expanded ? '<i class="ph ph-caret-up"></i>' : '<i class="ph ph-caret-down"></i>';
   }
 
@@ -295,18 +338,19 @@
       if(btn._bound) return; btn._bound = true;
       btn.addEventListener('click', async ()=>{
         const id = btn.dataset.draftId;
-        const card = document.querySelector(`.draft-card[data-draft-id='${id}']`);
-        const backup = card ? card.outerHTML : null;
+        const card = findDraftCard(id);
+        const backup = card ? card.cloneNode(true) : null;
         if(card) card.remove();
+        updateEmptyState();
         showToast('Approving...', 'info');
         recentApproved.add(id);
         setTimeout(()=>recentApproved.delete(id),5000);
-        const res = await postAction(`/api/drafts/${id}/approve`);
+        const res = await postAction(`/api/drafts/${encodeURIComponent(id)}/approve`);
         if(res && res.success !== false){
           showToast('Draft approved', 'success');
         }else{
           showToast('Approve failed', 'error');
-          if(backup){ const list = document.getElementById('draftList'); list.insertAdjacentHTML('afterbegin', backup); attachCardHandlers(list); }
+          if(backup){ insertDraftCard(backup); attachCardHandlers(backup); }
         }
       });
     });
@@ -314,27 +358,29 @@
       if(btn._bound) return; btn._bound = true;
       btn.addEventListener('click', async ()=>{
         const id = btn.dataset.draftId;
-        const card = document.querySelector(`.draft-card[data-draft-id='${id}']`);
+        const card = findDraftCard(id);
         const rejectionReason = getRejectionReason(id);
         showFeedbackPanel(id);
         if(!rejectionReason){
           setFeedbackError(id, 'A rejection reason is required before regenerating this draft.');
-          const input = document.querySelector(`[data-feedback-for='${id}']`);
+          const input = card ? card.querySelector('.feedback-input') : null;
           if(input) input.focus();
           return;
         }
         setFeedbackError(id, '');
-        const backup = card ? card.outerHTML : null;
+        const backup = card ? card.cloneNode(true) : null;
         if(card) card.remove();
+        updateEmptyState();
         showToast('Regenerating draft...', 'info');
-        const res = await postActionWithBody(`/api/drafts/${id}/reject`, {rejection_reason: rejectionReason});
+        recentRegenerated.add(id);
+        const res = await postActionWithBody(`/api/drafts/${encodeURIComponent(id)}/reject`, {rejection_reason: rejectionReason});
         if(res){
-          recentRegenerated.add(id);
           setTimeout(()=>recentRegenerated.delete(id),5000);
-          showToast('Draft regenerated', 'error');
+          showToast('Draft regenerated', 'success');
         }else{
+          recentRegenerated.delete(id);
           showToast('Reject failed', 'error');
-          if(backup){ const list = document.getElementById('draftList'); list.insertAdjacentHTML('afterbegin', backup); attachCardHandlers(list); }
+          if(backup){ insertDraftCard(backup); attachCardHandlers(backup); }
         }
       });
     });
@@ -342,7 +388,7 @@
     root.querySelectorAll('.edit-btn').forEach(btn=>{
       if(btn._bound) return; btn._bound = true;
       btn.addEventListener('click', ()=>{
-        const card = document.querySelector(`.draft-card[data-draft-id='${btn.dataset.draftId}']`);
+        const card = findDraftCard(btn.dataset.draftId);
         setDraftEditing(card, true);
       });
     });
@@ -351,7 +397,7 @@
       if(btn._bound) return; btn._bound = true;
       btn.addEventListener('click', async ()=>{
         const id = btn.dataset.draftId;
-        const card = document.querySelector(`.draft-card[data-draft-id='${id}']`);
+        const card = findDraftCard(id);
         if(!card){ return; }
         const aiContent = getDraftAiContent(card);
         const updatedText = aiContent ? aiContent.innerText.trim() : '';
@@ -360,7 +406,7 @@
           return;
         }
         showToast('Saving draft...', 'info');
-        const res = await postActionWithBody(`/api/drafts/${id}`, { ai_draft: updatedText }, 'PATCH');
+        const res = await postActionWithBody(`/api/drafts/${encodeURIComponent(id)}`, { ai_draft: updatedText }, 'PATCH');
         if(res){
           if(aiContent) aiContent.textContent = updatedText;
           setDraftEditing(card, false);
@@ -374,7 +420,7 @@
     root.querySelectorAll('.cancel-edit-btn').forEach(btn=>{
       if(btn._bound) return; btn._bound = true;
       btn.addEventListener('click', ()=>{
-        const card = document.querySelector(`.draft-card[data-draft-id='${btn.dataset.draftId}']`);
+        const card = findDraftCard(btn.dataset.draftId);
         if(!card){ return; }
         restoreDraftText(card);
         setDraftEditing(card, false);
@@ -432,7 +478,7 @@
       });
       es.addEventListener('draft_updated', e=>{
         const data = JSON.parse(e.data);
-        const card = document.querySelector(`.draft-card[data-draft-id='${data.draft_id}']`);
+        const card = findDraftCard(data.draft_id);
         if(card){
           const aiContent = card.querySelector('.draft-section-ai .draft-section-content');
           if(aiContent){ aiContent.textContent = data.ai_draft || ''; }
@@ -444,8 +490,9 @@
       es.addEventListener('approved', e=>{
         const data = JSON.parse(e.data);
         const id = data.draft_id || (data.payload && data.payload.draft_id) || data.draftId;
-        const card = document.querySelector(`.draft-card[data-draft-id='${id}']`);
+        const card = findDraftCard(id);
         if(card) card.remove();
+        updateEmptyState();
         if(!recentApproved.has(id)) showToast('Draft approved', 'success');
       });
       es.addEventListener('regenerated', e=>{
@@ -484,6 +531,6 @@
   // poll fallback for new drafts and update notification
   setInterval(async ()=>{
     const drafts = await fetchDrafts();
-    setNotification(drafts.length > 0);
+    if(drafts) setNotification(drafts.length > 0);
   }, 10000);
 })();

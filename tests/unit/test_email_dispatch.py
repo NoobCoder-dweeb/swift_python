@@ -75,13 +75,15 @@ def test_approved_email_sets_reply_to_for_cloudmailin(monkeypatch):
     result = send_approved_draft(
         recipient="customer@example.com",
         subject="Stock availability request",
-        body="Approved response",
+        body="Hi,<br><br>Approved response<br><br>Best regards,<br>Project Swift Support",
         settings=settings,
     )
 
     assert result.sent is True
     assert sent_messages[0]["Reply-To"] == "reply-target@cloudmailin.net"
     assert sent_messages[0]["Subject"] == "Re: Stock availability request"
+    assert "<br>" not in sent_messages[0].get_content()
+    assert "Best regards,\nProject Swift Support" in sent_messages[0].get_content()
 
 
 def test_approved_email_requires_reply_to_for_cloudmailin():

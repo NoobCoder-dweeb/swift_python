@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from app.core.config import get_app_settings
 from app.repositories.state_repository import get_state_repository
+from app.services.draft_content import normalize_email_draft
 from app.services.email_dispatcher import send_approved_draft
 
 
@@ -658,7 +659,7 @@ def build_product_references(workflow: dict[str, Any] | None) -> list[dict[str, 
 
 def append_product_references(ai_draft: str, workflow: dict[str, Any] | None) -> str:
     """adds product source links to the response body that will be sent."""
-    draft_text = (ai_draft or "").rstrip()
+    draft_text = normalize_email_draft(ai_draft).rstrip()
     if not draft_text:
         return draft_text
     if any(line.strip().lower() == "references:" for line in draft_text.splitlines()):

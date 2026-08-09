@@ -121,7 +121,7 @@ function toSnippet(text, maxLength = 96) {
 }
 
 function escapeHtml(value) {
-    return (value || '')
+    return String(value ?? '')
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')
         .replace(/>/g, '&gt;')
@@ -161,6 +161,7 @@ function setTheme(theme, options = {}) {
     const themeToggle = document.getElementById('themeToggle');
     if (!themeToggle) return;
     const icon = themeToggle.querySelector('i');
+    if (!icon) return;
     if (theme === 'dark') {
         icon.classList.remove('ph-moon');
         icon.classList.add('ph-sun');
@@ -190,13 +191,22 @@ function initSidebar() {
     const overlay = document.querySelector('.sidebar-overlay');
 
     if (!sidebar || !toggleBtn) return;
+    toggleBtn.setAttribute('aria-expanded', window.innerWidth > 768 ? 'true' : 'false');
 
     toggleBtn.addEventListener('click', () => {
         if (window.innerWidth <= 768) {
             sidebar.classList.toggle('mobile-open');
-            overlay.classList.toggle('active');
+            if (overlay) overlay.classList.toggle('active');
+            toggleBtn.setAttribute(
+                'aria-expanded',
+                sidebar.classList.contains('mobile-open') ? 'true' : 'false'
+            );
         } else {
             sidebar.classList.toggle('collapsed');
+            toggleBtn.setAttribute(
+                'aria-expanded',
+                sidebar.classList.contains('collapsed') ? 'false' : 'true'
+            );
         }
     });
 
@@ -204,6 +214,7 @@ function initSidebar() {
         overlay.addEventListener('click', () => {
             sidebar.classList.remove('mobile-open');
             overlay.classList.remove('active');
+            toggleBtn.setAttribute('aria-expanded', 'false');
         });
     }
 
@@ -211,6 +222,15 @@ function initSidebar() {
         if (window.innerWidth > 768) {
             sidebar.classList.remove('mobile-open');
             if (overlay) overlay.classList.remove('active');
+            toggleBtn.setAttribute(
+                'aria-expanded',
+                sidebar.classList.contains('collapsed') ? 'false' : 'true'
+            );
+        } else {
+            toggleBtn.setAttribute(
+                'aria-expanded',
+                sidebar.classList.contains('mobile-open') ? 'true' : 'false'
+            );
         }
     });
 }

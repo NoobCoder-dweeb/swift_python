@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import httpx
 
+from app.services.draft_content import normalize_email_draft
 from app.crews.agents import (
     EmailDraftingAgent,
     LocalLLMConfig,
@@ -920,7 +921,7 @@ def _append_product_references(ai_draft: str, product_context: ProductContext) -
     are preserved so regenerated or externally supplied drafts are not given
     duplicate link blocks.
     """
-    draft_text = (ai_draft or "").rstrip()
+    draft_text = normalize_email_draft(ai_draft).rstrip()
     if not draft_text:
         return draft_text
     if any(line.strip().lower() == "references:" for line in draft_text.splitlines()):
