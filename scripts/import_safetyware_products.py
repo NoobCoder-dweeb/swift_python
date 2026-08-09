@@ -192,7 +192,9 @@ def load_initial_category_pages(session: requests.Session) -> list[CategoryPage]
     response.raise_for_status()
     categories = parse_category_links(response.text)
     if not categories:
-        raise RuntimeError(f"No Safetyware category links found at {PRODUCT_SOURCE_URL}")
+        raise RuntimeError(
+            f"No Safetyware category links found at {PRODUCT_SOURCE_URL}"
+        )
     return categories
 
 
@@ -340,7 +342,9 @@ def unit_of_measure(category: str, name: str) -> str:
         return "pair"
     if any(word in text for word in ("wipe", "battery", "filter", "label", "sign")):
         return "pack"
-    if any(word in text for word in ("training", "assessment", "consultation", "rental")):
+    if any(
+        word in text for word in ("training", "assessment", "consultation", "rental")
+    ):
         return "service"
     return "unit"
 
@@ -369,72 +373,11 @@ def write_init_db(rows: list[ProductRow], path: Path) -> None:
 
 
 def create_schema_sql() -> str:
-    return """
-CREATE TABLE IF NOT EXISTS swift_drafts (
-    draft_id TEXT PRIMARY KEY,
-    sender TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    body TEXT NOT NULL,
-    status TEXT NOT NULL,
-    created TEXT NOT NULL,
-    updated TEXT NOT NULL,
-    revisions INTEGER NOT NULL DEFAULT 0,
-    last_rejection_reason TEXT NOT NULL DEFAULT '',
-    ai_draft_text TEXT NOT NULL DEFAULT '',
-    workflow JSONB
-);
-
-CREATE INDEX IF NOT EXISTS swift_drafts_review_idx
-    ON swift_drafts (status, created DESC);
-
-CREATE TABLE IF NOT EXISTS swift_audits (
-    audit_id TEXT PRIMARY KEY,
-    draft_id TEXT,
-    action TEXT,
-    timestamp TEXT,
-    payload JSONB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS swift_audits_action_idx
-    ON swift_audits (action, timestamp DESC);
-
-CREATE TABLE IF NOT EXISTS swift_emails (
-    email_id TEXT PRIMARY KEY,
-    sender TEXT NOT NULL,
-    subject TEXT NOT NULL,
-    body TEXT NOT NULL,
-    raw_body TEXT,
-    preprocessed BOOLEAN NOT NULL DEFAULT FALSE,
-    removed_line_count INTEGER NOT NULL DEFAULT 0,
-    status TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    updated_at TEXT,
-    draft_id TEXT,
-    payload JSONB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS swift_emails_created_idx
-    ON swift_emails (created_at DESC);
-
-CREATE TABLE IF NOT EXISTS swift_products (
-    product_id TEXT PRIMARY KEY,
-    sku TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    source_url TEXT NOT NULL DEFAULT 'https://safetyware.com/products/',
-    category TEXT NOT NULL,
-    description TEXT NOT NULL DEFAULT '',
-    currency TEXT NOT NULL DEFAULT 'RM',
-    unit_price NUMERIC(10,2) NOT NULL,
-    stock_availability INTEGER NOT NULL DEFAULT 0,
-    unit_of_measure TEXT NOT NULL DEFAULT 'unit',
-    status TEXT NOT NULL DEFAULT 'active',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE INDEX IF NOT EXISTS swift_products_status_idx
-    ON swift_products (status, name);
-""".strip()
+    """loads the same canonical schema used by application startup."""
+    schema_path = (
+        Path(__file__).resolve().parents[1] / "app" / "repositories" / "schema.sql"
+    )
+    return schema_path.read_text(encoding="utf-8").strip()
 
 
 def sql_literal(value: Any) -> str:

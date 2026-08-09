@@ -43,7 +43,7 @@
                                     <div class="audit-title">{{ a.action|title }} — {{ a.draft_id }}</div>
                                     <div class="audit-meta">Version {{ a.version_id }} • By: {{ a.approver }} at {{ a.timestamp_display }}</div>
                                 </div>
-                                <button class="audit-toggle" type="button" aria-expanded="{% if default_collapsed %}false{% else %}true{% endif %}">
+                                <button class="audit-toggle" type="button" aria-label="{% if default_collapsed %}Expand{% else %}Collapse{% endif %} audit details" aria-expanded="{% if default_collapsed %}false{% else %}true{% endif %}">
                                     <i class="ph {% if default_collapsed %}ph-caret-down{% else %}ph-caret-up{% endif %}"></i>
                                 </button>
                             </div>

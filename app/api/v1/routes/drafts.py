@@ -42,6 +42,7 @@ async def approve_draft(draft_id: str, request: Request):
     return draft_service.approve_draft(
         draft_id,
         approver=officer.name,
+        approver_user_id=officer.user_id,
         approver_username=officer.username,
     )
 
@@ -54,6 +55,7 @@ async def update_draft(draft_id: str, payload: DraftUpdatePayload, request: Requ
         draft_id,
         payload.ai_draft,
         approver=officer.name,
+        approver_user_id=officer.user_id,
         approver_username=officer.username,
     )
     if not updated:
@@ -79,5 +81,6 @@ async def reject_draft(draft_id: str, request: Request, reason: str = ""):
         draft_id,
         rejection_reason,
         approver=officer.name,
+        approver_user_id=officer.user_id,
         approver_username=officer.username,
     )

@@ -32,7 +32,7 @@
                                 <span class="draft-sender">From: {{ d.sender }} • {{ d.created_display }}</span>
                             </div>
                             <div class="draft-actions">
-                                <button class="expand-btn" type="button" aria-expanded="true"><i class="ph ph-caret-up"></i></button>
+                                <button class="expand-btn" type="button" aria-label="Collapse draft" aria-expanded="true"><i class="ph ph-caret-up"></i></button>
                                 {% if d.status == 'pending' %}
                                 <button class="btn btn-primary approve-btn" data-draft-id="{{ d.draft_id }}">Approve</button>
                                 <button class="btn btn-secondary reject-btn" data-draft-id="{{ d.draft_id }}">Reject</button>
@@ -113,7 +113,7 @@
                     {% endfor %}
                 </div>
             {% else %}
-                <div class="card">No drafts pending.</div>
+                <div class="card" data-role="draft-empty">No drafts pending.</div>
             {% endif %}
             </div>
 {% endblock %}

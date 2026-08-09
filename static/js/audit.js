@@ -5,6 +5,7 @@
     const btn = entry.querySelector('.audit-toggle');
     if (!btn) return;
     btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    btn.setAttribute('aria-label', expanded ? 'Collapse audit details' : 'Expand audit details');
     btn.innerHTML = expanded ? '<i class="ph ph-caret-up"></i>' : '<i class="ph ph-caret-down"></i>';
   }
 

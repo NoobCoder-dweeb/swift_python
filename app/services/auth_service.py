@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from threading import RLock
+from uuid import UUID
 
 import bcrypt
 from fastapi import HTTPException, Request, status
@@ -20,6 +21,7 @@ ADMIN_ROLES = {"admin", "administrator"}
 class SalesOfficerAccount:
     """represents a database-backed sales reviewer account."""
 
+    user_id: str
     username: str
     email: str
     name: str
@@ -148,7 +150,10 @@ def role_is_admin(role: str) -> bool:
 def list_accounts() -> list[dict[str, str | bool]]:
     """lists database-backed sales reviewer accounts for UI context."""
     ensure_default_users()
-    return [_account_from_row(row).public_dict() for row in get_state_repository().list_users()]
+    return [
+        _account_from_row(row).public_dict()
+        for row in get_state_repository().list_users()
+    ]
 
 
 def authenticate(username: str, password: str) -> SalesOfficerAccount | None:
@@ -161,11 +166,19 @@ def authenticate(username: str, password: str) -> SalesOfficerAccount | None:
     return _account_from_row(row)
 
 
-def get_account(username: str | None) -> SalesOfficerAccount | None:
-    """finds a database account by username."""
+def get_account(identity: str | None) -> SalesOfficerAccount | None:
+    """finds an account by UUID, with legacy username-session compatibility."""
+    normalized_identity = (identity or "").strip()
+    if not normalized_identity:
+        return None
     ensure_default_users()
-    normalized_username = (username or "").strip().lower()
-    row = get_state_repository().get_user_by_username(normalized_username)
+    repository = get_state_repository()
+    try:
+        user_id = str(UUID(normalized_identity))
+    except ValueError:
+        row = repository.get_user_by_username(normalized_identity.lower())
+    else:
+        row = repository.get_user_by_id(user_id)
     return _account_from_row(row) if row else None
 
 
@@ -199,6 +212,7 @@ def _account_from_row(row: UserRow) -> SalesOfficerAccount:
     name = str(profile.get("name") or _display_name(username))
     initials = str(profile.get("initials") or _initials(name))
     return SalesOfficerAccount(
+        user_id=str(row.get("user_id") or ""),
         username=username,
         email=str(row.get("email") or ""),
         name=name,
@@ -225,7 +239,7 @@ def current_account(request: Request) -> SalesOfficerAccount | None:
 
 def open_session(request: Request, account: SalesOfficerAccount) -> None:
     """stores the signed-in sales officer in the session."""
-    request.session[SESSION_USER_KEY] = account.username
+    request.session[SESSION_USER_KEY] = account.user_id
 
 
 def clear_session(request: Request) -> None:

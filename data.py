@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from app.core.config import get_app_settings
 from app.repositories.state_repository import get_state_repository
+from app.services.draft_content import normalize_email_draft
 from app.services.email_dispatcher import send_approved_draft
 
 
@@ -658,7 +659,7 @@ def build_product_references(workflow: dict[str, Any] | None) -> list[dict[str, 
 
 def append_product_references(ai_draft: str, workflow: dict[str, Any] | None) -> str:
     """adds product source links to the response body that will be sent."""
-    draft_text = (ai_draft or "").rstrip()
+    draft_text = normalize_email_draft(ai_draft).rstrip()
     if not draft_text:
         return draft_text
     if any(line.strip().lower() == "references:" for line in draft_text.splitlines()):
@@ -1043,6 +1044,7 @@ def approve_draft(
     draft_id: str,
     approver: str,
     emailed_to: str | None = None,
+    approver_user_id: str | None = None,
     approver_username: str | None = None,
 ) -> dict | None:
     """records approval once and removes the draft from the active queue."""
@@ -1072,6 +1074,7 @@ def approve_draft(
             'sender': draft.sender,
             'subject': draft.subject,
             'approver': approver,
+            'approver_user_id': approver_user_id,
             'approver_username': approver_username,
             'action': 'approval_failed',
             'emailed_to': recipient,
@@ -1091,6 +1094,7 @@ def approve_draft(
         'sender': draft.sender,
         'subject': draft.subject,
         'approver': approver,
+        'approver_user_id': approver_user_id,
         'approver_username': approver_username,
         'action': 'approved',
         'timestamp': datetime.now().isoformat(),
