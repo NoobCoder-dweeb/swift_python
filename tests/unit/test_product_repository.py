@@ -49,6 +49,40 @@ def _safety_glasses_row():
     }
 
 
+def _round_pedal_bin_row():
+    return {
+        "product_id": "SWP-ROUND-PEDAL-BIN-18L",
+        "sku": "SW-ROUND-PEDAL-BIN-18L",
+        "name": "Round Pedal Bin 18L",
+        "source_url": "https://safetyware.com/product/round-pedal-bin-18l/",
+        "category": "Maintenance Repair And Operations Mro",
+        "description": "Compact waste bin operated with a foot pedal.",
+        "currency": "RM",
+        "unit_price": 431.01,
+        "stock_availability": 180,
+        "unit_of_measure": "unit",
+        "status": "active",
+    }
+
+
+def _mobile_garbage_bin_row():
+    return {
+        "product_id": "SWP-MOBILE-GARBAGE-BIN-660L",
+        "sku": "SW-MOBILE-GARBAGE-BIN-660L",
+        "name": "Mobile Garbage Bin With Foot Pedal 660L",
+        "source_url": "https://safetyware.com/product/mobile-garbage-bin-with-foot-pedal-660l/",
+        "category": "Maintenance Repair And Operations Mro",
+        # Catalogue prose may contain the requested product words, but that
+        # must not outweigh a stronger match in another row's product name.
+        "description": "A round-lid pedal bin for mobile waste collection.",
+        "currency": "RM",
+        "unit_price": 84.55,
+        "stock_availability": 470,
+        "unit_of_measure": "unit",
+        "status": "active",
+    }
+
+
 def test_postgres_product_lookup_rejects_quantity_only_overlap(monkeypatch):
     """a quantity like 40 must not match an unrelated 40 Cal product."""
     client = PostgresProductLookupClient("postgresql://unused")
@@ -75,6 +109,42 @@ def test_postgres_product_lookup_accepts_real_product_terms(monkeypatch):
     assert result["product"] == "CATU 40 Cal Arc Flash Kit"
     assert result["price"] == 2062.25
     assert result["source_url"] == "https://safetyware.com/product/catu-40-cal-arc-flash-kit/"
+
+
+def test_postgres_product_lookup_prefers_requested_name_over_description_overlap(
+    monkeypatch,
+):
+    """Round Pedal Bin must not resolve to a different pedal-bin product."""
+    client = PostgresProductLookupClient("postgresql://unused")
+    monkeypatch.setattr(
+        client,
+        "_list_products",
+        lambda: [_mobile_garbage_bin_row(), _round_pedal_bin_row()],
+    )
+
+    result = client.get_product(
+        "Hi, want to inquire about stock availability of your Round Pedal Bin"
+    )
+
+    assert result["product"] == "Round Pedal Bin 18L"
+    assert result["sku"] == "SW-ROUND-PEDAL-BIN-18L"
+    assert result["stock_availability"] == 180
+
+
+def test_postgres_product_lookup_does_not_substitute_partial_product_name(monkeypatch):
+    """a related pedal bin is only a suggestion when the requested row is absent."""
+    client = PostgresProductLookupClient("postgresql://unused")
+    monkeypatch.setattr(client, "_list_products", lambda: [_mobile_garbage_bin_row()])
+
+    result = client.get_product(
+        "Hi, want to inquire about stock availability of your Round Pedal Bin"
+    )
+
+    assert result["confidence"] == 0.0
+    assert result["product"] == "Round Pedal Bin"
+    assert [item["product"] for item in result["suggested_products"]] == [
+        "Mobile Garbage Bin With Foot Pedal 660L"
+    ]
 
 
 def test_postgres_product_lookup_recovers_source_url_from_legacy_description(monkeypatch):

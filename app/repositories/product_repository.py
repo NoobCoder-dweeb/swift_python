@@ -287,7 +287,9 @@ def _rank_catalog_matches_by_relevance(
     """scores catalogue rows by SKU/name hits and meaningful product-token overlap."""
     query_lower = query.lower()
     query_tokens = _meaningful_product_tokens(query)
-    scored: list[tuple[int, str, dict[str, Any]]] = []
+    requested_product = _extract_requested_product_name(query)
+    requested_tokens = _meaningful_product_tokens(requested_product or "")
+    scored: list[tuple[int, int, int, str, dict[str, Any]]] = []
 
     for row in rows:
         sku = str(row.get("sku") or "").lower()
@@ -303,12 +305,19 @@ def _rank_catalog_matches_by_relevance(
         name_overlap = token_overlap & name_tokens
         direct_sku_match = bool(sku and sku in query_lower)
         direct_name_match = bool(name_lower and name_lower in query_lower)
-        score = len(token_overlap)
+        # Product-name agreement is more trustworthy than words found only in
+        # a category or description. Without this distinction, a competing
+        # row whose prose happens to mention every query term can tie the
+        # requested product and win alphabetically (for example, "Mobile
+        # Garbage Bin ..." over "Round Pedal Bin 18L").
+        name_score = len(name_overlap)
+        supporting_score = len(token_overlap - name_overlap)
+        direct_score = 0
 
         if direct_sku_match:
-            score += 6
+            direct_score += 6
         if direct_name_match:
-            score += 5
+            direct_score += 5
 
         sufficient = _has_sufficient_match_signal(
             direct_sku_match=direct_sku_match,
@@ -322,15 +331,26 @@ def _rank_catalog_matches_by_relevance(
             sufficient = len(signal_overlap) >= relaxed_min_overlap or bool(name_overlap)
         if not sufficient:
             continue
+        if (
+            not for_suggestions
+            and len(requested_tokens) >= 2
+            and not (direct_sku_match or direct_name_match)
+            and not _tokens_are_covered(requested_tokens, name_tokens)
+        ):
+            # A partial family-name hit is useful as a suggestion, but it is
+            # not safe enough to supply price or stock as an exact match.
+            continue
 
-        if score > 0:
-            scored.append((score, name, row))
+        if direct_score or name_score or supporting_score:
+            scored.append(
+                (direct_score, name_score, supporting_score, name, row)
+            )
 
     if not scored:
         return []
 
-    scored.sort(key=lambda item: (-item[0], item[1]))
-    return [item[2] for item in scored]
+    scored.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3]))
+    return [item[4] for item in scored]
 
 
 def _search_tokens(value: str) -> set[str]:
@@ -352,6 +372,15 @@ def _meaningful_product_tokens(value: str) -> set[str]:
         for token in _search_tokens(value)
         if token not in _PRODUCT_STOP_WORDS and not token.isdigit()
     }
+
+
+def _tokens_are_covered(requested: set[str], candidate: set[str]) -> bool:
+    """allows simple plurals while requiring every requested product term."""
+    return all(
+        token in candidate
+        or (token.endswith("s") and token[:-1] in candidate)
+        for token in requested
+    )
 
 
 def _has_sufficient_match_signal(
@@ -376,6 +405,7 @@ def _extract_requested_product_name(query: str) -> str | None:
     """best-effort extraction for explaining which product could not be matched."""
     lowered = query.lower()
     patterns = (
+        r"(?:stock\s+availability|availability|stock)\s+(?:of|for)\s+(?:your|the|a|an)?\s*(?P<product>[a-z0-9][a-z0-9\s-]{2,80}?)(?:\?|\.|,|$)",
         r"\b\d{1,6}(?:\.\d+)?\s*(?:units?|pcs?|pieces?|boxes?|cartons?|pairs?|sets?)\s+of\s+(?P<product>[a-z0-9][a-z0-9\s-]{2,80}?)(?:\?|\.|,| and | with | available| stock| price| pricing| quote| cost|$)",
         r"(?:for|about|of)\s+(?P<product>[a-z0-9][a-z0-9\s-]{2,80}?)(?:\?|\.|,| and | with | available| stock| price| pricing| quote| cost|$)",
         r"(?:do you (?:sell|have|carry)|is)\s+(?P<product>[a-z0-9][a-z0-9\s-]{2,80}?)(?:\?|\.|,| available| in stock|$)",

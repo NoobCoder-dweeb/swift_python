@@ -411,6 +411,11 @@ class PostgresStateRepository:
                     conn.execute(migration.read_text(encoding="utf-8"))
             with conn.transaction():
                 conn.execute((schema_dir / "schema.sql").read_text(encoding="utf-8"))
+                migration = (
+                    schema_dir / "migrations" / "003_add_round_pedal_bin.sql"
+                )
+                if migration.exists():
+                    conn.execute(migration.read_text(encoding="utf-8"))
 
     def list_drafts(self) -> list[DraftRow]:
         """feeds pending-review views from durable storage."""

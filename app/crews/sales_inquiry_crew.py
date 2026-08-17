@@ -37,7 +37,7 @@ from app.crews.workflow_models import (
 from app.core.config import get_app_settings
 from app.repositories.product_repository import build_product_lookup_client
 from app.schemas.email import IncomingEmail
-from app.services.email_preprocessor import preprocess_email
+from app.services.email_preprocessor import PreprocessedEmail, preprocess_email
 
 try:
     _crewai = import_module("crewai")
@@ -105,7 +105,19 @@ def run_sales_inquiry_workflow(
     start = time.perf_counter()
     reviewer_feedback = (reviewer_feedback or "").strip() or None
     previous_draft = (previous_draft or "").strip() or None
-    preprocessed = preprocess_email(email)
+    # Rejection regeneration supplies an internal wrapper that already contains
+    # a cleaned current reply plus trusted thread context. Running the ordinary
+    # email relevance selector over that wrapper can discard the current reply
+    # and retain only the previous rejected draft.
+    has_internal_thread_context = "Current customer reply to answer now:" in email.body
+    if has_internal_thread_context:
+        preprocessed = PreprocessedEmail(
+            email=email,
+            original_body=email.body,
+            removed_lines=[],
+        )
+    else:
+        preprocessed = preprocess_email(email)
     cleaned_email = preprocessed.email
     processor = SalesProcessingAgent(product_client=build_product_lookup_client())
     drafter = EmailDraftingAgent()
@@ -118,11 +130,18 @@ def run_sales_inquiry_workflow(
         subject=cleaned_email.subject,
         body=cleaned_email.body,
     )
-    product_query = f"{cleaned_email.subject}\n{cleaned_email.body}"
+    current_reply = _current_reply_segment(cleaned_email.body)
+    product_query = f"{cleaned_email.subject}\n{current_reply}"
+    product_history_query = (
+        f"{cleaned_email.subject}\n{cleaned_email.body}"
+        if current_reply != cleaned_email.body
+        else None
+    )
     product_context = _lookup_product_context_for_inquiry(
         processor,
         inquiry,
         product_query,
+        fallback_query=product_history_query,
     )
     inquiry = _promote_product_only_inquiry(processor, inquiry, product_context)
     if (
@@ -140,7 +159,6 @@ def run_sales_inquiry_workflow(
                 ],
             }
         )
-    current_reply = _current_reply_segment(cleaned_email.body)
     if current_reply != cleaned_email.body:
         current_inquiry_type = _current_reply_inquiry_type(current_reply)
         current_quantity = processor._detect_quantity(current_reply.lower())
@@ -204,6 +222,7 @@ def run_sales_inquiry_workflow(
         processor,
         inquiry,
         product_query,
+        fallback_query=product_history_query,
     )
     inquiry = _promote_product_only_inquiry(processor, inquiry, product_context)
     if (
@@ -893,6 +912,7 @@ def _lookup_product_context_for_inquiry(
     processor: SalesProcessingAgent,
     inquiry: InquiryDetails,
     product_query: str,
+    fallback_query: str | None = None,
 ) -> ProductContext:
     """
     Select the product lookup tool that matches the classified inquiry.
@@ -904,7 +924,10 @@ def _lookup_product_context_for_inquiry(
     """
     if inquiry.inquiry_type == "listing":
         return processor.lookup_product_list_context(product_query)
-    return processor.lookup_product_context(inquiry.product_name, product_query)
+    context = processor.lookup_product_context(inquiry.product_name, product_query)
+    if context.confidence < 0.5 and fallback_query:
+        return processor.lookup_product_context(inquiry.product_name, fallback_query)
+    return context
 
 
 def _promote_product_only_inquiry(
@@ -1157,7 +1180,16 @@ def _feedback_quantity_override(feedback: str) -> int | None:
     """
     lower = feedback.lower()
     if not any(
-        token in lower for token in ("want", "compute", "total", "price", "pricing")
+        token in lower
+        for token in (
+            "want",
+            "compute",
+            "total",
+            "price",
+            "pricing",
+            "quote",
+            "quotation",
+        )
     ):
         return None
     matches = [

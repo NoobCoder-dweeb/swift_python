@@ -166,6 +166,61 @@ def test_sales_workflow_regeneration_uses_feedback_without_inventing_facts():
     assert any("Reviewer feedback applied" in note for note in result.learning_notes)
 
 
+def test_regeneration_uses_current_product_and_quotation_quantity_feedback(monkeypatch):
+    """a rejected old draft must not poison product lookup or quantity correction."""
+    queries = []
+
+    class StoredProductClient:
+        def get_product(self, query):
+            queries.append(query)
+            if "round pedal bin" in query.lower():
+                return {
+                    "product": "Round Pedal Bin 18L",
+                    "sku": "SW-ROUND-PEDAL-BIN-18L",
+                    "stock_availability": 180,
+                    "price": 431.01,
+                    "currency": "RM",
+                    "source": "postgres",
+                    "confidence": 0.96,
+                }
+            return {
+                "product": "Mobile Garbage Bin With Foot Pedal 660L",
+                "sku": "SW-MOBILE-GARBAGE-BIN-660L",
+                "stock_availability": 470,
+                "price": 281.73,
+                "currency": "RM",
+                "source": "postgres",
+                "confidence": 0.96,
+            }
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: StoredProductClient(),
+    )
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Re: Inquire about maintenance pedal",
+            body=(
+                "Current customer reply to answer now: I want to obtain a quotation "
+                "for Round Pedal Bin 18L\n\n"
+                "Conversation history for context only:\n"
+                "Previous rejected draft: Mobile Garbage Bin With Foot Pedal 660L "
+                "(SKU SW-MAINTENANCE-REPAIR-AND-O-32808-448)"
+            ),
+        ),
+        reviewer_feedback="quotation is 5 unit",
+        previous_draft="The old draft quoted the mobile garbage bin.",
+        use_crewai=False,
+    )
+
+    assert queries
+    assert "Mobile Garbage Bin" not in queries[0]
+    assert result.product_context.product == "Round Pedal Bin 18L"
+    assert result.inquiry.quantity == 5
+    assert "total price for 5 units is RM 2155.05" in result.ai_draft
+
+
 def test_sales_workflow_regeneration_applies_delivery_fee_feedback():
     """reviewer pricing policies should become deterministic regeneration guidance."""
     result = run_sales_inquiry_workflow(
