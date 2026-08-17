@@ -95,3 +95,58 @@ async def test_pending_page_shows_product_references_inside_ai_draft():
     assert "1. https://safetyware.com/product/safety-helmet/" in response.text
     assert "product-reference-card" not in response.text
     assert "draft-references" not in response.text
+
+
+async def test_pending_page_marks_rejected_response_with_red_side_class():
+    """rejected officer responses must not inherit the approved green side border."""
+    repository = get_state_repository()
+    now = datetime.now().isoformat()
+    sender = "rejected.thread@example.com"
+    subject = "Rejected response colour"
+    repository.insert_audit(
+        {
+            "audit_id": "AUD-PENDING-REJECTED-COLOUR",
+            "draft_id": "DFT-PENDING-REJECTED-PRIOR",
+            "version_id": "DFT-PENDING-REJECTED-PRIOR-v1",
+            "sender": sender,
+            "subject": subject,
+            "approver": "John Doe",
+            "action": "rejected",
+            "timestamp": now,
+            "emailed_to": None,
+            "sent": False,
+            "customer_inquiry": "Please quote five units.",
+            "ai_draft": "The rejected response.",
+            "review_comment": "The facts need correction.",
+        }
+    )
+    repository.upsert_draft(
+        {
+            "draft_id": "DFT-PENDING-REJECTED-CURRENT",
+            "sender": sender,
+            "subject": f"Re: {subject}",
+            "body": "Please provide the corrected quote.",
+            "status": "pending",
+            "created": now,
+            "updated": now,
+            "revisions": 0,
+            "last_rejection_reason": "",
+            "ai_draft_text": "The regenerated response.",
+            "workflow": {"inquiry": {"inquiry_type": "pricing"}},
+        }
+    )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(
+        transport=transport,
+        base_url="http://testserver",
+    ) as client:
+        await client.post(
+            "/login",
+            data={"username": "john", "password": "swift123", "next": "/pending"},
+        )
+        response = await client.get("/pending")
+
+    assert response.status_code == 200
+    assert 'class="thread-item thread-item-officer is-rejected"' in response.text
+    assert "Rejected response" in response.text

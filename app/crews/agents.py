@@ -252,6 +252,7 @@ class SalesProcessingAgent:
                 "price",
                 "pricing",
                 "quote",
+                "quotation",
                 "cost",
                 "rate",
                 "how much",
@@ -781,6 +782,15 @@ class EmailDraftingAgent:
             reasons.append("contains_generic_signature_placeholder")
         if any(line.strip().lower().startswith("subject:") for line in draft.splitlines()):
             reasons.append("contains_subject_line")
+        if any(
+            marker in lower
+            for marker in (
+                "expected criteria for your final answer",
+                "expected criteria for the final answer",
+                "expected output:",
+            )
+        ):
+            reasons.append("contains_agent_instruction_leak")
         if any(
             term in lower
             for term in (

@@ -94,6 +94,7 @@
 }
 .thread-item-customer{border-left:3px solid var(--primary)}
 .thread-item-officer{border-left:3px solid var(--success, #28a745)}
+.thread-item-officer.is-rejected{border-left-color:var(--danger, #dc3545)}
 .thread-item-toggle{
   display:grid;
   grid-template-columns:minmax(0, 1fr) auto;

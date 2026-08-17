@@ -1,5 +1,8 @@
+import threading
+
 import httpx
 
+from app.api.v1.routes import drafts as draft_routes
 from app.core.config import reset_app_settings
 from app.main import app
 from app.repositories.state_repository import get_state_repository
@@ -107,6 +110,43 @@ async def test_reject_regenerates_from_stored_data_with_reviewer_feedback():
     assert any("Reviewer feedback applied" in note for note in audit["details"]["learning_notes"])
 
 
+async def test_reject_route_runs_regeneration_outside_event_loop(monkeypatch):
+    """CrewAI's synchronous kickoff must not run in FastAPI's event-loop thread."""
+    event_loop_thread = threading.get_ident()
+    observed: dict[str, object] = {}
+
+    def fake_reject(draft_id, reason, **reviewer):
+        observed["thread_id"] = threading.get_ident()
+        observed["draft_id"] = draft_id
+        observed["reason"] = reason
+        observed["reviewer"] = reviewer
+        return {"success": True, "draft_id": draft_id, "status": "pending"}
+
+    monkeypatch.setattr(draft_routes.draft_service, "reject_draft", fake_reject)
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        await client.post(
+            "/login",
+            data={"username": "john", "password": "swift123", "next": "/pending"},
+        )
+        response = await client.post(
+            "/api/drafts/DFT-ASYNC-REJECT/reject",
+            json={"reason": "Correct the response."},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert observed["thread_id"] != event_loop_thread
+    assert observed["draft_id"] == "DFT-ASYNC-REJECT"
+    assert observed["reason"] == "Correct the response."
+    reviewer = observed["reviewer"]
+    assert isinstance(reviewer, dict)
+    assert reviewer["approver"] == "John Doe"
+    assert reviewer["approver_user_id"]
+    assert reviewer["approver_username"] == "john"
+
+
 async def test_reject_regenerates_follow_up_with_thread_context_quantity(monkeypatch):
     """regeneration should preserve product context and use the current reply quantity."""
     monkeypatch.setenv("SWIFT_AGENT_BACKEND", "deterministic")
@@ -181,7 +221,9 @@ async def test_reject_regenerates_follow_up_with_thread_context_quantity(monkeyp
     assert "Product X" in regenerated["ai_draft"]
     assert "total price for 20 units is RM 2400.00" in regenerated["ai_draft"]
     assert "20 x RM 120.00 = RM 2400.00" in regenerated["ai_draft"]
-    assert "500 units" not in regenerated["ai_draft"]
+    assert "Current available stock is 500 units." in regenerated["ai_draft"]
+    assert "requested quantity of 20 units appears" in regenerated["ai_draft"]
+    assert "Please confirm the missing details: requested delivery." in regenerated["ai_draft"]
     assert "only supports product pricing" not in regenerated["ai_draft"]
 
 
@@ -240,7 +282,9 @@ async def test_reject_cleans_nested_thread_context_from_customer_body(monkeypatc
     assert "Current customer reply to answer now" not in regenerated["customer_inquiry"]
     assert "Use this only to infer" not in regenerated["customer_inquiry"]
     assert "total price for 20 units is RM 2400.00" in regenerated["ai_draft"]
-    assert "500 units" not in regenerated["ai_draft"]
+    assert "Current available stock is 500 units." in regenerated["ai_draft"]
+    assert "requested quantity of 20 units appears" in regenerated["ai_draft"]
+    assert "Please confirm the missing details: requested delivery." in regenerated["ai_draft"]
 
 
 async def test_reject_feedback_quantity_uses_corrected_latest_quantity(monkeypatch):

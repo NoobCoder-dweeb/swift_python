@@ -184,8 +184,9 @@
     const countLabel = `${history.length} conversation message${history.length === 1 ? '' : 's'}`;
     const items = history.map(item => {
       const expanded = Boolean(item.is_current);
+      const rejected = String(item.action || '').toLowerCase() === 'rejected';
       return `
-      <article class="thread-item thread-item-${escapeHtml(item.kind || 'message')}${expanded ? ' expanded' : ''}">
+      <article class="thread-item thread-item-${escapeHtml(item.kind || 'message')}${rejected ? ' is-rejected' : ''}${expanded ? ' expanded' : ''}">
         <button class="thread-item-toggle" type="button" aria-expanded="${expanded ? 'true' : 'false'}">
           <span class="thread-item-title">${escapeHtml(item.title || titleCase(item.kind || 'message'))}</span>
           <span class="thread-item-meta">${escapeHtml(threadMeta(item))}</span>

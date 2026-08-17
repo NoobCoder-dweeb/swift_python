@@ -127,6 +127,23 @@ def test_postgres_product_lookup_omits_suggestions_without_signal(monkeypatch):
     assert result["suggested_products"] == []
 
 
+def test_postgres_product_lookup_does_not_select_product_for_vague_inquiry(monkeypatch):
+    """generic inquiry wording must not overlap incidental catalogue prose."""
+    hand_sign = {
+        **_face_shield_row(),
+        "name": "QUICKSIGN Machinery Sign – ML004 Watch Your Hand & Finger",
+        "description": "Machinery sign reminding operators to watch your hands.",
+    }
+    client = PostgresProductLookupClient("postgresql://unused")
+    monkeypatch.setattr(client, "_list_products", lambda: [hand_sign])
+
+    result = client.get_product("inquire about your products")
+
+    assert result["confidence"] == 0.0
+    assert result["suggested_products"] == []
+    assert "QUICKSIGN" not in str(result)
+
+
 def test_postgres_product_search_lists_matching_catalog_rows(monkeypatch):
     """list-style queries should return persisted product rows."""
     client = PostgresProductLookupClient("postgresql://unused")

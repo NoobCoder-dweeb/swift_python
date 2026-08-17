@@ -280,8 +280,8 @@ async def test_thread_context_lets_ai_resolve_omitted_product_in_follow_up():
     assert "20 units" in draft.ai_draft
 
 
-async def test_thread_context_does_not_overanswer_pricing_only_follow_up():
-    """pricing-only follow-ups should not volunteer stock or delivery prompts."""
+async def test_thread_context_uses_standard_quote_for_pricing_follow_up():
+    """quantity pricing follow-ups should use the grounded quote-summary contract."""
     current_reply = "Hi, would like to get pricing for 20 units."
     draft = await DraftService().generate_draft(
         EmailPayload(
@@ -301,9 +301,10 @@ async def test_thread_context_does_not_overanswer_pricing_only_follow_up():
     assert "total price for 20 units is RM 2400.00" in draft.ai_draft
     assert "20 x RM 120.00 = RM 2400.00" in draft.ai_draft
     assert "RM 120.00" in draft.ai_draft
-    assert "Current available stock" not in draft.ai_draft
-    assert "within the current available stock" not in draft.ai_draft
-    assert "requested delivery" not in draft.ai_draft
+    assert "Quote summary:" in draft.ai_draft
+    assert "Current available stock is 500 units." in draft.ai_draft
+    assert "within the current available stock" in draft.ai_draft
+    assert "Please confirm the missing details: requested delivery." in draft.ai_draft
 
 
 async def test_listing_follow_up_quotes_selected_product(monkeypatch):

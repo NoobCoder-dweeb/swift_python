@@ -9,6 +9,11 @@ _MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)]\((https?://[^)\s]+)\)")
 _SIGNATURE_RE = re.compile(
     r"(?im)^Best regards,\s*\nProject Swift Support\s*$"
 )
+_LITERAL_UNICODE_ESCAPE_RE = re.compile(r"\\u([0-9a-fA-F]{4})")
+_AGENT_INSTRUCTION_LEAK_RE = re.compile(
+    r"(?is)\n+(?:this is (?:the )?expected criteria for (?:your|the) final answer|"
+    r"expected output)\s*:.*\Z"
+)
 
 
 class _DraftTextExtractor(HTMLParser):
@@ -50,6 +55,10 @@ class _DraftTextExtractor(HTMLParser):
 def normalize_email_draft(value: str | None) -> str:
     """returns a clean plain-text email body for review, storage, and delivery."""
     text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = _LITERAL_UNICODE_ESCAPE_RE.sub(
+        lambda match: chr(int(match.group(1), 16)),
+        text,
+    )
     if _HTML_TAG_RE.search(text):
         parser = _DraftTextExtractor()
         parser.feed(text)
@@ -57,6 +66,7 @@ def normalize_email_draft(value: str | None) -> str:
         text = parser.text()
 
     text = _MARKDOWN_LINK_RE.sub(_plain_link, text)
+    text = _AGENT_INSTRUCTION_LEAK_RE.sub("", text)
     text = "\n".join(line.rstrip() for line in text.splitlines()).strip()
     text = re.sub(r"\n[ \t]*\n(?:[ \t]*\n)+", "\n\n", text)
     text = re.sub(

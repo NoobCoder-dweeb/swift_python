@@ -55,6 +55,79 @@ def test_sales_workflow_extracts_and_drafts_mixed_inquiry():
     assert result.token_usage["token_count_source"] == "estimated_slm_text"
 
 
+def test_quotation_follow_up_uses_database_grounded_standard_quote(monkeypatch):
+    """a quantity quotation must use one persisted product and the standard format."""
+
+    class StoredProductClient:
+        def get_product(self, query):
+            assert "QUICKSIGN Machinery Sign" in query
+            return {
+                "product": "QUICKSIGN Machinery Sign – ML004 Watch Your Hand & Finger",
+                "sku": "SW-MACHINERY-SIGNS-38426-808",
+                "source_url": (
+                    "https://safetyware.com/product/"
+                    "quicksign-machinery-sign-ml004-watch-your-hand-finger/"
+                ),
+                "stock_availability": 11,
+                "price": 19.16,
+                "currency": "RM",
+                "source": "postgres",
+                "confidence": 0.96,
+                "notes": ["Category: Machinery Signs", "Unit of measure: pack"],
+            }
+
+        def search_products(self, query, *, limit):
+            raise AssertionError("a quotation follow-up must not perform a list lookup")
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: StoredProductClient(),
+    )
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew._run_crewai_draft",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("standard database quotes must not be rewritten by CrewAI")
+        ),
+    )
+
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Re: inquire",
+            body=(
+                "Current customer reply to answer now: "
+                "Hi, I want to get a quotation on 5 units\n\n"
+                "Conversation history for resolving references in the current "
+                "customer reply.\n"
+                "Customer Customer email: inquire about your products\n"
+                "Company Approved response: The QUICKSIGN Machinery Sign – ML004 "
+                "Watch Your Hand & Finger is currently in stock with 11 units. "
+                "We also offer various products within our Machinery Signs category."
+            ),
+        ),
+        use_crewai=True,
+    )
+
+    assert result.execution_mode == "deterministic"
+    assert result.inquiry.inquiry_type == "pricing"
+    assert result.inquiry.quantity == 5
+    assert result.product_context.source == "postgres"
+    assert result.product_context.sku == "SW-MACHINERY-SIGNS-38426-808"
+    assert "The total price for 5 units is RM 95.80." in result.ai_draft
+    assert "- Price per unit: RM 19.16" in result.ai_draft
+    assert "- Total: RM 95.80" in result.ai_draft
+    assert "5 x RM 19.16 = RM 95.80" in result.ai_draft
+    assert "Current available stock is 11 units." in result.ai_draft
+    assert "requested quantity of 5 units appears" in result.ai_draft
+    assert "Please confirm the missing details: requested delivery." in result.ai_draft
+    assert "lead time" not in result.ai_draft.lower()
+    assert result.ai_draft.startswith("Hi,\n\n")
+    assert result.ai_draft.count("Best regards,") == 1
+    assert result.ai_draft.count("https://safetyware.com/product/") == 1
+    assert "additional options" not in result.ai_draft
+    assert result.validation.valid is True
+
+
 def test_llm_token_usage_normalizes_provider_shapes():
     """CrewAI/LLM provider usage is exposed with common report field names."""
     usage = _extract_token_usage(
@@ -137,6 +210,70 @@ def test_sales_workflow_regeneration_applies_requested_delivery_feedback():
     assert "Requested delivery preference: non-urgent delivery." in result.ai_draft
     assert "Please confirm the missing details: requested delivery" not in result.ai_draft
     assert result.validation.valid is True
+
+
+def test_rejected_helmet_quote_keeps_intent_and_uses_database_facts(monkeypatch):
+    """delivery feedback must not send a grounded quote back through CrewAI."""
+
+    class StoredProductClient:
+        def get_product(self, query):
+            assert "safety helmet" in query.lower()
+            return {
+                "product": "3M™ SecureFit™ Safety Helmet, X5003VE-CE, Blue, Vented, 1000V",
+                "sku": "SW-SPECIALTY-HELMETS-3531-842",
+                "source_url": (
+                    "https://safetyware.com/product/"
+                    "3m-securefit-safety-helmet-x5003ve-ce-blue-vented-1000v/"
+                ),
+                "stock_availability": 105,
+                "price": 118.05,
+                "currency": "RM",
+                "source": "postgres",
+                "confidence": 0.96,
+                "notes": ["Category: Specialty Helmets"],
+            }
+
+        def search_products(self, query, *, limit):
+            raise AssertionError("an exact product quote must not use list search")
+
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew.build_product_lookup_client",
+        lambda: StoredProductClient(),
+    )
+    monkeypatch.setattr(
+        "app.crews.sales_inquiry_crew._run_crewai_draft",
+        lambda **kwargs: (_ for _ in ()).throw(
+            AssertionError("a database-grounded quote must bypass CrewAI")
+        ),
+    )
+
+    result = run_sales_inquiry_workflow(
+        IncomingEmail(
+            sender="buyer@example.com",
+            subject="Inquire about Helmet",
+            body="Hi, want to inquire about 10 units of safety helmet",
+        ),
+        reviewer_feedback="requested delivery will be at most 5 days",
+        previous_draft="Rejected quotation draft.",
+        draft_id="DFT-A9AF1C86",
+        use_crewai=True,
+    )
+
+    assert result.execution_mode == "deterministic"
+    assert result.inquiry.inquiry_type == "mixed"
+    assert result.inquiry.requested_delivery == "at most 5 days"
+    assert result.product_context.source == "postgres"
+    assert result.product_context.sku == "SW-SPECIALTY-HELMETS-3531-842"
+    assert "The total price for 10 units is RM 1180.50." in result.ai_draft
+    assert "- Price per unit: RM 118.05" in result.ai_draft
+    assert "Current available stock is 105 units." in result.ai_draft
+    assert "Requested delivery preference: at most 5 days." in result.ai_draft
+    assert "missing details: requested delivery" not in result.ai_draft
+    assert "expected criteria" not in result.ai_draft.lower()
+    assert "\\u2122" not in result.ai_draft
+    assert result.ai_draft.count("References:") == 1
+    assert result.validation.valid is True
+    assert result.status == "pending"
 
 
 def test_crewai_regeneration_prompt_prioritizes_history_db_and_feedback():
@@ -732,6 +869,22 @@ def test_draft_validation_rejects_crewai_placeholders_and_unapproved_cost_claims
     assert "contains_signature_placeholder" in result.reasons
     assert "contains_subject_line" in result.reasons
     assert "contains_unapproved_commercial_claim" in result.reasons
+
+
+def test_draft_validation_rejects_agent_instruction_leak():
+    draft = (
+        "Hi,\n\nProduct X is available at RM 120.00 per unit. Current available "
+        "stock is 500 units.\n\nBest regards,\nProject Swift Support\n\n"
+        "This is the expected criteria for your final answer: concise email reply."
+    )
+
+    result = EmailDraftingAgent().validate_draft(
+        draft,
+        ProductContext(product="Product X", price=120.0, stock_availability=500),
+    )
+
+    assert result.valid is False
+    assert "contains_agent_instruction_leak" in result.reasons
 
 
 def test_draft_validation_rejects_invented_product_facts():

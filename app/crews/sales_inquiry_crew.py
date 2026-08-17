@@ -174,6 +174,14 @@ def run_sales_inquiry_workflow(
     feedback_inquiry_type = _current_reply_inquiry_type(reviewer_feedback or "")
     feedback_quantity = _feedback_quantity_override(reviewer_feedback or "")
     feedback_delivery = _feedback_delivery_override(reviewer_feedback or "")
+    if (
+        feedback_inquiry_type == "availability"
+        and inquiry.inquiry_type in {"pricing", "mixed"}
+        and feedback_delivery
+    ):
+        # Delivery feedback supplements a quotation; it must not demote the
+        # customer's original commercial request to an availability inquiry.
+        feedback_inquiry_type = None
     if feedback_inquiry_type or feedback_quantity or feedback_delivery:
         inquiry_type = feedback_inquiry_type or inquiry.inquiry_type
         quantity = feedback_quantity or inquiry.quantity
@@ -223,7 +231,21 @@ def run_sales_inquiry_workflow(
         preprocessed_changed=preprocessed.changed,
     )
 
-    if agent_backend == "external":
+    canonical_quote_inquiry = _canonical_quote_inquiry(
+        processor,
+        inquiry,
+        product_context,
+    )
+    if canonical_quote_inquiry is not None:
+        canonical_quote_context = product_context.model_copy(
+            update={"lead_time_days": None}
+        )
+        ai_draft = drafter.generate_response(
+            canonical_quote_inquiry,
+            canonical_quote_context,
+            reviewer_feedback=reviewer_feedback,
+        )
+    elif agent_backend == "external":
         external_result = _retry_agent_draft(
             "external",
             lambda: _run_external_agent_draft(
@@ -265,6 +287,7 @@ def run_sales_inquiry_workflow(
             reviewer_feedback=reviewer_feedback,
         )
 
+    ai_draft = normalize_email_draft(ai_draft)
     validation = drafter.validate_draft(
         ai_draft,
         product_context,
@@ -341,6 +364,7 @@ def run_sales_inquiry_workflow(
                 product_context,
                 reviewer_feedback=reviewer_feedback,
             )
+        ai_draft = normalize_email_draft(ai_draft)
         validation = drafter.validate_draft(
             ai_draft,
             product_context,
@@ -370,7 +394,7 @@ def run_sales_inquiry_workflow(
         product_context=product_context,
         ai_draft=ai_draft,
         validation=validation,
-        status="blocked" if validation.action == "reject" else "pending",
+        status="blocked" if not validation.valid else "pending",
         reviewer_feedback=reviewer_feedback,
         previous_ai_draft=previous_draft,
         execution_mode=execution_mode,
@@ -1048,6 +1072,7 @@ def _current_reply_inquiry_type(body: str) -> str | None:
             "price",
             "pricing",
             "quote",
+            "quotation",
             "cost",
             "rate",
             "how much",
@@ -1086,6 +1111,41 @@ def _current_reply_inquiry_type(body: str) -> str | None:
     return None
 
 
+def _canonical_quote_inquiry(
+    processor: SalesProcessingAgent,
+    inquiry: InquiryDetails,
+    product_context: ProductContext,
+) -> InquiryDetails | None:
+    """returns a database-grounded mixed inquiry for standard quantity quotes."""
+    if (
+        inquiry.inquiry_type not in {"pricing", "mixed"}
+        or inquiry.quantity is None
+        or inquiry.quantity <= 0
+        or not product_context.product
+        or product_context.price is None
+        or product_context.confidence < 0.5
+        or product_context.listed_products
+    ):
+        return None
+
+    if processor.product_client is not None and product_context.source != "postgres":
+        return None
+
+    inquiry_type = "mixed"
+    return inquiry.model_copy(
+        update={
+            "inquiry_type": inquiry_type,
+            "product_name": product_context.product,
+            "missing_information": processor._missing_information(
+                inquiry_type=inquiry_type,
+                product_name=product_context.product,
+                quantity=inquiry.quantity,
+                requested_delivery=inquiry.requested_delivery,
+            ),
+        }
+    )
+
+
 def _feedback_quantity_override(feedback: str) -> int | None:
     """
     Extract an explicit reviewer quantity correction for AI redrafting.
@@ -1117,8 +1177,8 @@ def _feedback_delivery_override(feedback: str) -> str | None:
     if not feedback:
         return None
     patterns = (
-        r"requested\s+delivery\s+(?:is|=|:)\s*[\"']?(?P<delivery>[^\"'.\n]+)",
-        r"delivery\s+(?:is|=|:)\s*[\"']?(?P<delivery>[^\"'.\n]+)",
+        r"requested\s+delivery\s+(?:is|will\s+be|=|:)\s*[\"']?(?P<delivery>[^\"'.\n]+)",
+        r"delivery\s+(?:is|will\s+be|=|:)\s*[\"']?(?P<delivery>[^\"'.\n]+)",
     )
     for pattern in patterns:
         match = re.search(pattern, feedback, re.IGNORECASE)

@@ -80,7 +80,7 @@ def test_external_agent_backend_accepts_valid_vendor_draft(monkeypatch):
         IncomingEmail(
             sender="buyer@example.com",
             subject="Product X quote and stock",
-            body="Please quote 40 units of Product X and confirm stock.",
+            body="Please provide the Product X price and confirm stock.",
         )
     )
 

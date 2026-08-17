@@ -56,7 +56,7 @@
                                 </div>
                                 <div class="thread-list">
                                     {% for item in d.thread_history %}
-                                    <article class="thread-item thread-item-{{ item.kind }}{% if item.is_current %} expanded{% endif %}">
+                                    <article class="thread-item thread-item-{{ item.kind }}{% if item.action == 'rejected' %} is-rejected{% endif %}{% if item.is_current %} expanded{% endif %}">
                                         <button class="thread-item-toggle" type="button" aria-expanded="{{ 'true' if item.is_current else 'false' }}">
                                             <span class="thread-item-title">{{ item.title }}</span>
                                             <span class="thread-item-meta">{{ item.meta }}{% if item.timestamp_display %} • {{ item.timestamp_display }}{% endif %}</span>

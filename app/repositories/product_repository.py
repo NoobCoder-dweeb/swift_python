@@ -30,6 +30,8 @@ _PRODUCT_STOP_WORDS = {
     "have",
     "how",
     "in",
+    "inquire",
+    "inquiry",
     "inventory",
     "is",
     "list",
@@ -41,7 +43,10 @@ _PRODUCT_STOP_WORDS = {
     "please",
     "price",
     "pricing",
+    "product",
+    "products",
     "quote",
+    "quotation",
     "rate",
     "request",
     "show",
@@ -52,6 +57,7 @@ _PRODUCT_STOP_WORDS = {
     "what",
     "with",
     "you",
+    "your",
 }
 
 _LOW_SIGNAL_SINGLE_TOKEN_MATCHES = {

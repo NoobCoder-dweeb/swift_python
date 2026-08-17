@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, HTTPException, Request
 from app.schemas.draft import DraftResponse, DraftUpdatePayload, EmailPayload
 from app.services.auth_service import require_sales_officer
@@ -77,7 +79,8 @@ async def reject_draft(draft_id: str, request: Request, reason: str = ""):
                 or payload.get("reason")
                 or rejection_reason
             )
-    return draft_service.reject_draft(
+    return await asyncio.to_thread(
+        draft_service.reject_draft,
         draft_id,
         rejection_reason,
         approver=officer.name,
